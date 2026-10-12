@@ -90,14 +90,18 @@ impl Checker<'_, '_> {
         let suggestion = if crate::check::suggested_lib_for(name).is_some() {
             None
         } else {
-            self.spelling_suggestion_for(location, name, SymbolFlags::NAMESPACE)
+            self.spelling_suggestion_with_declaration(location, name, SymbolFlags::NAMESPACE)
         };
         let diagnostic = match suggestion {
-            Some(suggestion) => Diagnostic::with_args(
-                &messages::CANNOT_FIND_NAMESPACE_0_DID_YOU_MEAN_1,
-                span,
-                [name.to_string(), suggestion],
-            ),
+            Some((suggestion, related)) => {
+                let mut diagnostic = Diagnostic::with_args(
+                    &messages::CANNOT_FIND_NAMESPACE_0_DID_YOU_MEAN_1,
+                    span,
+                    [name.to_string(), suggestion],
+                );
+                diagnostic.add_related_information(related);
+                diagnostic
+            }
             None => {
                 Diagnostic::with_args(&messages::CANNOT_FIND_NAMESPACE_0, span, [name.to_string()])
             }

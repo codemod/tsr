@@ -855,3 +855,26 @@ previous freeze: types +27 RIGHT / 0 lost / 0 missing, diagnostics +6 cases / 0 
 | `checker_types_configured` | 1,829 | 1,829 |
 | `diagnostics` | 5,046 | 5,052 |
 | `diagnostics_configured` | 1,016 | 1,016 |
+
+### Batch 47 — r7-calls `9092f916`, r7-contextual `9ea35bb4`, r7-declared `007e770e`, r7-flow `57d327e6`, r7-grammar `f576b775`, r7-printer `d827ab62`, r7-reports `22861482`, r7-shared `ff310002`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **10185 / 12797 EXACT (79.59%)**, 301 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +39 RIGHT / 0 lost / 0 missing, diagnostics +9 cases / 0 lost / 0 missing. jsTyping 122 → 122 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0001, domain-model 1.0011. No suite's failure count rose.
+
+| Suite | Before | Batch 47 |
+|---|---|---|
+| `checker_types` | 8,956 | 8,962 |
+| `checker_types_configured` | 1,829 | 1,829 |
+| `diagnostics` | 5,052 | 5,059 |
+| `diagnostics_configured` | 1,016 | 1,018 |
+
+**Batch 47 note (integration owner).** The loop's gate was OOM-killed four
+times in the exact-oracle leg. The memory logger the gate now carries
+(`mem.log`) showed TSR's serve worker growing past 4.5 GB on one case,
+compiler/recursiveConditionalCrash3. It was a plain TSR_TIMEOUT up to batch 46
+and allocates much faster with batch 47's merge set. The oracle leg runs on one
+worker under `ulimit -v 4500000`, so such a case reads TSR_FAILED instead of
+killing the orb. It was never EXACT, so this is not a parity loss, but it is a
+resource regression, routed to r7-perf to attribute and to port native's
+instantiation-depth/count limits.

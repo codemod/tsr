@@ -2820,7 +2820,23 @@ impl Checker<'_, '_> {
         if self.can_have_synthetic_default_for_usage(symbol, specifier) {
             return;
         }
-        let printed = self.binder.symbols().get(symbol).name.to_string();
+        // `symbolToString(moduleSymbol)`: an external or ambient module's
+        // symbol is named with its quotes upstream (`"/.src/server"`); this
+        // binder keeps the bare path (r7-grammar §47).
+        let record = self.binder.symbols().get(symbol);
+        let quoted =
+            record.declarations.iter().any(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::SourceFile(_)) => true,
+                Some(Node::ModuleDeclaration(module)) => {
+                    matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                }
+                _ => false,
+            });
+        let printed = if quoted && !record.name.starts_with('"') {
+            format!("\"{}\"", record.name)
+        } else {
+            record.name.to_string()
+        };
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
         self.report(
@@ -4590,17 +4606,18 @@ impl Checker<'_, '_> {
         // precisely because a near neighbour makes TS2304 a wrong code at a
         // right position; with the algorithm already exact, reporting the code
         // it selects costs one message and converts its own row.
-        if let Some(suggestion) =
-            self.spelling_suggestion_for(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
-        {
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
-                    span,
-                    [text.to_string(), suggestion],
-                ),
+        if let Some((suggestion, related)) = self.spelling_suggestion_with_declaration(
+            node,
+            text,
+            SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+        ) {
+            let mut diagnostic = Diagnostic::with_args(
+                &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
+                span,
+                [text.to_string(), suggestion],
             );
+            diagnostic.add_related_information(related);
+            self.report(file, diagnostic);
             return;
         }
         // `getCannotFindNameDiagnosticForName`'s remaining rows, which are
@@ -5134,15 +5151,16 @@ impl Checker<'_, '_> {
             return;
         }
         // The suggestion arm at `resolveTypeReferenceName`'s meaning, `Type`.
-        if let Some(suggestion) = self.spelling_suggestion_for(node, text, SymbolFlags::TYPE) {
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
-                    span,
-                    [text.to_string(), suggestion],
-                ),
+        if let Some((suggestion, related)) =
+            self.spelling_suggestion_with_declaration(node, text, SymbolFlags::TYPE)
+        {
+            let mut diagnostic = Diagnostic::with_args(
+                &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
+                span,
+                [text.to_string(), suggestion],
             );
+            diagnostic.add_related_information(related);
+            self.report(file, diagnostic);
             return;
         }
         // The same fallback as the value site — upstream reaches the table from
@@ -6323,9 +6341,7 @@ impl Checker<'_, '_> {
             {
                 return;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            let span = self.error_span(node);
-            self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+            self.report_used_before_declaration(node, declaration, message, text);
             return;
         }
         // §83's class arm keeps its `extends` bound exactly as measured; the
@@ -6374,9 +6390,30 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        self.report_used_before_declaration(node, declaration, message, text);
+    }
+
+    /// TS2448/TS2449/TS2450 at the use, with `'{0}' is declared here.` at the
+    /// declaration (`checkResolvedBlockScopedVariable`, `checker.go:1918`:
+    /// `diagnostic.AddRelatedInfo(createDiagnosticForNode(declaration, …))`),
+    /// r7-grammar §46.
+    fn report_used_before_declaration(
+        &mut self,
+        node: NodeId,
+        declaration: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        text: &str,
+    ) {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        let mut diagnostic = Diagnostic::with_args(message, span, [text.to_string()]);
+        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+            declaration,
+            &messages::_0_IS_DECLARED_HERE,
+            self.error_span(declaration),
+            vec![text.to_string()],
+        )));
+        self.report(file, diagnostic);
     }
 
     /// The member a property access names, when its receiver resolves to a
@@ -9547,7 +9584,8 @@ impl Checker<'_, '_> {
             {
                 return;
             }
-            let printed = self.printed_entity_name(left).unwrap_or_default();
+            // `getFullyQualifiedName(namespace)`, not the name as written.
+            let printed = self.fully_qualified_name(namespace);
             if let Some(file) = self.source_file_of_for_diagnostics(right) {
                 let span = self.nodes.span(right);
                 self.report(
@@ -9594,13 +9632,17 @@ impl Checker<'_, '_> {
         // `resolveAlias(namespace)` — upstream's own call, and the one §185
         // omitted.
         let namespace = self.binder.merged_symbol(namespace);
-        let namespace = if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
-        {
-            let Some(target) = self.resolve_alias(namespace) else { return };
-            self.binder.merged_symbol(target)
-        } else {
-            namespace
-        };
+        // `resolveEntityName`'s tail: `symbol.Flags&meaning != 0 ? symbol :
+        // resolveAlias(symbol)`. An alias merged with a namespace already has
+        // the namespace meaning and is not resolved (r7-grammar §48).
+        let flags = self.binder.symbols().get(namespace).flags;
+        let namespace =
+            if flags.intersects(SymbolFlags::ALIAS) && !flags.intersects(SymbolFlags::NAMESPACE) {
+                let Some(target) = self.resolve_alias(namespace) else { return };
+                self.binder.merged_symbol(target)
+            } else {
+                namespace
+            };
         // A namespace whose exports this port never filled cannot be asked
         // whether a member is missing — the answer would be "all of them".
         // **An empty table can be declined; a partial one cannot** (§186), and
@@ -9685,6 +9727,9 @@ impl Checker<'_, '_> {
         // The distance function is `spelling_suggestion`, already ported from
         // `core.getSpellingSuggestion` — it takes a candidate list, so scoping
         // it to one symbol's exports is the whole of upstream's variant.
+        // `getFullyQualifiedName(namespace)` names the resolved namespace in
+        // both messages (r7-grammar §48).
+        let namespace_name = self.fully_qualified_name(namespace);
         let candidates: Vec<&str> =
             self.binder.symbols().get(namespace).exports.keys().copied().collect();
         if let Some(suggestion) = spelling_suggestion(&member, &candidates) {
@@ -10189,21 +10234,6 @@ impl Checker<'_, '_> {
             return Some(self.binder.merged_symbol(target));
         }
         Some(symbol)
-    }
-
-    /// The printed form of an entity name — `A.B` for a qualified one. §556.
-    fn printed_entity_name(&self, node: NodeId) -> Option<String> {
-        match self.node_map.get(node)? {
-            Node::Identifier(_) => self.identifier_text(node).map(str::to_string),
-            Node::QualifiedName(qualified) => {
-                let left = qualified.left.and_then(|left| left.node_id())?;
-                let right = qualified.right.and_then(|right| right.node_id)?;
-                let left = self.printed_entity_name(left)?;
-                let right = self.identifier_text(right)?;
-                Some(format!("{left}.{right}"))
-            }
-            _ => None,
-        }
     }
 
     /// Did the binder walk a body for this namespace symbol? The test that lets
@@ -13225,20 +13255,18 @@ impl Checker<'_, '_> {
         // `IsPartOfParameterDeclaration` — the walk out of nested patterns ends
         // at a parameter — and `NodeIsMissing(GetContainingFunction(node).Body())`.
         let mut at = self.nodes.parent(node);
-        let mut in_parameter = false;
+        let mut parameter = None;
         while let Some(current) = at {
             match self.nodes.kind(current) {
                 SyntaxKind::BindingElement
                 | SyntaxKind::ObjectBindingPattern
                 | SyntaxKind::ArrayBindingPattern => {}
-                SyntaxKind::Parameter => in_parameter = true,
+                SyntaxKind::Parameter => parameter = Some(current),
                 _ => break,
             }
             at = self.nodes.parent(current);
         }
-        if !in_parameter {
-            return;
-        }
+        let Some(parameter) = parameter else { return };
         let Some(function) = at else { return };
         if !self.is_function_like_or_static_block(function) {
             return;
@@ -13265,19 +13293,37 @@ impl Checker<'_, '_> {
             return;
         }
         let span = self.nodes.span(name_id);
+        // `scanner.DeclarationNameToString(node.PropertyName())`: the name as
+        // written, so `"a"`, `["a"]` and `[sym]` keep their spelling.
         let original = property_name
             .node_id()
-            .and_then(|id| self.identifier_text(id))
-            .unwrap_or_default()
-            .to_string();
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::_0_IS_AN_UNUSED_RENAMING_OF_1_DID_YOU_INTEND_TO_USE_IT_AS_A_TYPE_ANNOTATION,
-                span,
-                [renamed, original],
-            ),
+            .and_then(|id| {
+                self.declaration_name_source_text(id)
+                    .or_else(|| self.identifier_text(id).map(str::to_string))
+            })
+            .unwrap_or_default();
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::_0_IS_AN_UNUSED_RENAMING_OF_1_DID_YOU_INTEND_TO_USE_IT_AS_A_TYPE_ANNOTATION,
+            span,
+            [renamed, original.clone()],
         );
+        // `checkUnusedRenamedBindingElements` (`checker.go`): a parameter with
+        // no annotation gets `We can only write a type for '{0}' by adding a
+        // type for the entire parameter here.` at its end (r7-grammar §44).
+        let annotated = matches!(
+            self.node_map.get(parameter),
+            Some(Node::ParameterDeclaration(declaration)) if declaration.r#type.is_some()
+        );
+        if !annotated {
+            let end = self.nodes.span(parameter).end;
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                parameter,
+                &messages::WE_CAN_ONLY_WRITE_A_TYPE_FOR_0_BY_ADDING_A_TYPE_FOR_THE_ENTIRE_PARAMETER_HERE,
+                tsr_core::Span::at(end),
+                vec![original],
+            )));
+        }
+        self.report(file, diagnostic);
     }
 
     /// Does this subtree mention `text` as an identifier, other than at

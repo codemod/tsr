@@ -1311,3 +1311,123 @@ So when the full pass is Unknown, `shared_members_related_to` answers it.
 `identicalTypesNoDifferByCheckOrder` and `reactDefaultPropsInferenceSuccess`
 RIGHT, one more line of `excessPropertyCheckIntersectionWithRecursiveType`,
 0 lost, types unchanged.
+
+## 35. A name written twice in an object literal: the last occurrence is the member
+
+**Forcing lines.** `lastPropertyInLiteralWins` (8,5)(9,5). In `test({
+thunk: (str: string) => {}, thunk: (num: number) => {} })` the literal's
+member is the last `thunk`. `elaborateObjectLiteral` relates that one
+member at every written occurrence and reports TS2322 at both (the first
+occurrence through `checkExpressionForMutableLocationWithContextualType`'s
+fallback to the member type).
+
+**Port** (`assignreport.rs`).
+- `check_excess_properties`' elaboration pass related only the first
+  occurrence, with its own value.
+- `elaborate_object_literal` read the member type from this port's literal
+  type, which for a duplicated name is not the last occurrence's (it
+  prints `(str: string) => error`; the producer is `objects.rs`).
+
+Both now take the last occurrence's value type for a duplicated name and
+relate it at each occurrence.
+
+**Measured** (diagnostics and types, unfiltered, the change alone): in the
+already-WRONG case (8,5)(9,5) are fixed and (14,5)'s extra TS2322 is gone.
+The second call still fails, now as (12,6) TS2345 instead: its literal
+type's member is the producer's broken `(str: string) => error`. No other
+case moved, and types are unchanged. **What would finish it:** the
+literal's own member type taking the last declaration (objects.rs,
+reported).
+
+## 36. The relation error chain, retraced over decided answers
+
+**Forcing class.** The exact oracle's largest relater/assignreport classes
+are `diag:chain`: TSR printed the head (`Type 'S' is not assignable to type
+'T'.`) with no chain under it. Native re-runs the failed relation with
+`reportErrors` (`checkTypeRelatedToEx`, `relater.go:359`), and every arm on
+the failing path pushes its message onto `errorChain`. The chain becomes the
+diagnostic's message chain, with every level carrying the error node's file
+and location (`createDiagnosticChainFromErrorChain`).
+
+**Why not in the relater.** This port's relater is three-valued and keeps
+no error state. Threading a chain through it would touch every arm, and the
+Unknown answers would still have to keep a chain from being reported. The
+chain is instead retraced afterwards, in `assignreport.rs`, from decided
+`relate_ternary` answers. Each step mirrors the native arm it names, and a
+step that cannot pin its failing member abandons the whole chain, so a
+guessed or partial chain is never printed.
+
+**Arms covered** (`explain_relation`):
+- **Union source** (`eachTypeRelatedToType`). The first constituent that
+  fails, in union order. A primitive union (`boolean`, an enum) is related
+  with `reportErrors` off (`relater.go:2873`), so it reports nothing. The
+  first draft missed this and lost 10 exact cases (`for-of47`'s doubled
+  `Type 'boolean' …`).
+- **Primitive source.** Nothing below the relation error. Against a union,
+  `typeRelatedToSomeType` elaborates only through `getBestMatchingType`, and
+  `findMostOverlappyType` skips a primitive.
+- **Array references.** The covariant element (`typeArgumentsRelatedTo`).
+- **Plain objects** (`propertiesRelatedTo`, then `signaturesRelatedTo(Call)`):
+  - the first missing required property (`reportUnmatchedProperty`'s
+    message, from `unmatched_property_report`);
+  - else the first target member, in declaration order, whose types fail
+    (`Types of property 'p' are incompatible.`), declining a private or
+    protected member;
+  - else a call signature: none in the source gives `Type 'S' provides no
+    match for the signature …`, and one against one goes to
+    `compareSignaturesRelated`. That covers the first failing parameter
+    (`Types of parameters 'a' and 'b' are incompatible.`, related in
+    reverse under strict variance) and else the return types, with the
+    elided return-type marker pushed for the reductions below.
+- **`reportError`'s reductions.** An excess-property message suppresses
+  `Types of property`. A return marker turns it into `The types returned by
+  'x(...)' are incompatible between these types.` Two property messages
+  become `The types of 'x.y' are incompatible between these types.`
+  (`addToDottedName`).
+- **`reportRelationError` per level.** The display generalization, TS2719,
+  the exactOptional variant and TS2820. A missing-property or excess message
+  below it for the same pair suppresses it. A type-parameter or
+  indexed-access target declines the chain (its explanations are not yet
+  retraced).
+
+Chain children built anywhere in `report_relation_head` now take the head's
+file (`attach_chain_file`). The missing-property and signature chains it
+already built were printed without one.
+
+**Measured** (exact oracle, unfiltered, batch 45 base): 9813 → 9932 exact
+(+119), 0 lost.
+
+**Falsifier.** A retraced chain that names a different member or
+constituent than native's: an exact loss in a case whose head was already
+right.
+
+## 37. More of the chain: construct and index signatures, privacy, best match, type parameters
+
+Arms added to §36's retracing, each checked against pinned tsgo first:
+- **Construct signatures** after call signatures (`signaturesRelatedTo`'s
+  kind order). `Type 'S' provides no match for the signature '…'` prints
+  `signatureToString`'s declaration form `(a: T): R`; this port's printer
+  writes the arrow form, so it is converted after the parameter list.
+- **`indexSignaturesRelatedTo`.** A target index signature with no
+  applicable source signature, on a class or interface instance (no
+  inferable index): `Index signature for type 'K' is missing in type 'S'.`
+- **`propertyRelatedTo`'s private arm.** `Property 'p' is private in type
+  'A' but not in type 'B'.`, or `Types have separate declarations of a
+  private property 'p'.` when both sides are private with different
+  declarations. The protected arms still decline.
+- **Union target** (`typeRelatedToSomeType`). Only `getBestMatchingType`'s
+  pick is elaborated, in native order: `findMatchingDiscriminantType`, a
+  same-target reference, `findBestTypeForObjectLiteral`, invokables, then
+  `findMostOverlappyType` (last non-primitive with the most shared literal
+  keys). No pick means no elaboration.
+- **Intersection source** against a plain object: its constituents failed
+  silently, and the structural pass over the combined members reports.
+- **Type-parameter target** (`reportRelationError`, `relater.go:4768`). The
+  constraint explanation (TS5075) is pushed before the relation error, or
+  TS5082 after dropping the chain below ("only report this error once").
+- **Nullable stripping.** A definitely non-nullable source against `null |
+  undefined | X` relates to `X`, and that is the pair the chain names. This
+  is what lets `foo.bar` merge through a `{ … } | undefined` property.
+
+**Measured** (exact oracle, unfiltered, batch 45 base): 9813 → 9975 (+162
+including §36's +119), 0 lost.

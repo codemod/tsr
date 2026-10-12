@@ -715,4 +715,38 @@ impl Checker<'_, '_> {
                 if assignment.expression.and_then(|e| e.node_id()) == Some(current)
         )
     }
+
+    /// `getFullyQualifiedName(symbol, nil)` (`checker.go:14888`): the
+    /// symbol's name, prefixed by its parents' fully qualified names. An
+    /// external or ambient module is named with its quotes upstream
+    /// (`"/.src/file"`); this binder keeps the bare path, so those parts are
+    /// quoted here (r7-grammar §48).
+    pub(crate) fn fully_qualified_name(&self, symbol: tsr_binder::SymbolId) -> String {
+        let mut parts = Vec::new();
+        let mut current = Some(symbol);
+        let mut hops = 0;
+        while let Some(at) = current
+            && hops < 32
+        {
+            let record = self.binder.symbols().get(at);
+            let quoted = record.declarations.iter().any(|&declaration| {
+                match self.node_map.get(declaration) {
+                    Some(tsr_ast::Node::SourceFile(_)) => true,
+                    Some(tsr_ast::Node::ModuleDeclaration(module)) => {
+                        matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                    }
+                    _ => false,
+                }
+            });
+            parts.push(if quoted && !record.name.starts_with('"') {
+                format!("\"{}\"", record.name)
+            } else {
+                record.name.to_string()
+            });
+            current = record.parent;
+            hops += 1;
+        }
+        parts.reverse();
+        parts.join(".")
+    }
 }

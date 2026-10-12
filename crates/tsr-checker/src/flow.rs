@@ -3704,7 +3704,7 @@ impl Checker<'_, '_> {
     /// inside the walk cannot re-enter the walk. `this` answers
     /// [`Checker::get_explicit_this_type`]. `with`
     /// statements decline.
-    fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
+    pub(crate) fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
         self.get_type_of_dotted_name_in(node, &mut Vec::new())
     }
 

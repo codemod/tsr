@@ -1747,13 +1747,26 @@ impl<'a> Checker<'a, '_> {
         // `id` of `var anObjectLiteral: I = { id: 'a string' }` — the
         // property *name*, not the value and not the declaration.
         let before = self.diagnostics.len();
+        let mut seen_names: Vec<&str> = Vec::new();
         for &name in &names {
-            if known.iter().any(|(seen, _)| seen == name)
+            if !(known.iter().any(|(seen, _)| seen == name)
                 || self.get_type_of_property_of_type(target, name).is_some()
-                || indexed && self.applicable_index_value(target, name).is_some()
+                || indexed && self.applicable_index_value(target, name).is_some())
             {
-                self.check_object_literal_member(literal, target, name);
+                continue;
             }
+            if names.iter().filter(|&&other| other == name).count() > 1 {
+                // A name written twice: the literal's member is the last
+                // occurrence's (last wins), and `elaborateObjectLiteral`
+                // relates that one member at every occurrence
+                // (`lastPropertyInLiteralWins`; r7-reports §35).
+                if !seen_names.contains(&name) {
+                    seen_names.push(name);
+                    self.check_duplicated_object_literal_member(literal, target, name);
+                }
+                continue;
+            }
+            self.check_object_literal_member(literal, target, name);
         }
         if self.diagnostics.len() != before {
             return;
@@ -1826,6 +1839,73 @@ impl<'a> Checker<'a, '_> {
     fn applicable_index_value(&mut self, target: TypeId, name: &str) -> Option<TypeId> {
         let key = self.property_name_key_type(name);
         self.get_applicable_index_info(target, key).map(|info| info.value)
+    }
+
+    /// The initializer of the last property assignment named `name`.
+    fn last_object_literal_member_value(
+        &self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        name: &str,
+    ) -> Option<NodeId> {
+        literal.properties.iter().rev().find_map(|property| {
+            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
+                return None;
+            };
+            let id = assignment.name.node_id()?;
+            let text = match self.node_map.get(id) {
+                Some(Node::Identifier(identifier)) => identifier.text,
+                Some(Node::StringLiteral(literal)) => literal.text,
+                _ => return None,
+            };
+            (text == name)
+                .then(|| assignment.initializer.and_then(|value| value.node_id()))
+                .flatten()
+        })
+    }
+
+    /// [`Checker::check_object_literal_member`] for a name the literal writes
+    /// more than once: every occurrence is related with the last
+    /// occurrence's value type, the literal's member, and reported at its
+    /// own name with its own initializer elaborated.
+    fn check_duplicated_object_literal_member(
+        &mut self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        target: TypeId,
+        name: &str,
+    ) {
+        let mut occurrences = Vec::new();
+        for property in literal.properties {
+            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
+                continue;
+            };
+            let Some(id) = assignment.name.node_id() else { continue };
+            let text = match self.node_map.get(id) {
+                Some(Node::Identifier(identifier)) => identifier.text,
+                Some(Node::StringLiteral(literal)) => literal.text,
+                _ => continue,
+            };
+            if text != name {
+                continue;
+            }
+            let Some(value) = assignment.initializer.and_then(|value| value.node_id()) else {
+                return;
+            };
+            occurrences.push((id, value));
+        }
+        let Some(last) = self.last_object_literal_member_value(literal, name) else { return };
+        if occurrences.is_empty() {
+            return;
+        }
+        let Some(member) = self
+            .get_type_of_property_of_type(target, name)
+            .or_else(|| self.applicable_index_value(target, name))
+        else {
+            return;
+        };
+        let source = self.check_expression_at_node(last);
+        for (at, value) in occurrences {
+            self.report_assignability_failure(at, value, source, member);
+        }
     }
 
     /// The initialiser node of the literal's property called `name`.
@@ -2628,6 +2708,13 @@ impl<'a> Checker<'a, '_> {
             }
             return true;
         }
+        // checkTypeRelatedToEx's error chain under the head, retraced where
+        // every step is decided (r7-reports §36).
+        let chain = if not_related && signature_error.is_none() {
+            self.relation_failure_chain(at, span, source, normalized)
+        } else {
+            None
+        };
         self.report_relation_head(
             at,
             file,
@@ -2636,7 +2723,7 @@ impl<'a> Checker<'a, '_> {
             display_target,
             head,
             signature_error,
-            None,
+            chain,
         );
         true
     }
@@ -2709,6 +2796,7 @@ impl<'a> Checker<'a, '_> {
                 diagnostic.add_message_chain(Some(signature_error));
             }
             diagnostic.add_message_chain(chain);
+            self.attach_chain_file(at, span, &mut diagnostic);
             self.report(file, diagnostic);
             return;
         }
@@ -2719,7 +2807,40 @@ impl<'a> Checker<'a, '_> {
             diagnostic.add_message_chain(Some(signature_error));
         }
         diagnostic.add_message_chain(chain);
+        self.attach_chain_file(at, span, &mut diagnostic);
         self.report(file, diagnostic);
+    }
+
+    /// `NewDiagnosticChain` gives every chain level the error node's file
+    /// (`createDiagnosticChainFromErrorChain`); a chain child built here
+    /// without one takes the head's (r7-reports §36).
+    fn attach_chain_file(&self, at: NodeId, span: tsr_core::Span, diagnostic: &mut Diagnostic) {
+        if diagnostic.message_chain().is_empty() {
+            return;
+        }
+        let Some(file) = self
+            .related_diagnostic_at(at, diagnostic.message, span, Vec::new())
+            .file()
+            .map(|file| std::sync::Arc::new(file.clone()))
+        else {
+            return;
+        };
+        #[allow(clippy::items_after_statements)]
+        fn deep(
+            child: &Diagnostic,
+            file: &std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>,
+        ) -> Diagnostic {
+            let mut copy = child.clone();
+            if copy.file().is_none() {
+                copy.set_file(file.clone());
+            }
+            let children =
+                child.message_chain().iter().map(|grandchild| deep(grandchild, file)).collect();
+            copy.set_message_chain(children);
+            copy
+        }
+        let children = diagnostic.message_chain().iter().map(|child| deep(child, &file)).collect();
+        diagnostic.set_message_chain(children);
     }
 
     /// `getSuggestedTypeForNonexistentStringLiteralType` (`checker.go:27252`):
@@ -3546,11 +3667,21 @@ impl<'a> Checker<'a, '_> {
             members.push((name_id, next, name, target_property_type, head));
         }
         let mut reported = false;
+        let written: Vec<String> = members.iter().map(|(_, _, name, _, _)| name.clone()).collect();
         for (name_id, next, name, target_property_type, head) in members {
             // `getIndexedAccessTypeOrUndefined(source, nameType, …)` reads the
             // completed source member, including mutable-location widening.
-            let Some(source_property_type) = self.get_type_of_property_of_type(source, &name)
-            else {
+            // A name written twice is the last occurrence's member, which
+            // this port's literal member type does not yet read (r7-reports
+            // §35).
+            let duplicated = written.iter().filter(|&other| *other == name).count() > 1;
+            let source_property_type = if duplicated {
+                self.last_object_literal_member_value(literal, &name)
+                    .map(|value| self.check_expression_at_node(value))
+            } else {
+                self.get_type_of_property_of_type(source, &name)
+            };
+            let Some(source_property_type) = source_property_type else {
                 continue;
             };
             reported |= self.elaborate_element_with(
@@ -4992,3 +5123,799 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 /// lists them. Deleting the code would make the refusal unrevisitable, which is
 /// the one thing `docs/conventions.md` forbids about a refusal.
 const REPORT_MISSING_REQUIRED_PROPERTY: bool = true;
+
+/// One `ErrorChain` entry (`relater.go`): a message and its arguments, as
+/// `reportError` pushes them.
+#[derive(Clone)]
+struct ChainEntry {
+    message: &'static tsr_diagnostics::Message,
+    args: Vec<String>,
+}
+
+/// The four return-type markers `compareSignaturesRelated` reports only to
+/// steer `reportError`'s chain reduction; `ElidedInCompatibilityPyramid`
+/// drops them from the final diagnostic.
+fn is_return_marker(message: &'static tsr_diagnostics::Message) -> bool {
+    [
+        &messages::CALL_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE,
+        &messages::CONSTRUCT_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE,
+        &messages::CALL_SIGNATURES_WITH_NO_ARGUMENTS_HAVE_INCOMPATIBLE_RETURN_TYPES_0_AND_1,
+        &messages::CONSTRUCT_SIGNATURES_WITH_NO_ARGUMENTS_HAVE_INCOMPATIBLE_RETURN_TYPES_0_AND_1,
+    ]
+    .iter()
+    .any(|marker| marker.code() == message.code())
+}
+
+fn is_excess_property_message(message: &'static tsr_diagnostics::Message) -> bool {
+    std::ptr::eq(message, &raw const messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1)
+        || std::ptr::eq(message, &raw const messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_BUT_0_DOES_NOT_EXIST_IN_TYPE_1_DID_YOU_MEAN_TO_WRITE_2,
+        )
+}
+
+/// `getPropertyNameArg` (`relater.go:4926`).
+fn property_name_arg(name: &str) -> String {
+    if name.starts_with(['"', '\'', '`']) { format!("[{name}]") } else { name.to_owned() }
+}
+
+/// `addToDottedName` (`relater.go:4879`).
+fn add_to_dotted_name(head: &str, tail: &str) -> String {
+    let head = if head.starts_with("new ") { format!("({head})") } else { head.to_owned() };
+    let mut pos = 0;
+    loop {
+        if tail[pos..].starts_with('(') {
+            pos += 1;
+        } else if tail[pos..].starts_with("new ") {
+            pos += 4;
+        } else {
+            break;
+        }
+    }
+    let (prefix, suffix) = tail.split_at(pos);
+    if suffix.starts_with('[') {
+        format!("{prefix}{head}{suffix}")
+    } else {
+        format!("{prefix}{head}.{suffix}")
+    }
+}
+
+/// The relation error chain: `checkTypeRelatedToEx` re-runs a failed relation
+/// with `reportErrors`, and every arm on the failing path pushes its message
+/// onto `errorChain`; the outermost push is the head (r7-reports §36).
+///
+/// This port's relater keeps no chain, so the failing path is retraced here
+/// over decided answers only (`relate_ternary`). Each arm mirrors the native
+/// arm it names; any step whose failing member, constituent or signature
+/// this port cannot pin down abandons the whole chain, so a partial or
+/// guessed chain is never reported.
+impl Checker<'_, '_> {
+    /// The chain under the head for a decided `source -> target` failure,
+    /// outermost first, or `None` where it cannot be retraced.
+    pub(crate) fn relation_failure_chain(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Diagnostic> {
+        let mut stack: Vec<ChainEntry> = Vec::new();
+        self.explain_relation(&mut stack, source, target, 0)?;
+        let entries: Vec<ChainEntry> =
+            stack.into_iter().rev().filter(|entry| !is_return_marker(entry.message)).collect();
+        if entries.is_empty() {
+            return None;
+        }
+        // `NewDiagnosticChain` carries the innermost diagnostic's file and
+        // location, the error node's, to every level.
+        let file = self
+            .related_diagnostic_at(at, entries[0].message, span, Vec::new())
+            .file()
+            .map(|file| std::sync::Arc::new(file.clone()));
+        let mut chain: Option<Diagnostic> = None;
+        for entry in entries.into_iter().rev() {
+            let mut diagnostic = Diagnostic::with_args(entry.message, span, entry.args);
+            if let Some(file) = &file {
+                diagnostic.set_file(file.clone());
+            }
+            diagnostic.add_message_chain(chain);
+            chain = Some(diagnostic);
+        }
+        chain
+    }
+
+    /// `reportRelationError` (`relater.go:4751`) for an inner pair, with the
+    /// suppressions keyed on the message below it. `None` where its text is
+    /// not this port's to choose (a type-parameter target's explanations).
+    fn chain_report_relation_error(
+        &mut self,
+        stack: &mut Vec<ChainEntry>,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<()> {
+        let target_flags = self.type_of(target).flags;
+        if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
+            return None;
+        }
+        let displayed_source = self.assignability_source_for_error_display(source, target);
+        let mut source_text = self.type_to_string(displayed_source);
+        let mut target_text = self.type_to_string(target);
+        // The type-parameter target's explanation, pushed before the
+        // relation error (`relater.go:4768`).
+        if target_flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !self.variance_marker_types.contains(&target)
+        {
+            let constraint = self.base_constraint_of_type(target);
+            let assignable = constraint.and_then(|constraint| {
+                if self.is_type_assignable_to(displayed_source, constraint) {
+                    Some((displayed_source, constraint))
+                } else if self.is_type_assignable_to(source, constraint) {
+                    Some((source, constraint))
+                } else {
+                    None
+                }
+            });
+            if let Some((assignable_source, constraint)) = assignable {
+                let assignable_text = self.type_to_string(assignable_source);
+                let constraint_text = self.type_to_string(constraint);
+                stack.push(ChainEntry {
+                    message: &messages::_0_IS_ASSIGNABLE_TO_THE_CONSTRAINT_OF_TYPE_1_BUT_1_COULD_BE_INSTANTIATED_WITH_A_DIFFERENT_SUBTYPE_OF_CONSTRAINT_2,
+                    args: vec![assignable_text, target_text.clone(), constraint_text],
+                });
+            } else {
+                // "Only report this error once": the chain below is dropped.
+                stack.clear();
+                stack.push(ChainEntry {
+                    message: &messages::_0_COULD_BE_INSTANTIATED_WITH_AN_ARBITRARY_TYPE_WHICH_COULD_BE_UNRELATED_TO_1,
+                    args: vec![target_text.clone(), source_text.clone()],
+                });
+            }
+        }
+        let mut same_name = false;
+        if self.type_to_string(source) == target_text {
+            let qualified_source = self.type_name_for_error_display(source);
+            let qualified_target = self.type_name_for_error_display(target);
+            same_name = qualified_source == qualified_target;
+            if displayed_source == source {
+                source_text = qualified_source;
+            }
+            target_text = qualified_target;
+        }
+        let message = if same_name {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_TWO_DIFFERENT_TYPES_WITH_THIS_NAME_EXIST_BUT_THEY_ARE_UNRELATED
+        } else if self.exact_optional_object_mismatch(source, target) {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPES_OF_THE_TARGET_S_PROPERTIES
+        } else {
+            if let Some(suggestion) =
+                self.suggested_type_for_nonexistent_string_literal_type(source, target)
+            {
+                let suggestion = self.type_to_string(suggestion);
+                stack.push(ChainEntry {
+                    message: &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_DID_YOU_MEAN_2,
+                    args: vec![source_text, target_text, suggestion],
+                });
+                return Some(());
+            }
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1
+        };
+        if let Some(top) = stack.last() {
+            if is_excess_property_message(top.message) {
+                return Some(());
+            }
+            if std::ptr::eq(
+                top.message,
+                &raw const messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
+            ) && top.args.get(1) == Some(&source_text)
+                && top.args.get(2) == Some(&target_text)
+            {
+                return Some(());
+            }
+            if (std::ptr::eq(top.message, &raw const messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE)
+                || std::ptr::eq(top.message, &raw const messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2))
+                && top.args.first() == Some(&source_text)
+                && top.args.get(1) == Some(&target_text)
+            {
+                return Some(());
+            }
+        }
+        stack.push(ChainEntry { message, args: vec![source_text, target_text] });
+        Some(())
+    }
+
+    /// `isRelatedTo` with `reportErrors` for a decided failure: the failing
+    /// arm's chain, then `reportErrorResults`' relation error for the pair.
+    fn explain_pair(
+        &mut self,
+        stack: &mut Vec<ChainEntry>,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<()> {
+        let target = self.chain_normalized_target(source, target);
+        self.explain_relation(stack, source, target, depth + 1)?;
+        self.chain_report_relation_error(stack, source, target)
+    }
+
+    /// `isRelatedTo`'s nullable stripping (`relater.go`): a definitely
+    /// non-nullable source against `null | undefined | X` is related to `X`,
+    /// and `reportErrorResults` names `X` unless the union has an alias
+    /// (which prints without a `|`).
+    fn chain_normalized_target(&mut self, source: TypeId, target: TypeId) -> TypeId {
+        match self.non_nullable_union_candidate(source, target) {
+            Some(candidate) if self.type_to_string(target).contains(" | ") => candidate,
+            _ => target,
+        }
+    }
+
+    fn chain_relate(&mut self, source: TypeId, target: TypeId) -> crate::relater::Ternary {
+        self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+    }
+
+    /// The failing arm of `structuredTypeRelatedTo` for a decided failure,
+    /// without the pair's own relation error.
+    fn explain_relation(
+        &mut self,
+        stack: &mut Vec<ChainEntry>,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        if depth > 12 || self.is_gap(source) || self.is_gap(target) {
+            return None;
+        }
+        let target = self.chain_normalized_target(source, target);
+        let source_flags = self.type_of(source).flags;
+        let target_flags = self.type_of(target).flags;
+        // `eachTypeRelatedToType`: the first source constituent that fails
+        // (constituents in union order). A primitive union (`boolean`, an
+        // enum) is related with `reportErrors` off (`relater.go:2873`).
+        if let TypeData::Union { types, .. } = self.type_of(source).data.clone() {
+            if source_flags.intersects(TypeFlags::PRIMITIVE) {
+                return Some(());
+            }
+            for part in types {
+                match self.chain_relate(part, target) {
+                    Ternary::Related => {}
+                    Ternary::NotRelated => return self.explain_pair(stack, part, target, depth),
+                    Ternary::Unknown => return None,
+                }
+            }
+            return None;
+        }
+        // A primitive source: against a non-object, `isSimpleTypeRelatedTo`
+        // decided it; against a union, `typeRelatedToSomeType` elaborates only
+        // through `getBestMatchingType`, which has no candidate for a
+        // primitive (`findMostOverlappyType` skips one). Nothing reports
+        // below the relation error. Against an object,
+        // `structuredTypeRelatedToWorker` relates the apparent type with
+        // `reportStructuralErrors` off for a primitive source.
+        if source_flags.intersects(TypeFlags::PRIMITIVE)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE)
+            && !target_flags.intersects(TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+        {
+            return Some(());
+        }
+        // `typeRelatedToSomeType`: only `getBestMatchingType`'s pick is
+        // elaborated, with no elaboration when there is none.
+        if target_flags.contains(TypeFlags::UNION)
+            && source_flags.intersects(TypeFlags::OBJECT)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+        {
+            let regular = self.get_regular_type_of_object_literal(source);
+            return match self.chain_best_matching_type(regular, target)? {
+                Some(best) => match self.chain_relate(regular, best) {
+                    Ternary::NotRelated => self.explain_pair(stack, regular, best, depth),
+                    _ => None,
+                },
+                None => Some(()),
+            };
+        }
+        // An intersection source failed every constituent silently; the
+        // structural pass over its combined members reports.
+        if source_flags.contains(TypeFlags::INTERSECTION)
+            && target_flags.contains(TypeFlags::OBJECT)
+            && !target_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
+            && !self.intersection_has_instantiable(source)
+        {
+            return self.explain_object_relation(stack, source, target, depth);
+        }
+        if source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+            || target_flags
+                .intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION | TypeFlags::UNION)
+        {
+            return None;
+        }
+        if !source_flags.contains(TypeFlags::OBJECT) || !target_flags.contains(TypeFlags::OBJECT) {
+            return None;
+        }
+        // Array references: `typeArgumentsRelatedTo` over the covariant
+        // element (`Array<T>`'s measured variance).
+        if let (Some(source_readonly), Some(target_readonly)) =
+            (self.array_reference_readonly(source), self.array_reference_readonly(target))
+        {
+            if source_readonly && !target_readonly {
+                return None;
+            }
+            let source_element = self.type_reference_targets.get(&source)?.1.first().copied()?;
+            let target_element = self.type_reference_targets.get(&target)?.1.first().copied()?;
+            return match self.chain_relate(source_element, target_element) {
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, source_element, target_element, depth)
+                }
+                _ => None,
+            };
+        }
+        if self.array_reference_readonly(source).is_some()
+            || self.array_reference_readonly(target).is_some()
+            || self.tuple_element_lists.contains_key(&source)
+            || self.tuple_element_lists.contains_key(&target)
+            || self.variadic_tuple_elements.contains_key(&source)
+            || self.variadic_tuple_elements.contains_key(&target)
+        {
+            return None;
+        }
+        self.explain_object_relation(stack, source, target, depth)
+    }
+
+    /// `propertiesRelatedTo`, then `signaturesRelatedTo(Call)`, for two plain
+    /// object types.
+    fn explain_object_relation(
+        &mut self,
+        stack: &mut Vec<ChainEntry>,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        use crate::signatures::SignatureKind;
+        let names = self.get_property_names_of_type(target)?;
+        self.get_property_names_of_type(source)?;
+        // `getUnmatchedProperty` first.
+        for name in &names {
+            if self.get_type_of_property_of_type(source, name).is_none()
+                && !self.chain_property_is_optional(target, name)?
+            {
+                let properties = self.unmatched_property_report(source, target)?;
+                let diagnostic = self.missing_properties_diagnostic(
+                    tsr_core::Span::default(),
+                    source,
+                    target,
+                    &properties,
+                );
+                stack.push(ChainEntry { message: diagnostic.message, args: diagnostic.args });
+                return Some(());
+            }
+        }
+        for name in &names {
+            let Some(source_member) = self.get_type_of_property_of_type(source, name) else {
+                continue;
+            };
+            let target_member = self.get_type_of_property_of_type(target, name)?;
+            match self.chain_property_privacy(stack, source, target, name) {
+                Some(true) => return Some(()),
+                Some(false) => {}
+                None => return None,
+            }
+            match self.chain_relate(source_member, target_member) {
+                Ternary::Related => {}
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, source_member, target_member, depth)?;
+                    chain_report(
+                        stack,
+                        &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE,
+                        vec![chain_property_display(name)],
+                    );
+                    return Some(());
+                }
+            }
+        }
+        // `signaturesRelatedTo(Call)`, then `(Construct)`.
+        for kind in [SignatureKind::Call, SignatureKind::Construct] {
+            let target_signatures = self.signatures_of_type_kind(target, kind)?;
+            if target_signatures.is_empty() {
+                continue;
+            }
+            let source_signatures = self.signatures_of_type_kind(source, kind)?;
+            return match (source_signatures.as_slice(), target_signatures.as_slice()) {
+                ([], [first, ..]) => {
+                    let source_text = self.type_to_string(source);
+                    let signature_text = signature_colon_form(&self.signature_to_string(first));
+                    stack.push(ChainEntry {
+                        message: &messages::TYPE_0_PROVIDES_NO_MATCH_FOR_THE_SIGNATURE_1,
+                        args: vec![source_text, signature_text],
+                    });
+                    Some(())
+                }
+                ([source_signature], [target_signature]) => {
+                    let (source_signature, target_signature) =
+                        (source_signature.clone(), target_signature.clone());
+                    self.explain_signature(stack, &source_signature, &target_signature, depth)
+                }
+                _ => None,
+            };
+        }
+        // `indexSignaturesRelatedTo`: a target index signature the source
+        // has no applicable one for, on a source whose index is not
+        // inferable (a class or interface instance).
+        let target_infos = self.get_index_infos_of_type(target)?;
+        if let Some(info) = target_infos.first() {
+            if self.get_applicable_index_info(source, info.key).is_some()
+                || !self.chain_source_index_not_inferable(source)
+            {
+                return None;
+            }
+            let key_text = self.type_to_string(info.key);
+            let source_text = self.type_to_string(source);
+            stack.push(ChainEntry {
+                message: &messages::INDEX_SIGNATURE_FOR_TYPE_0_IS_MISSING_IN_TYPE_1,
+                args: vec![key_text, source_text],
+            });
+            return Some(());
+        }
+        None
+    }
+
+    /// `isObjectTypeWithInferableIndex` is false: a class or interface
+    /// instance (no type literal, object literal, enum or module symbol).
+    fn chain_source_index_not_inferable(&self, source: TypeId) -> bool {
+        let symbol = match self.type_reference_targets.get(&source) {
+            Some(&(symbol, _)) => symbol,
+            None => match self.type_of(source).data {
+                TypeData::Named { members: Some(symbol), .. } => symbol,
+                _ => return false,
+            },
+        };
+        self.binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+    }
+
+    /// `compareSignaturesRelated` (`relater.go:1458`) for two non-generic
+    /// signatures of matching arity: the first failing parameter, else the
+    /// return types.
+    fn explain_signature(
+        &mut self,
+        stack: &mut Vec<ChainEntry>,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        if !source.type_parameters.is_empty()
+            || !target.type_parameters.is_empty()
+            || source.this_parameter.is_some()
+            || target.this_parameter.is_some()
+            || source.predicate.is_some()
+            || target.predicate.is_some()
+            || source.parameters.iter().chain(&target.parameters).any(|parameter| parameter.rest)
+        {
+            return None;
+        }
+        let source_count = self.signature_parameter_count(source);
+        let target_count = self.signature_parameter_count(target);
+        if self.signature_min_argument_count(source) > target_count {
+            return None;
+        }
+        let kind = self.nodes.kind(target.declaration);
+        let strict_variance = self.strict_function_types
+            && !matches!(
+                kind,
+                SyntaxKind::MethodDeclaration
+                    | SyntaxKind::MethodSignature
+                    | SyntaxKind::Constructor
+            );
+        for index in 0..source_count.max(target_count) {
+            let (Some(source_type), Some(target_type)) = (
+                self.signature_type_at_position(source, index),
+                self.signature_type_at_position(target, index),
+            ) else {
+                continue;
+            };
+            if source_type == target_type {
+                continue;
+            }
+            // Callback parameters compare their signatures instead.
+            let source_callable = self
+                .signatures_of_type_kind(source_type, crate::signatures::SignatureKind::Call)
+                .is_none_or(|signatures| !signatures.is_empty());
+            let target_callable = self
+                .signatures_of_type_kind(target_type, crate::signatures::SignatureKind::Call)
+                .is_none_or(|signatures| !signatures.is_empty());
+            if source_callable && target_callable {
+                return None;
+            }
+            let related = if strict_variance {
+                self.chain_relate(target_type, source_type)
+            } else {
+                match self.chain_relate(source_type, target_type) {
+                    Ternary::Related => Ternary::Related,
+                    Ternary::Unknown => return None,
+                    Ternary::NotRelated => self.chain_relate(target_type, source_type),
+                }
+            };
+            match related {
+                Ternary::Related => {}
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, target_type, source_type, depth)?;
+                    let source_name = source.parameters.get(index)?.name.clone();
+                    let target_name = target.parameters.get(index)?.name.clone();
+                    stack.push(ChainEntry {
+                        message: &messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
+                        args: vec![source_name, target_name],
+                    });
+                    return Some(());
+                }
+            }
+        }
+        let target_return = self.get_return_type_of_signature(target)?;
+        if target_return == self.intrinsics.void || target_return == self.intrinsics.any {
+            return None;
+        }
+        let source_return = self.get_return_type_of_signature(source)?;
+        if self.chain_relate(source_return, target_return) != Ternary::NotRelated {
+            return None;
+        }
+        self.explain_pair(stack, source_return, target_return, depth)?;
+        let construct = source.kind != crate::signatures::SignatureKind::Call;
+        let message = match (source.parameters.is_empty() && target.parameters.is_empty(), construct) {
+            (true, false) => &messages::CALL_SIGNATURES_WITH_NO_ARGUMENTS_HAVE_INCOMPATIBLE_RETURN_TYPES_0_AND_1,
+            (true, true) => &messages::CONSTRUCT_SIGNATURES_WITH_NO_ARGUMENTS_HAVE_INCOMPATIBLE_RETURN_TYPES_0_AND_1,
+            (false, false) => &messages::CALL_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE,
+            (false, true) => &messages::CONSTRUCT_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE,
+        };
+        let source_text = self.type_to_string(source_return);
+        let target_text = self.type_to_string(target_return);
+        stack.push(ChainEntry { message, args: vec![source_text, target_text] });
+        Some(())
+    }
+
+    fn intersection_has_instantiable(&self, source: TypeId) -> bool {
+        match &self.type_of(source).data {
+            TypeData::Intersection { types, .. } => types.iter().any(|&part| {
+                self.type_of(part).flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
+            }),
+            _ => true,
+        }
+    }
+
+    /// `getBestMatchingType` (`relater.go:879`) for an object source:
+    /// `Some(Some)` the pick, `Some(None)` none, `None` undecidable.
+    #[allow(clippy::option_option)]
+    fn chain_best_matching_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Option<TypeId>> {
+        use crate::signatures::SignatureKind;
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return Some(None);
+        };
+        // findMatchingDiscriminantType.
+        let discriminated = self.find_matching_discriminant_type(source, target)?;
+        if discriminated != target {
+            return Some(Some(discriminated));
+        }
+        // findMatchingTypeReferenceOrTypeAliasReference.
+        if let Some(&(symbol, _)) = self.type_reference_targets.get(&source) {
+            let symbol = self.binder.merged_symbol(symbol);
+            if let Some(&found) = types.iter().find(|&&part| {
+                self.type_reference_targets
+                    .get(&part)
+                    .is_some_and(|&(other, _)| self.binder.merged_symbol(other) == symbol)
+            }) {
+                return Some(Some(found));
+            }
+        }
+        // findBestTypeForObjectLiteral.
+        if self.is_object_literal_type(source) || self.fresh_object_literal_types.contains(&source)
+        {
+            let mut array_like = Vec::with_capacity(types.len());
+            for &part in &types {
+                array_like.push(
+                    !self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE)
+                        && self.binding_parent_is_array_like(part)?,
+                );
+            }
+            if array_like.iter().any(|&is| is) {
+                return Some(
+                    types.iter().zip(&array_like).find(|(_, is)| !**is).map(|(&part, _)| part),
+                );
+            }
+        }
+        // findBestTypeForInvokable, call then construct.
+        for kind in [SignatureKind::Call, SignatureKind::Construct] {
+            if !self.signatures_of_type_kind(source, kind)?.is_empty() {
+                for &part in &types {
+                    if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
+                        continue;
+                    }
+                    if !self.signatures_of_type_kind(part, kind)?.is_empty() {
+                        return Some(Some(part));
+                    }
+                }
+            }
+        }
+        // findMostOverlappyType: the last non-primitive constituent sharing
+        // the most literal keys (ties go to the later one).
+        let source_names = self.get_property_names_of_type(source)?;
+        if !self.get_index_infos_of_type(source)?.is_empty() {
+            return None;
+        }
+        let mut best = None;
+        let mut count = 0usize;
+        for &part in &types {
+            if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
+                continue;
+            }
+            if !self.get_index_infos_of_type(part)?.is_empty() {
+                return None;
+            }
+            let names = self.get_property_names_of_type(part)?;
+            let shared = names.iter().filter(|name| source_names.contains(name)).count();
+            if shared > 0 && shared >= count {
+                best = Some(part);
+                count = shared;
+            }
+        }
+        Some(best)
+    }
+
+    /// Whether the target's member `name` is optional, from its symbol or
+    /// its member table; `None` where neither answers.
+    fn chain_property_is_optional(&mut self, target: TypeId, name: &str) -> Option<bool> {
+        if let Some(table) = self.relation_property_table(target) {
+            return table.iter().find(|(seen, _)| seen == name).map(|&(_, optional)| optional);
+        }
+        let property = self.get_property_of_type(target, name)?;
+        Some(self.property_is_optional(property))
+    }
+
+    /// `propertyRelatedTo`'s modifier switch (`relater.go:4271`) for
+    /// `name`: `Some(true)` when its private arm reported, `Some(false)`
+    /// when no modifier arm applies, `None` for the protected arms (not
+    /// retraced) or an unreadable member.
+    fn chain_property_privacy(
+        &mut self,
+        stack: &mut Vec<ChainEntry>,
+        source: TypeId,
+        target: TypeId,
+        name: &str,
+    ) -> Option<bool> {
+        let source_property = self.get_property_of_type(source, name)?;
+        let target_property = self.get_property_of_type(target, name)?;
+        let private = |checker: &Self, property| {
+            checker.property_has_modifier(property, SyntaxKind::PrivateKeyword)
+                || name.starts_with('#')
+        };
+        let protected = |checker: &Self, property| {
+            checker.property_has_modifier(property, SyntaxKind::ProtectedKeyword)
+        };
+        let (source_private, target_private) =
+            (private(self, source_property), private(self, target_property));
+        if source_private || target_private {
+            let same = self.binder.symbols().get(source_property).value_declaration
+                == self.binder.symbols().get(target_property).value_declaration;
+            if same {
+                return Some(false);
+            }
+            let display = chain_property_display(name);
+            if source_private && target_private {
+                stack.push(ChainEntry {
+                    message: &messages::TYPES_HAVE_SEPARATE_DECLARATIONS_OF_A_PRIVATE_PROPERTY_0,
+                    args: vec![display],
+                });
+            } else {
+                let (private_side, other) =
+                    if source_private { (source, target) } else { (target, source) };
+                let private_text = self.type_to_string(private_side);
+                let other_text = self.type_to_string(other);
+                stack.push(ChainEntry {
+                    message: &messages::PROPERTY_0_IS_PRIVATE_IN_TYPE_1_BUT_NOT_IN_TYPE_2,
+                    args: vec![display, private_text, other_text],
+                });
+            }
+            return Some(true);
+        }
+        if protected(self, source_property) || protected(self, target_property) {
+            return None;
+        }
+        Some(false)
+    }
+}
+
+/// `reportError` (`relater.go:4831`) with its property-message
+/// reductions.
+fn chain_report(
+    stack: &mut Vec<ChainEntry>,
+    message: &'static tsr_diagnostics::Message,
+    mut args: Vec<String>,
+) {
+    let message_at = |stack: &Vec<ChainEntry>, index: usize| {
+        stack.len().checked_sub(index + 1).map(|at| stack[at].message)
+    };
+    let mut message = message;
+    if std::ptr::eq(message, &raw const messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE) {
+        if message_at(stack, 0).is_some_and(is_excess_property_message) {
+            return;
+        }
+        let returned = message_at(stack, 1).and_then(|next| {
+            if std::ptr::eq(next, &raw const messages::CALL_SIGNATURES_WITH_NO_ARGUMENTS_HAVE_INCOMPATIBLE_RETURN_TYPES_0_AND_1) {
+                Some(format!("{}()", property_name_arg(&args[0])))
+            } else if std::ptr::eq(next, &raw const messages::CONSTRUCT_SIGNATURES_WITH_NO_ARGUMENTS_HAVE_INCOMPATIBLE_RETURN_TYPES_0_AND_1) {
+                Some(format!("new {}()", property_name_arg(&args[0])))
+            } else if std::ptr::eq(next, &raw const messages::CALL_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE) {
+                Some(format!("{}(...)", property_name_arg(&args[0])))
+            } else if std::ptr::eq(next, &raw const messages::CONSTRUCT_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE) {
+                Some(format!("new {}(...)", property_name_arg(&args[0])))
+            } else {
+                None
+            }
+        });
+        if let Some(arg) = returned {
+            message = &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
+            args[0] = arg;
+            stack.truncate(stack.len() - 2);
+        }
+        if let Some(next) = message_at(stack, 1)
+            && (std::ptr::eq(next, &raw const messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE)
+                || std::ptr::eq(next, &raw const messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES,
+                )
+                || std::ptr::eq(next, &raw const messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES,
+                ))
+        {
+            let head = property_name_arg(&args[0]);
+            let tail = property_name_arg(&stack[stack.len() - 2].args[0]);
+            let arg = add_to_dotted_name(&head, &tail);
+            stack.truncate(stack.len() - 2);
+            if std::ptr::eq(message, &raw const messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE) {
+                message = &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
+            }
+            chain_report(stack, message, vec![arg]);
+            return;
+        }
+    }
+    stack.push(ChainEntry { message, args });
+}
+
+/// `signatureToString`'s declaration form (`(a: T): R`) of this port's
+/// arrow-form text (`(a: T) => R`): the arrow after the parameter list's
+/// closing parenthesis.
+fn signature_colon_form(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut angle = 0usize;
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte {
+            b'<' if depth == 0 => angle += 1,
+            b'>' if depth == 0 && angle > 0 && index > 0 && bytes[index - 1] != b'=' => angle -= 1,
+            b'(' if angle == 0 => depth += 1,
+            b')' if angle == 0 && depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    if text[index + 1..].starts_with(" => ") {
+                        return format!("{}: {}", &text[..=index], &text[index + 5..]);
+                    }
+                    return text.to_owned();
+                }
+            }
+            _ => {}
+        }
+    }
+    text.to_owned()
+}
+
+/// `symbolToString` of a property: an identifier or numeric name as written,
+/// any other name quoted.
+fn chain_property_display(name: &str) -> String {
+    if name.starts_with('[')
+        || crate::objects::is_identifier_text(name)
+        || (!name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        name.to_owned()
+    } else {
+        format!("\"{name}\"")
+    }
+}

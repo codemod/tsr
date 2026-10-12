@@ -386,3 +386,28 @@ fn a_deferred_conditional_reference_alias_instance_is_the_roots() {
          }\n";
     assert_eq!(type_of_last_initializer(source), "C<T>");
 }
+
+/// §39: `keyof` over a deferred indexed access is one deferred index type
+/// (tsgo: `keyof O[T]`).
+#[test]
+fn keyof_a_deferred_indexed_access_defers() {
+    let source = "interface O { a: { x: string }; b: { y: string } }\n\
+         type N<T extends keyof O> = keyof O[T];\n\
+         function f<T extends keyof O>() {\n\
+             declare const n: N<T>;\n\
+             const x = n;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "keyof O[T]");
+}
+
+/// §41: an argument-less qualified reference to a fully defaulted generic
+/// alias prints its default arguments (tsgo: `NS.RT<number>`).
+#[test]
+fn a_bare_qualified_reference_fills_its_defaults() {
+    let source = "declare namespace NS {\n\
+             type RT<P = number> = { p: P };\n\
+         }\n\
+         declare const c: NS.RT;\n\
+         const x = c;\n";
+    assert_eq!(type_of_last_initializer(source), "NS.RT<number>");
+}

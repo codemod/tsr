@@ -1357,7 +1357,7 @@ impl Checker<'_, '_> {
 
     /// `isArrayType` (`checker.go`): `Some(readonly)` for a reference to the
     /// global `Array` (`false`) or `ReadonlyArray` (`true`).
-    fn array_reference_readonly(&self, id: TypeId) -> Option<bool> {
+    pub(crate) fn array_reference_readonly(&self, id: TypeId) -> Option<bool> {
         let (target, _) = self.type_reference_targets.get(&id)?;
         let target = self.binder.merged_symbol(*target);
         [("Array", false), ("ReadonlyArray", true)].into_iter().find_map(|(name, readonly)| {

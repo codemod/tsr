@@ -890,3 +890,92 @@ unchanged, 0 lost; exact oracle 9665 → 9666 (`destructuringControlFlowNoCrash`
 `globalThisAmbientModules` keeps a `globalThis.namespaceModule.typ` printing
 row), 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 0.9999, dm
 1.0000.
+
+## §30 The call-receiver half of the TS2339 certificate, re-measured
+
+`receiver_type_is_the_declared_one` certifies a call-expression receiver only
+when its type is `never`; every other call result is trusted to no one, since
+it rests on this port's call resolution and return inference. Certifying all
+call results on `e5de971c`: diagnostics **+4** (`jsdocInTypeScript`,
+`templateLiteralsInTypes`, `propertyAccessOnTypeParameterWithConstraints4/5`)
+against **1 lost** (`superPropertyAccessNoError(target=es2015)`, EMPTY_RIGHT →
+EMPTY_WRONG): `instance.returnThis().fn()` reported a false TS2339 because the
+derived `returnThis() { return super.returnThis(); }` infers `SomeBaseClass`
+where native infers the derived polymorphic `this` (the `super.m()` call's
+this-argument instantiation of a `this` return, `calls.rs`). The gate stays
+until that lands.
+
+## §31 `isNullOrUndefined` against the synthesised `undefined` (routed: `symbols.rs`)
+
+`let x = undefined; if (cond) x = 1; …; x` is native `string | number |
+undefined` under `noImplicitAny` (`controlFlowNoImplicitAny` f2/f6): the
+declaration is automatic (`isNullOrUndefined(initializer)`,
+`checker.go:16702`) and the flow walk starts from it. The port's
+`is_null_or_undefined_expression` (`symbols.rs`) accepted the identifier only
+when `undefined` resolved to **nothing**, a test written before the binder
+synthesised the global `undefined` (`declare_synthesised_globals`); it now
+always resolves, so the test never held and the flow walk did not treat the
+declaration as automatic (`x : any`). Native compares with `c.undefinedSymbol`.
+`r7-flow-undefined-initializer.diff` compares with `binder.undefined_symbol()`
+(still accepting an unresolved name, and still refusing a shadowing local).
+Measured on `e5de971c` unfiltered: types **+6** (`controlFlowNoImplicitAny`
+4, `assignEveryTypeToAny` 2), diagnostics unchanged, 0 lost; exact oracle 9666 →
+9668 (both cases), 0 lost; jsTyping 122 →
+122, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §32 An element access whose index has a literal type reports per literal
+
+`getIndexedAccessTypeOrUndefined` (`checker.go:26961`) asks
+`getPropertyTypeForIndexType` once per literal of the index type (a union
+distributes; `boolean` does not), so `{ a: 1, b: "", c: false }[id]` with `id:
+'a' | 'b' | 'z'` reports the `'z'` miss and `{}[10]` reports `'10'` under
+`noImplicitAny` (`indexedAccessWithFreshObjectLiteral`, `noImplicitAnyIndexing`).
+The port read a string-literal argument only. `literal_index_names` takes
+the argument's type when it is a string or number literal or a union of
+them, and each name goes through the same certificate and report as a
+written string literal (`check_nonexistent_name`, the tail of
+`check_nonexistent_property`, split out for it). Any other index keeps the
+computed-key road. No cache: one index-type read per element access.
+
+Measured on `e5de971c` unfiltered: diagnostics **+3**
+(`indexedAccessWithFreshObjectLiteral`, `noImplicitAnyIndexing`,
+`objectSpreadIndexSignature`), types unchanged, 0 lost; exact oracle 9666 →
+9668, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 1.0001, dm
+1.0000.
+
+## §33 TS2339 in an ambient context
+
+`check_nonexistent_property` returned at once in an ambient context (a
+`declare` declaration, a `.d.ts`). Native has no such exit: the expressions an
+ambient context holds — a heritage clause's `M.C` (`declare class D2 extends
+M.C {}`), a computed property name's `Symbol.isRegExp` (`declare class C {
+[Symbol.isRegExp]: string }`) — are checked by
+`checkPropertyAccessExpressionOrQualifiedName` like any other, and the miss
+is reported (`genericTypeReferenceWithoutTypeArgument.d`/`3`,
+`parserES5SymbolProperty4(target=es2015)`). The exit is gone; the certificates
+below it are unchanged.
+
+Measured on `b5b993e1` unfiltered: diagnostics **+3** (those three cases),
+types unchanged, 0 lost; exact oracle 9668 → 9671 (those three), 0 lost; jsTyping
+122 → 122, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §34 TS2576's static member text
+
+`reportNonexistentProperty` names the static member as `typeName+"."+propName`
+with `typeName := TypeToString(containingType)` (`checker.go:11553-11556`):
+`List<T>.Foo`, `C<number, string>.foo`. The port printed the class's symbol
+name (`List.Foo`). And `getPropertyTypeForIndexType`'s element-access arm
+(`checker.go:27148-27150`, under `noImplicitAny`) reports TS2576 at the access
+with `typeName+"["+GetTextOfNode(argument)+"]"` (`A["\""]`, `A['y']`); the
+port declined it as needing source text, which the checker reads through
+`module_host.source_text` (as `assignreport.rs` does for computed names). Both
+now match (`staticOffOfInstance2`, `staticPropertyNotInClassType`,
+`classStaticPropertyAccess(target=es2015)`). The element-access arm asks
+`typeHasStaticProperty`, as native; the other direction (an instance member
+read off the static side) keeps its decline.
+
+Measured on `e2e5c9d1` unfiltered: diagnostics **+1**
+(`classStaticPropertyAccess(target=es2015)`; the other two were WRONG on
+message text only, which the legacy suite does not read), types unchanged,
+0 lost; exact oracle 9671 → 9674 (all three), 0 lost; jsTyping 122 → 122,
+new_false 0, lost_true 0; Ir gi 0.9998, dm 1.0000.
