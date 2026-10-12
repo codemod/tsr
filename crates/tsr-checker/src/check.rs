@@ -58,24 +58,6 @@ use crate::flags::TypeFlags;
 use crate::relater::{Relation, Ternary};
 use crate::types::TypeId;
 
-/// The written name of a class member, for the kinds an `abstract` member can
-/// take. Wider than the member reader TS2610's `class_member_shape` used, which
-/// omitted methods because its caller asked a property-versus-accessor question. §761.
-fn member_name_text(member: &tsr_ast::ClassElement<'_>) -> Option<String> {
-    let name = match member {
-        tsr_ast::ClassElement::PropertyDeclaration(p) => p.name,
-        tsr_ast::ClassElement::MethodDeclaration(m) => m.name,
-        tsr_ast::ClassElement::GetAccessorDeclaration(a) => a.name,
-        tsr_ast::ClassElement::SetAccessorDeclaration(a) => a.name,
-        _ => return None,
-    };
-    match name {
-        tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
-        tsr_ast::PropertyName::StringLiteral(literal) => Some(literal.text.to_string()),
-        _ => None,
-    }
-}
-
 /// What the caller knows about a file that the tree does not say.
 ///
 /// Both fields stand in for facts upstream's parser records and this port's does
@@ -895,7 +877,6 @@ impl Checker<'_, '_> {
                 self.check_class_static_property_names(node, class_declaration.members);
                 self.check_type_parameter_lists_identical(node);
                 self.check_base_chain_is_acyclic(node);
-                self.check_abstract_members_implemented(node);
             }
             Node::InterfaceDeclaration(_) => {
                 self.check_object_type_for_duplicate_declarations(node);
@@ -959,6 +940,7 @@ impl Checker<'_, '_> {
         self.check_kinds_of_property_member_overrides(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
+            self.check_accessor_pair_modifiers(node);
             self.resolve_accessor_symbol_type(node);
         }
         // **Every kind 's default arm names**, not
@@ -970,7 +952,19 @@ impl Checker<'_, '_> {
         self.check_dynamic_import_specifier(typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
-        self.check_grammar_parameter_list(node);
+        // `checkGrammarFunctionLikeDeclaration`'s `||` chain: the arrow arm
+        // runs only when the parameter list reported nothing.
+        if !self.check_grammar_parameter_list(node) {
+            match typed {
+                Node::ArrowFunction(arrow) => {
+                    self.check_grammar_arrow_function(node, arrow);
+                }
+                Node::MethodDeclaration(method) => {
+                    self.check_method_named_constructor_is_not_generator(node, method);
+                }
+                _ => {}
+            }
+        }
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {
             self.check_grammar_modifier_shapes(node, typed);
@@ -1040,7 +1034,7 @@ impl Checker<'_, '_> {
             self.check_builtin_global_redeclaration(node);
         }
         if matches!(typed, Node::InterfaceDeclaration(_) | Node::ClassDeclaration(_)) {
-            self.check_recursive_base_type(node, typed);
+            self.check_base_types_resolved(node);
         }
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
@@ -1156,7 +1150,17 @@ impl Checker<'_, '_> {
         let mut children = [const { None }; INLINE_CHILDREN];
         let mut count = 0usize;
         let mut overflow: Vec<NodeId> = Vec::new();
+        // `checkWithStatement` (`checker.go:4156`) checks the expression and
+        // never hands the statement to `checkSourceElement`, so nothing below
+        // a `with` body is checked upstream (r7-grammar §37).
+        let with_body = match typed {
+            Node::WithStatement(with) => with.statement.and_then(|statement| statement.node_id()),
+            _ => None,
+        };
         tsr_ast::for_each_child_id(typed, |child| {
+            if Some(child) == with_body {
+                return;
+            }
             if count < INLINE_CHILDREN {
                 children[count] = Some(child);
             } else {
@@ -8921,9 +8925,9 @@ impl Checker<'_, '_> {
     /// One loop with a `seenOptionalParameter` flag, returning on the **first**
     /// offender, which is why this runs once per *list* and not once per
     /// parameter. §287.
-    fn check_grammar_parameter_list(&mut self, owner: NodeId) {
+    fn check_grammar_parameter_list(&mut self, owner: NodeId) -> bool {
         if self.file_has_parse_errors {
-            return;
+            return false;
         }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
@@ -8953,7 +8957,7 @@ impl Checker<'_, '_> {
                     continue;
                 };
                 self.report_grammar_at(at, message);
-                return;
+                return true;
             }
             // `isOptionalDeclaration` is **`ast.HasQuestionToken` alone**
             // (`checker/utilities.go:299`) — an initialiser does *not* make a
@@ -8962,7 +8966,14 @@ impl Checker<'_, '_> {
             // lines, every one of them a defaulted parameter. §288.
             if question.is_some() {
                 seen_optional = true;
-                // TS1015 is §103's, reported once per list from its own arm.
+                // TS1015 is §103's, reported once per list from its own arm
+                // (`check_optional_parameter_initializer`); upstream returns
+                // `true` here, which ends the loop (no TS1016 after it) and is
+                // what `checkGrammarFunctionLikeDeclaration`'s `||` chain reads
+                // (r7-grammar §25). A reparsed `?` never has the written token.
+                if declaration.question_token.is_some() && declaration.initializer.is_some() {
+                    return true;
+                }
                 continue;
             }
             // `seenOptionalParameter && parameter.Initializer == nil`
@@ -8985,9 +8996,10 @@ impl Checker<'_, '_> {
                     name,
                     &messages::A_REQUIRED_PARAMETER_CANNOT_FOLLOW_AN_OPTIONAL_PARAMETER,
                 );
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// `checkAccessorDeclaration`'s grammar arm (`checker.go:2932`):
@@ -10293,121 +10305,6 @@ impl Checker<'_, '_> {
                 Some(Node::ModuleDeclaration(module)) if module.body.is_some()
             )
         })
-    }
-
-    /// TS2310 — `Type '{0}' recursively references itself as a base type.`
-    ///
-    /// `resolveBaseTypesOfInterface` (`checker.go:19260`), whose test is
-    /// `t == reducedBaseType || hasBaseType(reducedBaseType, t)`. Upstream
-    /// decides it on resolved types; for interfaces and classes the base-type
-    /// graph **is** the heritage-clause graph, so this is a reachability query
-    /// over `extends` names and symbols with no types involved.
-    ///
-    /// Reported once per symbol, at its first declaration — interfaces merge,
-    /// and the suite compares multisets.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §563.
-    fn check_recursive_base_type(&mut self, node: NodeId, typed: Node<'_>) {
-        let Some(symbol) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(symbol);
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
-        if declarations.first() != Some(&node) {
-            return;
-        }
-        // **A class cycle is TS2506's, not this code's.**
-        // `resolveBaseTypesOfClass` checks the cycle first
-        // (`checker.go:16977`) and reaches the recursive-base check
-        // (`:19260`) only after it returns. §563 ported the second without the
-        // first, and the doubling was invisible until §745 built the first —
-        // the case failed for a missing TS2506 either way. §777.
-        if matches!(typed, Node::ClassDeclaration(_)) {
-            let mut at = self.base_class_declaration_of(node);
-            for _ in 0..MAX_ALIAS_HOPS {
-                let Some(base) = at else { break };
-                if base == node {
-                    return;
-                }
-                at = self.base_class_declaration_of(base);
-            }
-        }
-        let mut seen = vec![symbol];
-        let mut frontier = self.base_type_symbols(symbol);
-        while let Some(next) = frontier.pop() {
-            if next == symbol {
-                let name = match typed {
-                    Node::InterfaceDeclaration(n) => n.name.and_then(|n| n.node_id),
-                    Node::ClassDeclaration(n) => n.name.and_then(|n| n.node_id),
-                    _ => None,
-                };
-                let at = name.unwrap_or(node);
-                let text = self.identifier_text(at).unwrap_or_default().to_string();
-                let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-                let span = self.nodes.span(at);
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::TYPE_0_RECURSIVELY_REFERENCES_ITSELF_AS_A_BASE_TYPE,
-                        span,
-                        [text],
-                    ),
-                );
-                return;
-            }
-            if seen.contains(&next) {
-                continue;
-            }
-            seen.push(next);
-            frontier.extend(self.base_type_symbols(next));
-        }
-    }
-
-    /// The symbols named by a type's `extends` clauses, across all of its
-    /// declarations. `implements` contributes no base type. §563.
-    fn base_type_symbols(&mut self, symbol: tsr_binder::SymbolId) -> Vec<tsr_binder::SymbolId> {
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
-        let mut out = Vec::new();
-        for declaration in declarations {
-            let clauses: &[&tsr_ast::HeritageClause<'_>] = match self.node_map.get(declaration) {
-                Some(Node::InterfaceDeclaration(n)) => n.heritage_clauses,
-                Some(Node::ClassDeclaration(n)) => n.heritage_clauses,
-                _ => continue,
-            };
-            // **A class has exactly one base type** — `getEffectiveBaseTypeNode`
-            // returns a single node, so only the first `extends` clause counts.
-            // `class C extends A implements B extends C` is a recovery fixture
-            // this parser accepts and upstream rejects, and reading its second
-            // `extends` made `C` its own base. §564.
-            let is_class =
-                matches!(self.node_map.get(declaration), Some(Node::ClassDeclaration(_)));
-            let mut taken = false;
-            for clause in clauses {
-                if clause.token.kind != SyntaxKind::ExtendsKeyword {
-                    continue;
-                }
-                if is_class && taken {
-                    break;
-                }
-                taken = true;
-                for expression in clause.types {
-                    let Some(head) = expression.expression.and_then(|e| e.node_id()) else {
-                        continue;
-                    };
-                    let Some(text) = self.identifier_text(head).map(str::to_string) else {
-                        continue;
-                    };
-                    if let Some(base) = self.binder.resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        head,
-                        &text,
-                        SymbolFlags::TYPE,
-                    ) {
-                        out.push(self.binder.merged_symbol(base));
-                    }
-                }
-            }
-        }
-        out
     }
 
     /// The `.js`-file grammar checks — TS8002, TS8004, TS8006, TS8009, TS8010
@@ -13162,66 +13059,6 @@ impl Checker<'_, '_> {
         Some(parts.join("."))
     }
 
-    /// TS2515 — `Non-abstract class '{0}' does not implement inherited abstract
-    /// member '{1}' from class '{2}'.`
-    ///
-    /// `checkKindsOfPropertyMemberOverrides`'s `notImplementedInfo` pass
-    /// (`checker.go:4664`): the abstract members of every base, minus what the
-    /// derived class provides, reported at the derived class's **name**.
-    ///
-    /// **Only the single-member form is built** — upstream has four by count and
-    /// the plural ones join a list of names this port would have to spell the
-    /// same way. §679 declined TS2460 on the same ground. §761.
-    fn check_abstract_members_implemented(&mut self, node: NodeId) {
-        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
-        if has_modifier(class.modifiers, SyntaxKind::AbstractKeyword) {
-            return;
-        }
-        let Some(name) = class.name.and_then(|name| name.node_id) else { return };
-        // **A local enumeration, not `class_member_shape`.** That helper omitted
-        // methods on purpose — it serves TS2610's property-versus-accessor
-        // question — and widening it would move a measured rule to serve this
-        // one. §686's lesson, applied before the measurement. §761.
-        let mut provided: Vec<String> = class.members.iter().filter_map(member_name_text).collect();
-        let mut missing: Vec<(String, String)> = Vec::new();
-        let mut at = self.base_class_declaration_of(node);
-        for _ in 0..MAX_ALIAS_HOPS {
-            let Some(base) = at else { break };
-            let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(base) else { break };
-            let base_name = base_class.name.map_or_else(String::new, |it| it.text.to_string());
-            for member in base_class.members {
-                let Some(member_name) = member_name_text(member) else { continue };
-                let is_abstract = member
-                    .node_id()
-                    .and_then(|id| self.node_map.get(id))
-                    .and_then(modifiers_of)
-                    .is_some_and(|m| {
-                        tsr_ast::has_syntactic_modifier(m, SyntaxKind::AbstractKeyword)
-                    });
-                if is_abstract && !provided.contains(&member_name) {
-                    missing.push((member_name.clone(), base_name.clone()));
-                }
-                provided.push(member_name);
-            }
-            at = self.base_class_declaration_of(base);
-        }
-        if missing.len() != 1 {
-            return;
-        }
-        let (member_name, base_name) = missing.remove(0);
-        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
-        let span = self.nodes.span(name);
-        let derived = self.identifier_text(name).unwrap_or_default().to_string();
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::NON_ABSTRACT_CLASS_0_DOES_NOT_IMPLEMENT_INHERITED_ABSTRACT_MEMBER_1_FROM_CLASS_2,
-                span,
-                [derived, member_name, base_name],
-            ),
-        );
-    }
-
     /// Is this node inside a heritage clause that is not the **first** of its
     /// token kind on its declaration? §792.
     /// Is this name one of the **extra** types in a class's `extends` clause —
@@ -13505,6 +13342,33 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
+        // `GetErrorRangeForNode`'s arms (`scanner.go:2588`) that are not a
+        // declaration's own name (r7-grammar §38).
+        match self.node_map.get(node) {
+            // `KindConstructor` (`:2632`), unless reparsed.
+            Some(Node::ConstructorDeclaration(_))
+                if !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED) =>
+            {
+                return self.constructor_error_span(node);
+            }
+            // `getErrorRangeForArrowFunction` (`:2542`).
+            Some(Node::ArrowFunction(arrow)) => return self.arrow_function_error_span(node, arrow),
+            // `GetNameOfDeclaration`'s assigned-name arm for an anonymous
+            // function expression, else the first token (`:2644`).
+            Some(Node::FunctionExpression(function)) if function.name.is_none() => {
+                if let Some(assigned) = self.assigned_name_of(node) {
+                    return self.error_span(assigned);
+                }
+                let span = self.nodes.span(node);
+                return self.first_token_span(node, span.start).unwrap_or(span);
+            }
+            // `KindClassExpression`: `node.Name()` only, else the first token.
+            Some(Node::ClassExpression(class)) if class.name.is_none() => {
+                let span = self.nodes.span(node);
+                return self.first_token_span(node, span.start).unwrap_or(span);
+            }
+            _ => {}
+        }
         if let Some(name) = self.declaration_name_of(node) {
             return self.error_span(name);
         }

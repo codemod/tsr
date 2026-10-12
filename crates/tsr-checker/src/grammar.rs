@@ -2899,6 +2899,145 @@ impl Checker<'_, '_> {
 }
 
 impl Checker<'_, '_> {
+    /// TS1368 — `checkMethodDeclaration`'s first block (`checker.go:2798`):
+    /// when `checkGrammarMethod` reports nothing, a generator method named by
+    /// the identifier `constructor` is `c.error(name, …)`. An object-literal
+    /// method is checked by `checkObjectLiteralMethod` instead and never
+    /// reaches this line.
+    ///
+    /// The check walk calls this only when `checkGrammarParameterList`
+    /// reported nothing (the `||` chain's third arm, check.rs). The other arms
+    /// of `checkGrammarMethod` that can answer for a class member with an
+    /// identifier name are asked here: `checkGrammarModifiers` (memoized, §1)
+    /// and `checkGrammarForGenerator`'s ambient and overload arms. That pair
+    /// is reported by check.rs's `check_grammar_for_generator`; this reads the
+    /// same two conditions. The computed-name arms answer `false` for an
+    /// identifier. Every grammar arm answers `false` in a file with parse
+    /// diagnostics (`grammarErrorOnNode`), and then TS1368 still stands. Not
+    /// consulted: `checkGrammarForUseStrictSimpleParameterList`, which is not
+    /// ported (r7-grammar §31).
+    pub(crate) fn check_method_named_constructor_is_not_generator(
+        &mut self,
+        node: NodeId,
+        method: &tsr_ast::MethodDeclaration<'_>,
+    ) {
+        if method.asterisk_token.is_none() {
+            return;
+        }
+        let tsr_ast::PropertyName::Identifier(name) = method.name else { return };
+        if name.text != "constructor" {
+            return;
+        }
+        let Some(name_id) = name.node_id else { return };
+        if self
+            .nodes
+            .parent(node)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression)
+        {
+            return;
+        }
+        if !self.file_has_parse_errors
+            && (self.check_grammar_modifiers(node)
+                || self.declaration_is_in_an_ambient_context(node)
+                || method.body.is_none())
+        {
+            return;
+        }
+        self.grammar_error_on_node(name_id, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_A_GENERATOR);
+    }
+
+    /// The accessor-pair arm of `Checker.checkAccessorDeclaration`
+    /// (`checker.go:2954`-`:2972`): when the member's symbol has both a get
+    /// and a set accessor (`ast.GetDeclarationOfKind`, the first of each),
+    /// differing `abstract` is TS2676 and a getter less accessible than its
+    /// setter is TS2808, each on **both** accessors' names.
+    ///
+    /// Upstream checks the pair once, from whichever accessor is checked
+    /// first, behind the getter's `NodeCheckFlagsTypeChecked` link, and
+    /// reports on both names. Here each accessor reports on its **own** name
+    /// when it is checked. The walk checks both, and diagnostics are per
+    /// file, so the set is the same and no link is needed. One case differs:
+    /// an accessor that is never checked (a library declaration merged with a
+    /// user one). Its diagnostic upstream sits in a file whose diagnostics
+    /// are not collected, so it is not reported here either (r7-grammar §25).
+    ///
+    /// `hasBindableName`: a dynamic computed name is declined. A
+    /// late-bindable one pairs with its sibling only through the late-bound
+    /// member symbol, which this checker does not build; the same decline as
+    /// r7-reports §3. `ModifierFlags()` includes the JSDoc modifiers the
+    /// reparser hosts (`has_effective_modifier`).
+    pub(crate) fn check_accessor_pair_modifiers(&mut self, node: NodeId) {
+        let name = match self.node_map.get(node) {
+            Some(Node::GetAccessorDeclaration(accessor)) => accessor.name,
+            Some(Node::SetAccessorDeclaration(accessor)) => accessor.name,
+            _ => return,
+        };
+        // TS1341 (`checker.go:2936`), the ungated line before this arm: an
+        // accessor named by the identifier `constructor` in a class-like.
+        if let tsr_ast::PropertyName::Identifier(identifier) = name
+            && identifier.text == "constructor"
+            && let Some(at) = identifier.node_id
+            && self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+        {
+            self.grammar_error_on_node(at, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_AN_ACCESSOR);
+        }
+        if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
+            let literal = match computed.expression {
+                Some(
+                    Expression::StringLiteral(_)
+                    | Expression::NumericLiteral(_)
+                    | Expression::NoSubstitutionTemplateLiteral(_),
+                ) => true,
+                Some(Expression::PrefixUnaryExpression(unary)) => {
+                    matches!(unary.operator.kind, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
+                        && matches!(unary.operand, Some(Expression::NumericLiteral(_)))
+                }
+                _ => false,
+            };
+            if !literal {
+                return;
+            }
+        }
+        let Some(own_name) = name.node_id() else { return };
+        let Some(own) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(own);
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        let first_of = |kind| declarations.iter().copied().find(|&d| self.nodes.kind(d) == kind);
+        let (Some(getter), Some(setter)) =
+            (first_of(SyntaxKind::GetAccessor), first_of(SyntaxKind::SetAccessor))
+        else {
+            return;
+        };
+        if node != getter && node != setter {
+            return;
+        }
+        let getter_has = |keyword| self.has_effective_modifier(getter, keyword);
+        let setter_has = |keyword| self.has_effective_modifier(setter, keyword);
+        let abstract_differs =
+            getter_has(SyntaxKind::AbstractKeyword) != setter_has(SyntaxKind::AbstractKeyword);
+        let less_accessible = (getter_has(SyntaxKind::ProtectedKeyword)
+            && !setter_has(SyntaxKind::ProtectedKeyword)
+            && !setter_has(SyntaxKind::PrivateKeyword))
+            || (getter_has(SyntaxKind::PrivateKeyword) && !setter_has(SyntaxKind::PrivateKeyword));
+        if abstract_differs {
+            self.grammar_error_on_node(
+                own_name,
+                &messages::ACCESSORS_MUST_BOTH_BE_ABSTRACT_OR_NON_ABSTRACT,
+            );
+        }
+        if less_accessible {
+            self.grammar_error_on_node(
+                own_name,
+                &messages::A_GET_ACCESSOR_MUST_BE_AT_LEAST_AS_ACCESSIBLE_AS_THE_SETTER,
+            );
+        }
+    }
+
     /// `Checker.checkGrammarAccessor` (`grammarchecks.go:1307`), arm for arm.
     /// Each arm returns, so an accessor gets at most one report. The caller
     /// (`checkAccessorDeclaration`, `checker.go:2932`) runs it behind

@@ -516,6 +516,132 @@ source-text test) — are gone: `await_using_list_await_start`
 flags directly. Correction of the record: those sections' "this parser eats
 the `await`" no longer holds as of `054b714f`.
 
+## §25 `checkGrammarArrowFunction` (TS1200) and the accessor-pair arm (TS2676/TS2808)
+
+**TS1200.** `checkGrammarArrowFunction` (`grammarchecks.go:772`) is the
+fourth arm of `checkGrammarFunctionLikeDeclaration`'s `||` chain (`:758`):
+modifiers, then the type-parameter list, then the parameter list, then the
+arrow. `check_grammar_arrow_function` (`module_format.rs`) is the whole Go
+function: the TS7060 `.mts`/`.cts` arm, which used to stand alone in
+`check_module_format` behind its `module: none` return, and the line-break
+arm. Upstream reports TS7060 and does **not** return
+(`TODO(danielr): should we return early here?`), so the line-break arm still
+runs. The check walk calls it only when `check_grammar_parameter_list`
+(`check.rs`, which now returns whether it reported) reported nothing.
+`checkGrammarModifiers` is asked inside it, memoized as §1 describes.
+TS1098, the empty-list arm, has no producer: the tree's `&[]` cannot tell
+`<>` from no list. That is routed to r7-parser, with TS1099.
+
+*Forcing constraint.* Upstream tests the `=>` token's **full** text
+(`Pos()`..`End()`) for a line break. That text is its leading trivia, and a
+multi-line comment counts (`(x) /*\n */ => x` is TS1200). This tree's token
+spans start after trivia, and no per-token scanner flags are stored. So the
+trivia is re-scanned. The scan starts at the end of the last child written
+before `=>`, which is a token boundary: the return type, else the last
+parameter, type parameter or modifier, else the arrow's own start. The
+scanner runs forward to the token at the `=>`'s start and reads its
+`PRECEDING_LINE_BREAK`, which the scanner sets for a break anywhere in the
+trivia.
+*Alternatives.* (a) Step backwards from `=>` over whitespace, as
+`full_start_before` does. That cannot step over a comment, and `//` comments
+make a backward scan ambiguous. (b) Have the parser store a
+preceding-line-break flag on the token. That is cleaner, and it would win if
+the parser started recording token flags for other checks; it is r7-parser's
+file. The forward scan reads at most the `)`/`,`/`>` tokens between the last
+child and `=>`, once per arrow, on the walk's single visit. It is not cached.
+*Falsifier.* A TS1200 at an arrow whose `=>` has no line break before it, or
+a missing one where it does. `disallowLineTerminatorBeforeArrow` covers
+comments, return types, rest/optional/default parameters and nesting.
+
+**The parameter list returns at TS1015.** Upstream's
+`checkGrammarParameterList` returns `true` at a `?` parameter with an
+initializer (`grammarchecks.go:711`). That ends the loop, so no TS1016
+follows it, and the `||` chain reads it. TS1015 itself is still reported once
+per list by `check_optional_parameter_initializer`; the loop now returns
+`true` at that parameter.
+
+**TS2676/TS2808.** `checkAccessorDeclaration`'s accessor-pair arm
+(`checker.go:2954`) takes the member symbol's first get and first set accessor
+(`GetDeclarationOfKind`). Differing `abstract` is TS2676, and a `protected`
+getter with a setter neither `protected` nor `private`, or a `private` getter
+with a non-`private` setter, is TS2808. Each is reported on both names.
+Upstream checks the pair once, from whichever accessor is checked first,
+behind the getter's `NodeCheckFlagsTypeChecked` link.
+`check_accessor_pair_modifiers` (`grammar.rs`) instead reports on each
+accessor's **own** name when that accessor is checked. The walk checks both,
+and diagnostics are per file, so the set is the same and there is no link to
+own. The only divergence is an accessor that is never checked (a library
+declaration merged with a user one). Upstream's diagnostic for it lands in a
+file whose diagnostics are not collected, so dropping it changes nothing.
+`ModifierFlags()` includes the JSDoc modifiers the reparser hosts
+(`has_effective_modifier`). A dynamic computed name is declined: a
+late-bindable one pairs only through the late-bound member symbol, which this
+checker does not build (r7-reports §3).
+*Falsifier.* A TS2676/TS2808 on one accessor's name but not its partner's in
+a checked file, or a set that differs between `--singleThreaded` and
+`--checkers 4`.
+
+**Deferred: `checkTupleType`'s element grammar** (TS1257/1265/1266, TS2574).
+The order arms are syntactic. The variadic arm needs `isArrayLikeType`, which
+answers `false` on an undecided relation (so TS2574 could be reported
+falsely), and `isArrayType || isTupleType && combinedFlags&Rest` over this
+checker's print-only variadic tuples (`declared.rs` §40). It would convert
+one single-code case (`optionalTupleElements1`) for that risk.
+
+## §26 `checkKindsOfPropertyMemberOverrides`' abstract half (TS2515/2650/2653/2654/2655/2656)
+
+`check_inherited_abstract_members_implemented` (`heritage_conformance.rs`) is
+the `notImplementedInfo` pass of `checkKindsOfPropertyMemberOverrides`
+(`checker.go:4536`-`:4590`, reported at `:4664`). It runs first in the
+existing `check_kinds_of_property_member_overrides`, the port of the same Go
+function's property-kind half, which the check walk already calls for every
+node. It replaces check.rs's `check_abstract_members_implemented`, a
+declaration walk that built only the single-member form (TS2515) and ignored
+interface merges. That stand-in reported two false TS2515s in
+`mergedInheritedMembersSatisfyAbstractBase`.
+
+*The algorithm, as upstream.* It applies to a class-like with an `extends`
+clause whose `getBaseTypes(t)[0]` resolved (`checkClassLikeDeclaration`,
+`checker.go:4313`), and covers class expressions too. For each property of
+the base type, it asks whether the class type's property of that name has the
+same target symbol and whether its declaration is `abstract`. The declaration
+is the get accessor for an accessor symbol, else the value declaration
+(`getDeclarationModifierFlagsFromSymbol`), with the reparser's JSDoc
+modifiers. If both hold, the member is missing, unless the class is
+`abstract` or another base type supplies a different symbol of that name (an
+interface merged with the class). The list is reported at the class name, or
+at a class expression. One member is TS2515/TS2653 with the name unquoted;
+two to five are TS2654/TS2656 with every name quoted; more than five are
+TS2655/TS2650 with four quoted and "and N more". Names are
+`TypeToString(t)` and `TypeToString(baseType)` (`C<T>`, `A<number>`).
+
+*Target symbols.* Property symbols here are the declared ones for every
+instantiation, so `getTargetSymbol` is the identity. The exception is a
+member inherited through a generic heritage entry (`extends A<T>`), which
+`get_property_of_type` leaves as a gap (members.rs §202).
+`generic_heritage_property_symbol` answers its declaring symbol, which is
+exactly the target, and only identity and flags are read from it
+(`target_property_of`).
+
+*Declines.* The check reports nothing when the base's property list is not
+certified (`get_property_names_of_type` answers `None`), and nothing for a
+class whose missing member has a non-identifier name: `symbolToString` of a
+string, numeric or computed name has spellings this port does not produce.
+`builtinIterator`'s lib `Iterator` base is still declined (no TS2515 there,
+which leaves that case's existing gap).
+
+*Cost and ownership.* No new cache. The walk visits each class once. The base
+property list is `get_property_names_of_type`'s existing shared memo, and
+each name costs up to three property lookups.
+
+*Falsifier.* A TS2515-family report on a class that implements the member
+through a merged interface or an intermediate base. A wrong member order
+(the order of the base's `getPropertiesOfType`: own declarations, then
+inherited). A count that differs between `--singleThreaded` and
+`--checkers 4`.
+Converted: `abstractPropertyNegative` (with §25), `classAbstractGeneric`,
+`classExpressionExtendingAbstractClass`, `classAbstractInheritance2`.
+
 ## §27 Unused `@template` type parameters in JS (TS6133/TS6196/TS6205)
 
 `checkUnusedTypeParameters` (`checker.go:7290`) reads `node.TypeParameters()`.
@@ -537,6 +663,51 @@ declaration in the unused pass.
 *Falsifier.* A TS6133/TS6196 on a `@template` parameter that a JSDoc type
 references, or on a function that has a written `<T>` list.
 Converted: `unusedTypeParameters_templateTag`.
+
+## §28 TS2310 from the base-type resolutions
+
+TS2310 (`Type '{0}' recursively references itself as a base type.`) now comes
+from the three places upstream reports it, all in `base_types.rs`:
+
+* `getBaseTypes`' failed `popTypeResolution` (`checker.go:19189`) reports at
+  every class or interface declaration of the symbol. This is the arm a
+  type-level cycle reaches: `class Foo extends NextType<Foo>`, where
+  `NextType`'s default `T = C['someProp']` needs `Foo`'s members while `Foo`'s
+  base types are being resolved (TypeScript#16861,
+  `circularConstraintYieldsAppropriateError`). `Resolutions::pop` already
+  answered whether the frame stayed cycle-free; `get_base_types` discarded it.
+* `resolveBaseTypesOfInterface`'s `t == baseType || hasBaseType(baseType, t)`
+  arm (`:19508`) reports at the interface declaration.
+* `resolveBaseTypesOfClass`'s same test (`:19260`) reports at the class's
+  value declaration.
+
+It replaces check.rs's `check_recursive_base_type`, a reachability walk over
+`extends` names that reported once per symbol at its first declaration. That
+walk could not see type-level cycles. Its dispatch line now forces
+`get_base_types` for each class and interface declaration
+(`check_base_types_resolved`), as `checkClassLikeDeclaration` and
+`checkInterfaceDeclaration` do.
+
+*Dedupe.* A mutual interface cycle closes both the interface arm and the
+failed pop for the same declaration. Upstream reports twice and
+`SortAndDeduplicateDiagnostics` folds the pair. This collection does not
+dedupe, so `BaseTypeLinks::circular_reported` (key: declaration; owner: this
+checker; published once) skips the second report.
+
+*Not ported.* `t.objectFlags &^= ObjectFlagsMembersResolved` after a cycle:
+this checker's member tables are not published through that flag.
+
+*Measured.* Syntactic cycles match tsgo line for line, including a merged
+interface that reports at both declarations (the walk reported once).
+`circularConstraintYieldsAppropriateError` still lacks its TS2310: this
+checker does not force `Foo`'s members while instantiating `NextType`'s
+default `C['someProp']`, so the failed-pop arm is not reached. That cycle is
+the instantiation lane's to produce, and this arm reports it once it does.
+
+*Falsifier.* A TS2310 count that differs from upstream on merged interface
+declarations (one report per offending declaration), or a TS2310 on a class
+cycle (that is TS2506's, from the base constructor type, before this
+resolution runs).
 
 ## §29 TS2564's constructor arm on the flow query (CLASS-PROPERTY-INITIALIZER)
 
@@ -594,6 +765,34 @@ unresolved-value walk and is routed. Until it lands,
 `shorthandPropertyAssignmentsInDestructuring` (both variants) and
 `objectLiteralErrors` keep an extra TS18004 beside the now-correct TS1312.
 
+
+## §31 TS1341 and TS1368, a class constructor spelled as an accessor or generator
+
+*TS1341* (`checker.go:2936`) is an ungated `c.error` in
+`checkAccessorDeclaration`, right after the grammar block: an accessor named
+by the identifier `constructor` in a class-like. It is reported from
+`check_accessor_pair_modifiers` (grammar.rs), which the check walk already
+calls once per accessor (§25), so it needs no new dispatch.
+
+*TS1368* (`checker.go:2798`) is `checkMethodDeclaration`'s first block. When
+`checkGrammarMethod` reports nothing, a generator method named by the
+identifier `constructor` gets `c.error(name)`. An object-literal method is
+checked by `checkObjectLiteralMethod` and never reaches it (tsgo is silent on
+`{ *constructor() {} }`). The check walk calls
+`check_method_named_constructor_is_not_generator` from the same `||`-chain
+arm as §25's arrow check, i.e. only when `checkGrammarParameterList`
+reported nothing. It asks the remaining arms that can answer for a class
+member named by an identifier: `checkGrammarModifiers` (memoized), and
+`checkGrammarForGenerator`'s ambient and overload conditions, whose reports
+stay check.rs's. Every grammar arm answers `false` in a file with parse
+diagnostics, and TS1368 then still stands, as upstream. Not consulted:
+`checkGrammarForUseStrictSimpleParameterList` (TS1346/TS1347), which is not
+ported. A generator constructor with a non-simple parameter list under a
+`"use strict"` prologue would report TS1368 where upstream reports only the
+use-strict error.
+*Falsifier.* TS1368 on an object-literal method, or beside TS1222/TS1221 on
+the same method. Converted: `constructorNameInAccessor`,
+`constructorNameInGenerator`.
 
 ## §32 TS18012, `#constructor` (PRIVATE-IDENTIFIER-GRAMMAR split)
 
@@ -750,6 +949,49 @@ located at its tag. `check_grammar_accessor_declaration` read only a written
 value parameter, exactly as `check_grammar_parameter_list` reads its
 reparsed `?` (ADR-0046), and reports at the tag. Converted:
 `jsDeclarationsReusesExistingTypeAnnotations`.
+
+## §37 Nothing below a `with` body is checked (needs check.rs grant (f))
+
+`checkWithStatement` (`checker.go:4156`) checks the head expression and
+reports TS2410, but never hands the statement to `checkSourceElement`. No
+check of any kind runs on a `with` body upstream: grammar, names, types or
+unused tracking. The references there are never resolved either, so they do
+not count as uses. The check walk (`check_node`, check.rs) descended into the
+body anyway. Several rules carry their own `is_inside_with_statement` guard
+for this (TS1156, `r5-smallcodes2.md` §2.1), and every rule without one
+reported there. `check_node` now skips the `WithStatement`'s statement child.
+The per-rule guards are redundant from here on; they are kept, since they
+still describe the rule's own reading. Measured on the exact oracle (filter
+`ith`): `functionExpressionInWithBlock`, `withStatementErrors`,
+`parserWithStatement2` and `withStatements` convert, none lost.
+*Falsifier.* A native diagnostic inside a `with` body that is not from the
+parser or the binder.
+
+## §38 `error_span`'s missing `GetErrorRangeForNode` arms (needs check.rs grant (e))
+
+`GetErrorRangeForNode` (`scanner.go:2588`) has arms that the shared
+`error_span` (check.rs) lacked. Every report at these nodes therefore had the
+whole node's span.
+
+* `KindConstructor` (`:2632`, unless reparsed): from the first token,
+  modifiers included, to the end of the `constructor` keyword or a
+  string-literal name (`constructor_error_span`, class_fields.rs, §35).
+* `KindArrowFunction`: `getErrorRangeForArrowFunction` (`:2542`), from the
+  arrow's start to its end, or, when the block body's full start (the end of
+  `=>`) and end are on different lines, to that first line's end
+  (`arrow_function_error_span`).
+* `KindFunctionExpression`: `GetNameOfDeclaration`, whose assigned-name arm
+  (`GetAssignedName`, `ast/utilities.go:1486`) names an anonymous function
+  after the variable, property, binding element or assignment target it is
+  given to (`assigned_name_of`). With no name at all, the first token
+  (`:2644`, `GetRangeOfTokenAtPosition`).
+* `KindClassExpression`: its own name only, else the first token.
+
+These change the span of every report anchored at such a node: TS2377 and
+TS2392 at constructors, TS1356's related "Did you mean to mark this function
+as 'async'?" (`awaitInNonAsyncFunction`), implicit-any reports at function
+expressions, and others.
+*Falsifier.* A span-only oracle difference at one of these four node kinds.
 
 ## §39 TS6203 on TS2403/TS2717 (subsequent declarations of another type)
 
