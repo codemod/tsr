@@ -108,6 +108,10 @@ pub(crate) struct InstantiationExpressionLinks {
     /// the stack: inserted before the body is evaluated, removed after. A
     /// re-entrant reference keeps the named mint (`r7-declared.md` §10).
     pub(crate) union_alias_in_progress: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// The source properties whose declaration-reuse test
+    /// (`Checker::mapped_property_member`, mapped.rs) is running: inserted
+    /// around the test; a re-entry prints the type (`r7-declared.md` §57).
+    pub(crate) mapped_reuse_in_progress: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// The aliases whose class/interface-reference body
     /// (`Checker::instantiate_interface_reference_alias`, declared.rs) is
     /// being evaluated: inserted before, removed after. A re-entry marks the

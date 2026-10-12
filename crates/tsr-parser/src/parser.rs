@@ -94,6 +94,14 @@ pub struct JSDocTable<'a> {
 }
 
 impl<'a> JSDocTable<'a> {
+    /// `SetJSDocDiagnostics(attachFileToDiagnostics(p.jsdocDiagnostics, …))`
+    /// (`parser.go:468`): the comments' diagnostics get the file on their
+    /// related information as the file's own do
+    /// ([`crate::attach_file_to_diagnostics`]).
+    pub fn attach_file_to_diagnostics(&mut self, file_name: &str, text: &str) {
+        crate::attach_file_to_diagnostics(&mut self.diagnostics, file_name, text);
+    }
+
     pub(crate) fn publish<'b>(
         &self,
         publication: &mut tsr_ast::publication::Publication<'b>,

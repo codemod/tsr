@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1848/1928 (95.85%)
-Assertion lines: 78071/78552 (99.39%)  — a gradient, not a pass rate
-Failed         : 80
+Passed         : 1852/1928 (96.06%)
+Assertion lines: 78117/78552 (99.45%)  — a gradient, not a pass rate
+Failed         : 76
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -47,10 +47,6 @@ compiler/computerPropertiesInES5ShouldBeTransformed(target=es2015)
   computerPropertiesInES5ShouldBeTransformed.ts: >b : error — expected >b : ({ [`key`]: renamed }: { key: any; }) => any
 compiler/contextuallyTypedOptionalProperty(exactoptionalpropertytypes=true)
   contextuallyTypedOptionalProperty.ts: >{ y: match(y => y > 0) } : { y: number | undefined; } — expected >{ y: match(y => y > 0) } : { y: number; }
-compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=false)
-  declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >x : { foo?: string | undefined; baz?: undefined; } & { bar: number; } & A — expected >x : { foo?: string; baz?: undefined; } & { bar: number; } & A
-compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=true)
-  declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >x : { foo?: string | undefined; baz?: undefined; } & { bar: number; } & A — expected >x : { foo?: string; baz?: undefined; } & { bar: number; } & A
 compiler/declarationEmitWithDefaultAsComputedName(target=es2015)
   main.ts: >other : Experiment<"foo"> — expected >other : { name: "foo"; }
 compiler/declarationEmitWithDefaultAsComputedName2(target=es2015)
@@ -71,8 +67,6 @@ compiler/divergentAccessorsTypes3(target=es2015)
   divergentAccessorsTypes3.ts: >u1.prop1 : string — expected >u1.prop1 : string | number
 compiler/downlevelLetConst16(target=es2015)
   downlevelLetConst16.ts: >y : any — expected >y : undefined
-compiler/duplicateObjectLiteralProperty(target=es2015)
-  duplicateObjectLiteralProperty.ts: >y : { a: number; } — expected >y : { readonly a: number; }
 compiler/es5-yieldFunctionObjectLiterals(target=es2015)
   es5-yieldFunctionObjectLiterals.ts: >objectLiteral1 : error — expected >objectLiteral1 : () => Generator<number, void, unknown>
 compiler/importHelpers(target=es2015)
@@ -133,8 +127,6 @@ conformance/emitArrowFunctionWhenUsingArguments08(alwaysstrict=true,target=es201
   emitArrowFunctionWhenUsingArguments08.ts: >a : () => any — expected >a : () => (arguments: any) => any
 conformance/emitArrowFunctionWhenUsingArguments08_ES6(alwaysstrict=true)
   emitArrowFunctionWhenUsingArguments08_ES6.ts: >a : () => any — expected >a : () => (arguments: any) => any
-conformance/emitCompoundExponentiationAssignmentWithIndexingOnLHS3(target=es2015)
-  emitCompoundExponentiationAssignmentWithIndexingOnLHS3.ts: >object : error — expected >object : { _0: number; 0: number; }
 conformance/emptyVariableDeclarationBindingPatterns01_ES5(target=es2015)
   emptyVariableDeclarationBindingPatterns01_ES5.ts: >f : ({}?: any, []?: any, { p: {} }?: any) => any — expected >f : ({}?: any, []?: any, { p: {} }?: any) => ({}?: any, []?: any, { p: {} }?: any) => any
 conformance/emptyVariableDeclarationBindingPatterns01_ES5iterable(target=es2015)

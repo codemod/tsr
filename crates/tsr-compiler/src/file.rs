@@ -79,12 +79,14 @@ impl<'a> ProgramFile<'a> {
         // `parseSourceFileWorker`'s `attachFileToDiagnostics`: the parser
         // cannot, as it never sees the file name.
         tsr_parser::attach_file_to_diagnostics(&mut diagnostics, file_name, text);
+        let mut jsdoc = parsed.jsdoc;
+        jsdoc.attach_file_to_diagnostics(file_name, text);
         Self {
             path,
             file_name,
             text,
             source_file: parsed.source_file,
-            jsdoc: parsed.jsdoc,
+            jsdoc,
             node_range: parsed.node_range,
             diagnostics,
             file_references: parsed.file_references,

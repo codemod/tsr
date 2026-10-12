@@ -920,8 +920,71 @@ impl Checker<'_, '_> {
     /// retrace, which names a pair as `isRelatedTo` normalized it
     /// (r7-reports §78).
     pub(crate) fn chain_simplified_indexed_access(&mut self, id: TypeId) -> TypeId {
+        self.chain_simplified_indexed_access_for(id, false)
+    }
+
+    /// [`Checker::chain_simplified_indexed_access`] for either side:
+    /// `isRelatedTo` normalizes its target as written to (`writing`).
+    pub(crate) fn chain_simplified_indexed_access_for(
+        &mut self,
+        id: TypeId,
+        writing: bool,
+    ) -> TypeId {
         let mut relater = Relater::new(self, Relation::Assignable, None);
-        relater.simplified_indexed_access(id, false)
+        relater.simplified_indexed_access(id, writing)
+    }
+
+    /// `constructorVisibilitiesAreCompatible` (`relater.go:4520`): the
+    /// source and target constructor accessibilities (`private`,
+    /// `protected`, or `None` for public) when the source's is not
+    /// assignable to the target's, else `None`.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn constructor_visibility_mismatch(
+        &self,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+    ) -> Option<(Option<tsr_ast::SyntaxKind>, Option<tsr_ast::SyntaxKind>)> {
+        use tsr_ast::{ModifierLike, Node, SyntaxKind};
+        let visibility = |signature: &crate::signatures::Signature| {
+            let modifiers = match self.node_map.get(signature.declaration) {
+                Some(Node::ConstructorDeclaration(node)) => node.modifiers,
+                _ => return None,
+            };
+            modifiers.iter().find_map(|modifier| match modifier {
+                ModifierLike::Token(token)
+                    if matches!(
+                        token.kind,
+                        SyntaxKind::PrivateKeyword | SyntaxKind::ProtectedKeyword
+                    ) =>
+                {
+                    Some(token.kind)
+                }
+                _ => None,
+            })
+        };
+        let source = visibility(source);
+        let target = visibility(target);
+        let compatible = target == Some(SyntaxKind::PrivateKeyword)
+            || (target == Some(SyntaxKind::ProtectedKeyword)
+                && source != Some(SyntaxKind::PrivateKeyword))
+            || (target != Some(SyntaxKind::ProtectedKeyword) && source.is_none());
+        (!compatible).then_some((source, target))
+    }
+
+    /// `signaturesRelatedTo` (`relater.go:4441`) for one signature kind of a
+    /// pair, as the report retrace asks it: a kind that relates is passed
+    /// over and the next one explained (r7-reports §96).
+    pub(crate) fn chain_signature_kind_related(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Ternary {
+        let mut relater = Relater::new(self, Relation::Assignable, None);
+        let answer = relater
+            .related_signature_kind(source, target, kind)
+            .map_or(Ternary::Unknown, RelationResult::public_answer);
+        if relater.overflow { Ternary::Unknown } else { answer }
     }
 
     /// [`Checker::relate_ternary`] as `typeRelatedToEachType` relates each
@@ -3835,30 +3898,7 @@ impl Relater<'_, '_, '_> {
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
     ) -> bool {
-        use tsr_ast::{ModifierLike, Node, SyntaxKind};
-        let visibility = |signature: &crate::signatures::Signature| {
-            let modifiers = match self.checker.node_map.get(signature.declaration) {
-                Some(Node::ConstructorDeclaration(node)) => node.modifiers,
-                _ => return None,
-            };
-            modifiers.iter().find_map(|modifier| match modifier {
-                ModifierLike::Token(token)
-                    if matches!(
-                        token.kind,
-                        SyntaxKind::PrivateKeyword | SyntaxKind::ProtectedKeyword
-                    ) =>
-                {
-                    Some(token.kind)
-                }
-                _ => None,
-            })
-        };
-        let source = visibility(source);
-        let target = visibility(target);
-        target == Some(SyntaxKind::PrivateKeyword)
-            || (target == Some(SyntaxKind::ProtectedKeyword)
-                && source != Some(SyntaxKind::PrivateKeyword))
-            || (target != Some(SyntaxKind::ProtectedKeyword) && source.is_none())
+        self.checker.constructor_visibility_mismatch(source, target).is_none()
     }
 
     /// hasExcessProperties' Object/empty-object exemption for assignability
@@ -5141,6 +5181,18 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, constraint]);
             }
+            // A deferred `keyof` source is instantiable too: the source
+            // switch's index arm relates the property-key domain
+            // (relater.go:3694; r7-reports §102).
+            if !result.is_success() && self.checker.deferred_keyof_operands.contains_key(&source) {
+                let keys = self.checker.get_union_type(&[
+                    self.checker.intrinsics.string,
+                    self.checker.intrinsics.number,
+                    self.checker.intrinsics.es_symbol,
+                ]);
+                let keys = self.is_related_to_with_flags(keys, target, RecursionFlags::SOURCE);
+                return RelationResult::any([result, keys]);
+            }
             // The same fallthrough for a type variable: `S extends "a" | "b"`
             // relates to `"a" | "b"` through its constraint, and `T["kind"]`
             // with `T extends { kind: SK }` to `SK` (relater.go:3652), not
@@ -5196,6 +5248,18 @@ impl Relater<'_, '_, '_> {
                 && let Some(constraint) = self.string_like_source_constraint(source, target)
             {
                 return RelationResult::any([result, constraint]);
+            }
+            // A deferred `keyof` source is instantiable too: the source
+            // switch's index arm relates the property-key domain
+            // (relater.go:3694; r7-reports §102).
+            if !result.is_success() && self.checker.deferred_keyof_operands.contains_key(&source) {
+                let keys = self.checker.get_union_type(&[
+                    self.checker.intrinsics.string,
+                    self.checker.intrinsics.number,
+                    self.checker.intrinsics.es_symbol,
+                ]);
+                let keys = self.is_related_to_with_flags(keys, target, RecursionFlags::SOURCE);
+                return RelationResult::any([result, keys]);
             }
             // The same fallthrough for a type variable: `S extends "a" | "b"`
             // relates to `"a" | "b"` through its constraint, and `T["kind"]`

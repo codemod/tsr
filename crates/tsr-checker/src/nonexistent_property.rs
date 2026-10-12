@@ -245,7 +245,7 @@ impl Checker<'_, '_> {
                 };
             let Some(file) = self.source_file_of_for_diagnostics(report_node) else { return };
             let span = self.error_span(report_node);
-            let printed = self.type_to_string(receiver_type);
+            let printed = self.type_to_string_for_message(receiver_type, node);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -383,7 +383,7 @@ impl Checker<'_, '_> {
                 let Some(argument) = access.argument_expression else { return };
                 let Some(argument_id) = argument.node_id() else { return };
                 let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                let printed = self.type_to_string(receiver_type);
+                let printed = self.type_to_string_for_message(receiver_type, node);
                 // `checkElementAccess` widens the receiver for an assignment
                 // target or a method access for a call, and
                 // `getWidenedTypeOfObjectLiteral` does not carry
@@ -566,7 +566,7 @@ impl Checker<'_, '_> {
             let span = self.error_span(name_id);
             // `typeName+"."+propName` (`checker.go:11553-11556`): the printed
             // containing type, `List<T>.Foo`, not the class's name.
-            let printed = self.type_to_string(containing);
+            let printed = self.type_to_string_for_message(containing, node);
             let member = format!("{printed}.{name_text}");
             self.report(
                 file,
@@ -587,7 +587,7 @@ impl Checker<'_, '_> {
         {
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
-            let printed = self.type_to_string(containing);
+            let printed = self.type_to_string_for_message(containing, node);
             self.report(
                 file,
                 Self::chained_miss(
@@ -615,7 +615,7 @@ impl Checker<'_, '_> {
             let suggestion = suggestion.to_string();
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
-            let printed = self.type_to_string(containing);
+            let printed = self.type_to_string_for_message(containing, node);
             let mut diagnostic = Self::chained_miss(
                 union_miss,
                 &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
@@ -653,7 +653,7 @@ impl Checker<'_, '_> {
             let index_type = self.check_expression(index);
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
             let span = self.error_span(node);
-            let printed = self.type_to_string(receiver_type);
+            let printed = self.type_to_string_for_message(receiver_type, node);
             let child = self.related_diagnostic_at(
                 node,
                 &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
@@ -678,7 +678,7 @@ impl Checker<'_, '_> {
         let never_intersection = apparent_receiver == self.intrinsics.never
             && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION);
         let shown = if never_intersection { apparent_receiver } else { containing };
-        let printed = self.type_to_string(shown);
+        let printed = self.type_to_string_for_message(shown, node);
         // `elaborateNeverIntersection` (`checker.go:21868`), on the property
         // access road only (`reportNonexistentProperty`): the intersection,
         // printed unreduced, and the property that reduced it.
@@ -811,7 +811,7 @@ impl Checker<'_, '_> {
             if self.apparent_type_lacks(apparent, name)? {
                 // `NewDiagnosticChainForNode(nil, propNode, …)`: the child
                 // carries the file (§56).
-                let printed = self.type_to_string(constituent);
+                let printed = self.type_to_string_for_message(constituent, node);
                 let span = self.error_span(name_id);
                 return Some(self.related_diagnostic_at(
                     name_id,
@@ -1035,6 +1035,25 @@ impl Checker<'_, '_> {
             // getApparentType's head: a type parameter reads through its base
             // constraint, `unknown` when it has none.
             let mut apparent = self.apparent_type(receiver);
+            // getConstraintFromTypeParameter (`checker.go:17085`): a written
+            // `any` constraint is `unknownType` outside a mapped type's key,
+            // so `T extends any` reads through `unknown` as an unconstrained
+            // parameter does (`typeParameterExplicitlyExtendsAny`).
+            let mapped_key = self.binder.symbols().get(symbol).declarations.iter().any(|&d| {
+                self.nodes
+                    .parent(d)
+                    .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::MappedType)
+            });
+            if apparent == self.intrinsics.any
+                && !mapped_key
+                && self.type_parameter_constraint(receiver).is_some_and(|constraint| {
+                    !self.is_error(constraint)
+                        && !self.is_gap(constraint)
+                        && self.store.get(constraint).flags.intersects(TypeFlags::ANY)
+                })
+            {
+                apparent = receiver;
+            }
             if self.store.get(apparent).flags.intersects(TypeFlags::TYPE_PARAMETER) {
                 // No (or a circular) base constraint: `unknownType`, which is
                 // `{}` outside strictNullChecks (checker.go:21754-21759).
@@ -1957,8 +1976,9 @@ impl Checker<'_, '_> {
         match self.node_map.get(receiver) {
             // A `never` result carries no members whatever the return
             // modelling; `getApparentType(never)` misses every name.
-            Some(Node::CallExpression(_)) => {
+            Some(Node::CallExpression(call)) => {
                 self.store.get(flowed).flags.contains(crate::flags::TypeFlags::NEVER)
+                    || self.call_result_is_written(call, flowed)
             }
             Some(Node::Identifier(identifier)) => {
                 let text = identifier.text;
@@ -2001,6 +2021,32 @@ impl Checker<'_, '_> {
             }
             _ => true,
         }
+    }
+
+    /// Whether a call receiver's type is its callee's written answer: every
+    /// call signature of the callee (the overloads resolution picks among)
+    /// has a written return annotation and no type parameters, and all of
+    /// them return the call's type. No inference or overload choice can
+    /// then make native's answer differ (`r7-flow.md` §65). An inferred or
+    /// generic return is this port's inference, which the certificate does
+    /// not trust (§30: `super.returnThis()`'s inferred `this`).
+    fn call_result_is_written(
+        &mut self,
+        call: &tsr_ast::CallExpression<'_>,
+        flowed: TypeId,
+    ) -> bool {
+        let Some(callee) = call.expression else { return false };
+        if matches!(callee, tsr_ast::Expression::KeywordExpression(_)) {
+            return false;
+        }
+        let callee_type = self.check_expression(callee);
+        let Some(signatures) = self.call_signatures_of_type(callee_type) else { return false };
+        !signatures.is_empty()
+            && signatures.iter().all(|signature| {
+                signature.written_return.is_some()
+                    && signature.type_parameters.is_empty()
+                    && signature.r#type == flowed
+            })
     }
 
     /// Can no narrowing reach this identifier reference?

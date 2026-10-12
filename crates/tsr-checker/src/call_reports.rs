@@ -248,7 +248,24 @@ impl<'a> Checker<'a, '_> {
             let Some(target) = self.signature_type_at_position(signature, position) else {
                 return ApplicabilityReport::Declined;
             };
-            if self.is_gap(target) {
+            // A literal argument checked against a `NoInfer` of an object
+            // type (`getNoInferType` keeps the wrapper there,
+            // `isNoInferTargetType`): native's contextual type reads through
+            // the substitution and keeps the literal's members literal
+            // (`foo3('foo', ['bar'])` elaborates `"bar"` against `"foo"`);
+            // this port's check under the wrapper widened them, so the pair is
+            // not native's.
+            if self.is_gap(target)
+                || (matches!(
+                    *argument,
+                    ReportArgument::Written(expression)
+                        if matches!(
+                            Self::effective_check_expression(expression),
+                            Expression::ObjectLiteralExpression(_)
+                                | Expression::ArrayLiteralExpression(_)
+                        )
+                ) && self.holds_kept_no_infer(target, 3))
+            {
                 return ApplicabilityReport::Declined;
             }
             let (at, source, expression, written) = match *argument {
@@ -364,25 +381,91 @@ impl<'a> Checker<'a, '_> {
             }
         }
         if let Some(rest) = rest {
-            // `getSpreadArgumentType` over the trailing arguments. With none
-            // it is the empty tuple, reported at the call itself
-            // (`restArgCount == 0`, errorNode = node). Trailing arguments
-            // need its full construction (contextual element types, spread
-            // tuples), which this pass does not build yet: declined.
-            if arguments.len() > argument_count {
-                return ApplicabilityReport::Declined;
-            }
+            // `getSpreadArgumentType` over the trailing arguments
+            // (`checker.go:9312`). With none it is the empty tuple, reported
+            // at the call itself (`restArgCount == 0`, errorNode = node).
+            // With trailing written arguments it is the inference tail's
+            // tuple (`inference_spread_argument_type`: tuple spreads
+            // expanded, each element widened under its contextual element
+            // type), reported at the one trailing argument or over the span
+            // from the first to the last (`createSyntheticExpression` with
+            // that location). A synthetic argument anywhere (a decorator's,
+            // a tagged template's strings, an expanded tuple spread) keeps
+            // the written list from lining up: declined.
             if self.is_gap(rest) {
                 return ApplicabilityReport::Declined;
             }
-            let spread = self.create_tuple_type(Vec::new(), false);
+            let (spread, at, span) = if arguments.len() > argument_count {
+                let mut written = Vec::with_capacity(arguments.len());
+                let mut checked_types = Vec::with_capacity(arguments.len());
+                for (position, argument) in arguments.iter().enumerate() {
+                    let ReportArgument::Written(expression) = *argument else {
+                        return ApplicabilityReport::Declined;
+                    };
+                    let ty = match checked.get(position).copied().flatten() {
+                        Some(ty) => ty,
+                        None if matches!(expression, Expression::SpreadElement(_)) => {
+                            self.intrinsics.unknown
+                        }
+                        None => self.check_expression(expression),
+                    };
+                    written.push(expression);
+                    checked_types.push(ty);
+                }
+                let Some(spread) = self.inference_spread_argument_type(
+                    &written,
+                    &checked_types,
+                    argument_count,
+                    rest,
+                ) else {
+                    return ApplicabilityReport::Declined;
+                };
+                let (Some(first), Some(last)) = (
+                    written[argument_count].node_id(),
+                    written.last().and_then(tsr_ast::Expression::node_id),
+                ) else {
+                    return ApplicabilityReport::Declined;
+                };
+                // One trailing argument reports at `getEffectiveCheckNode`
+                // (parentheses and `satisfies` skipped).
+                if written.len() - argument_count == 1 {
+                    let Some(at) =
+                        Self::effective_check_expression(written[argument_count]).node_id()
+                    else {
+                        return ApplicabilityReport::Declined;
+                    };
+                    (spread, at, self.error_span(at))
+                } else {
+                    let span = tsr_core::Span::new(
+                        self.nodes.span(first).start,
+                        self.nodes.span(last).end,
+                    );
+                    (spread, first, span)
+                }
+            } else {
+                (self.create_tuple_type(Vec::new(), false), node, self.error_span(node))
+            };
+            // This port's relation over type variables is not trusted
+            // negative (the refusal of `could_contain_type_variables_at_head`):
+            // `f(...args)` against `...args: T` builds `[...T]`.
+            if self.is_gap(spread)
+                || self.could_contain_type_variables_at_head(spread, 3)
+                || (self.could_contain_type_variables_at_head(rest, 3)
+                    && !self.store.get(rest).flags.contains(TypeFlags::TYPE_PARAMETER))
+                || self.variadic_tuple_elements.get(&spread).is_some_and(|(elements, _)| {
+                    elements.iter().any(|element| {
+                        self.store.get(element.r#type).flags.intersects(TypeFlags::INSTANTIABLE)
+                    })
+                })
+            {
+                return ApplicabilityReport::Declined;
+            }
             match self.relate_ternary(spread, rest, Relation::Assignable) {
                 Ternary::Related => {}
                 Ternary::Unknown => return ApplicabilityReport::Declined,
                 Ternary::NotRelated => {
-                    let span = self.error_span(node);
                     return if self.report_relation_failure(
-                        node,
+                        at,
                         span,
                         None,
                         spread,
@@ -401,6 +484,25 @@ impl<'a> Checker<'a, '_> {
         ApplicabilityReport::Applicable
     }
 
+    /// Whether `t` holds, at its head, inside a union or intersection, or in
+    /// a type reference's arguments (to `depth` levels), a `NoInfer`
+    /// reference whose base `isNoInferTargetType` accepts: a wrapper
+    /// `getNoInferType` keeps.
+    fn holds_kept_no_infer(&self, t: TypeId, depth: u8) -> bool {
+        if let Some(base) = self.no_infer_base_type(t) {
+            return self.is_no_infer_target_type(base);
+        }
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(t).data
+        {
+            return types.iter().any(|&member| self.holds_kept_no_infer(member, depth));
+        }
+        depth != 0
+            && self.type_reference_targets.get(&t).is_some_and(|(_, arguments)| {
+                arguments.iter().any(|&argument| self.holds_kept_no_infer(argument, depth - 1))
+            })
+    }
+
     /// Whether a written argument's published type (`source`) is the type
     /// `checkExpressionWithContextualType(arg, target)` gives it natively,
     /// asked once the pair fails; `false` declines the report.
@@ -417,8 +519,8 @@ impl<'a> Checker<'a, '_> {
     ///   has a member this port cannot resolve; an array literal is native's
     ///   unless either side is tuple-like or could contain type variables
     ///   (tuple-ness follows the context), or an element could keep a
-    ///   literal; a class expression (a re-check re-creates the class)
-    ///   declines.
+    ///   literal; a class expression declines (inference from one is not
+    ///   native's, so neither is the instantiation it is related against).
     ///
     /// A mapped type with an `as` clause is a published type this port
     /// computes by a road native does not take, and declines everywhere.
@@ -451,6 +553,19 @@ impl<'a> Checker<'a, '_> {
                 !(self.literal_member_may_keep_literal(inner, target, 3)
                     || self.absent_member_is_unreadable(source, target))
             }
+            // An empty literal has no element to widen: under a tuple-like
+            // target its checked type is the empty tuple whatever the
+            // instantiation (`f0([])` against `[T, ...U[]]`).
+            Expression::ArrayLiteralExpression(literal)
+                if literal.elements.is_empty()
+                    && self.is_tuple_like_type(target)
+                    && self
+                        .tuple_element_lists
+                        .get(&source)
+                        .is_some_and(|(types, _)| types.is_empty()) =>
+            {
+                true
+            }
             Expression::ArrayLiteralExpression(_) => {
                 !(self.is_tuple_like_type(source)
                     || self.is_tuple_like_type(target)
@@ -458,6 +573,11 @@ impl<'a> Checker<'a, '_> {
                     || self.could_contain_type_variables_at_head(target, 3)
                     || self.literal_member_may_keep_literal(inner, target, 3))
             }
+            // A class expression's type does not follow the context, but
+            // this port's inference from one (a generic candidate's `T`
+            // read off a static or instance member) is not native's, so
+            // its instantiation is not either
+            // (typeArgumentInferenceWithClassExpression1/3).
             Expression::ClassExpression(_) => false,
             _ => !self.is_context_sensitive_argument(&argument),
         }

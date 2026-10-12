@@ -237,6 +237,45 @@ impl<'a> Checker<'a, '_> {
         out
     }
 
+    /// `checkExternalImportOrExportDeclaration`'s TS1141 (`checker.go:5333`)
+    /// for the `JSImportDeclaration` the reparser makes of an `@import` tag
+    /// with an import clause (`parser/reparser.go:119`): a module specifier
+    /// that is not a string literal is `String literal expected.`, a
+    /// `c.error`. Only a declaration that lands in a source file's or module
+    /// block's statements gets there: `checkImportDeclaration` returns at
+    /// `checkGrammarModuleElementContext` for one in a function's block
+    /// ([`Checker::jsdoc_import_declaration_parent`]).
+    pub(crate) fn check_jsdoc_import_specifiers(&mut self, node: NodeId) {
+        let Some(docs) = self.jsdoc_entries.get(&node) else { return };
+        let mut specifiers = Vec::new();
+        for doc in *docs {
+            for tag in top_level_tags(doc.tags) {
+                if let JSDocTag::JSDocImportTag(import) = tag
+                    && import.import_clause.is_some()
+                    && let Some(tag) = import.node_id
+                    && let Some(specifier) = import.module_specifier.and_then(|s| s.node_id())
+                {
+                    specifiers.push((tag, specifier));
+                }
+            }
+        }
+        for (tag, specifier) in specifiers {
+            let span = self.nodes.span(specifier);
+            if self.nodes.kind(specifier) == SyntaxKind::StringLiteral || span.start == span.end {
+                continue;
+            }
+            let at_module_level = self.jsdoc_import_declaration_parent(tag).is_some_and(|parent| {
+                matches!(self.nodes.kind(parent), SyntaxKind::SourceFile | SyntaxKind::ModuleBlock)
+            });
+            if !at_module_level {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(specifier) else { continue };
+            let span = self.error_span(specifier);
+            self.report(file, Diagnostic::new(&messages::STRING_LITERAL_EXPECTED, span));
+        }
+    }
+
     /// The type-parameter lists `gatherTypeParameters`
     /// (`parser/reparser.go:293`) reparses from the comments `node` hosts,
     /// each with the kind of the declaration it becomes the list of:

@@ -1474,6 +1474,20 @@ impl Checker<'_, '_> {
         {
             return self.compare_type_lists(args_a, args_b);
         }
+        // An indexed access has no type-name symbol (`getTypeNameSymbol`
+        // answers nil): two compare equal here and are ordered by their
+        // object and index types below, never by printed text.
+        // An alias instantiation (recorded as a reference target) is named
+        // by its alias and keeps the name comparison below.
+        if alias_a.is_none()
+            && alias_b.is_none()
+            && self.deferred_indexed_access_types.contains_key(&a)
+            && self.deferred_indexed_access_types.contains_key(&b)
+            && !self.type_reference_targets.contains_key(&a)
+            && !self.type_reference_targets.contains_key(&b)
+        {
+            return Ordering::Equal;
+        }
         let reference_a = self.type_reference_targets.get(&a);
         let reference_b = self.type_reference_targets.get(&b);
         if alias_a.is_none()
@@ -1811,6 +1825,32 @@ impl Checker<'_, '_> {
                 // order — and enum member types are created in declaration
                 // order, so the two agree for the case that reaches this.
                 _ => Ordering::Equal,
+            })
+            // "Indexed access types are ordered by their object and index
+            // types" (`utilities.go:544`): `T[string] | T[number]` sorts by
+            // the index's flags, not by which access was minted first.
+            .then_with(|| {
+                // An aliased access is named by its alias (`getTypeNameSymbol`),
+                // and the name comparison above decides it.
+                if self.alias_of.contains_key(&a)
+                    || self.alias_of.contains_key(&b)
+                    || self.type_reference_targets.contains_key(&a)
+                    || self.type_reference_targets.contains_key(&b)
+                {
+                    return Ordering::Equal;
+                }
+                match (
+                    self.deferred_indexed_access_types.get(&a),
+                    self.deferred_indexed_access_types.get(&b),
+                ) {
+                    (
+                        Some(&(left_object, left_index, _)),
+                        Some(&(right_object, right_index, _)),
+                    ) => self
+                        .compare_types(left_object, right_object)
+                        .then_with(|| self.compare_types(left_index, right_index)),
+                    _ => Ordering::Equal,
+                }
             })
             // "Fall back to type IDs. This results in type creation order."
             .then(a.cmp(&b))

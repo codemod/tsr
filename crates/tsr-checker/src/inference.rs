@@ -508,7 +508,7 @@ impl<'a> Checker<'a, '_> {
 
     /// getEffectiveCallArguments and getSpreadArgumentType (checker.go:30042,
     /// :29500), for the inference tail after ordinary positional parameters.
-    fn inference_spread_argument_type(
+    pub(crate) fn inference_spread_argument_type(
         &mut self,
         arguments: &[Expression<'_>],
         checked: &[TypeId],
@@ -2590,6 +2590,17 @@ impl<'a> Checker<'a, '_> {
         }
         self.active_inference_contexts.get_mut(&call)?.inferences = context.inferences;
         Some((map, parameters, names))
+    }
+
+    /// `core.Some(inferenceContext.inferences, hasInferenceCandidatesOrDefault)`
+    /// (`instantiateContextualType`, `checker.go:30817`) for the live
+    /// inference context around `node`: whether the `ContextFlagsSignature`
+    /// read instantiates through the non-fixing mapper at all.
+    pub(crate) fn live_inference_has_candidates_or_default(&self, node: NodeId) -> bool {
+        let Some(call) = self.live_inference_context(node) else { return false };
+        let Some(context) = self.active_inference_contexts.get(&call) else { return false };
+        context.inferences.iter().any(InferenceInfo::has_candidates)
+            || context.signature.type_parameters.iter().any(|parameter| parameter.default.is_some())
     }
 
     #[allow(clippy::type_complexity)]

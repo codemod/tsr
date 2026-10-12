@@ -1195,6 +1195,11 @@ impl<'a> Checker<'a, '_> {
                     {
                         return t;
                     }
+                    if let Some(unknown) =
+                        self.instantiated_missing_property_access(node, object, index)
+                    {
+                        return unknown;
+                    }
                 }
                 // §620: the CONCRETE arm, ahead of the deferred one. The road
                 // below prints `T[K]` as written for a type-PARAMETER index and
@@ -9899,6 +9904,21 @@ impl<'a> Checker<'a, '_> {
         {
             return;
         }
+        // An intersection body (`type Element = ElementAccessExpression & {
+        // readonly expression: Name }`) is native's intersection itself, with
+        // the alias (getTypeFromIntersectionTypeNode, checker.go:24081): a
+        // mention of it inside a lazily resolved member of its own body is
+        // that intersection. The completed placeholder carries the
+        // intersection's constituents and alias, so a union that captured it
+        // (`type Name = Identifier | Element`) distributes over it as over
+        // the declared type (BindableStatic's `Exclude<Name, Identifier>`
+        // reads `Element`; r7-declared §58).
+        if matches!(self.store.get(resolved).data,
+            crate::types::TypeData::Intersection { symbol: Some(owner), .. } if owner == symbol)
+        {
+            self.store.complete_object(placeholder, resolved);
+            return;
+        }
         let Some(literal) = self.alias_body_literal_symbol(symbol) else { return };
         if matches!(self.store.get(resolved).data,
             crate::types::TypeData::Named { members: Some(members), .. } if members == literal)
@@ -10307,10 +10327,33 @@ impl<'a> Checker<'a, '_> {
         }
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
+        let check_parameter =
+            conditional.check_type.and_then(|node| self.distributive_conditional_parameter(node));
+        let yes_is_check = check_parameter.is_some()
+            && self.distributive_conditional_parameter(yes) == check_parameter;
+        let extends = conditional.extends_type.map(|node| self.get_type_from_type_node(node));
         let yes = self.get_type_from_type_node(yes);
         let no = self.get_type_from_type_node(no);
         self.alias_evaluation_bindings.pop();
         self.instantiation_depth -= 1;
+        // getInferredTrueTypeFromConditionalType: a true branch that is the
+        // check type itself reads it as a substitution type
+        // (getConditionalFlowTypeOfType, checker.go:24952; getImpliedConstraint,
+        // :24989). Instantiated at a type variable, the substitution survives
+        // unless the extends type is a top type (instantiateType's
+        // Substitution arm: a restrictive type variable relates to nothing
+        // else), and its base constraint is getSubstitutionIntersection's.
+        let yes = match extends {
+            Some(extends)
+                if yes_is_check
+                    && extends != self.intrinsics.error
+                    && self.store.get(yes).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    && !self.store.get(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) =>
+            {
+                self.get_intersection_type(&[extends, yes], None)
+            }
+            _ => yes,
+        };
         if yes != self.intrinsics.error && no != self.intrinsics.error {
             self.conditional_constraint_branches.insert(id, (yes, no));
         }
@@ -10933,6 +10976,16 @@ impl<'a> Checker<'a, '_> {
         if declarations.is_empty() || reference.type_arguments.len() > declarations.len() {
             return None;
         }
+        // getConditionalTypeInstantiation is reached only for a conditional:
+        // a target whose chain ends elsewhere (`type B<T, V> = A<{ [Q in
+        // keyof T]: … B<T[Q], V> … }>` over a mapped `A`) answers `None`
+        // below whatever its arguments are, so they are not resolved. Native
+        // instantiates such a body lazily; resolving its arguments here
+        // re-entered `B` with a longer `T` at every level
+        // (keyofAndIndexedAccess2; r7-declared §55).
+        if !self.alias_chain_reaches_conditional(target, 0) {
+            return None;
+        }
         let error = self.intrinsics.error;
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
@@ -10980,6 +11033,37 @@ impl<'a> Checker<'a, '_> {
         };
         self.instantiation_depth -= 1;
         result
+    }
+
+    /// Whether [`Checker::evaluate_conditional_alias`] of `symbol` can reach a
+    /// conditional body: its body (parentheses skipped) is a conditional, or
+    /// a reference to a generic type alias whose chain does. The same walk
+    /// as the evaluator's dispatch, over syntax only; bounded like the
+    /// instantiation guard.
+    fn alias_chain_reaches_conditional(&mut self, symbol: SymbolId, depth: usize) -> bool {
+        if depth >= 100 {
+            return false;
+        }
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else { return false };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        match alias.r#type.and_then(Self::skip_type_parentheses) {
+            Some(TypeNode::ConditionalTypeNode(_)) => true,
+            Some(TypeNode::TypeReferenceNode(reference))
+                if !self.local_type_parameters_of(symbol).is_empty() =>
+            {
+                let Some(name) = reference.type_name else { return false };
+                let Some(target) = self.resolve_entity_name_ex(name, SymbolFlags::TYPE, false)
+                else {
+                    return false;
+                };
+                self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS)
+                    && !self.local_type_parameters_of(target).is_empty()
+                    && self.alias_chain_reaches_conditional(target, depth + 1)
+            }
+            _ => false,
+        }
     }
 
     /// getTrueTypeFromConditionalType/getFalseTypeFromConditionalType for
@@ -12184,6 +12268,86 @@ impl<'a> Checker<'a, '_> {
             self.alias_evaluated_types.insert(evaluated);
         }
         result
+    }
+
+    /// getIndexedAccessTypeEx (checker.go:26927) without an access node: a
+    /// property name the object does not have, and no index signature for
+    /// it, is `unknown`. That is the instantiation of an access that was
+    /// generic when its alias was declared (`type G<K extends string> = { a:
+    /// 1 }[K]` at `G<"b">`; limitDeepInstantiations' `Foo<"false", {}>`):
+    /// instantiateType passes no access node, so nothing is reported and
+    /// getIndexedAccessTypeOrUndefined's nil becomes `unknown`. An access
+    /// whose operands mention no parameter of the alias frame being evaluated
+    /// was resolved, with its node, at the declaration (errorType and TS2339),
+    /// and keeps that answer (r7-declared §59). A JS file's literal object is
+    /// `any` there (isJSLiteralType), not handled here.
+    fn instantiated_missing_property_access(
+        &mut self,
+        node: &tsr_ast::IndexedAccessTypeNode<'a>,
+        object: TypeId,
+        index: TypeId,
+    ) -> Option<TypeId> {
+        if self.alias_evaluation_bindings.is_empty()
+            || node.node_id.is_some_and(|id| self.in_js_file(id))
+            || self.is_error(object)
+            || self.is_error(index)
+            || !self.store.get(object).flags.contains(TypeFlags::OBJECT)
+            || self.is_generic_type(object)
+            || self.indexed_access_index_is_generic(index)
+        {
+            return None;
+        }
+        let keys = match &self.store.get(index).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![index],
+        };
+        let apparent = self.apparent_type(object);
+        let mut missing = false;
+        for key in keys {
+            let name = self.property_name_from_index(key)?;
+            if self.get_property_of_type(apparent, &name).is_some() {
+                continue;
+            }
+            if self.get_applicable_index_info(apparent, key).is_some()
+                || self.get_index_infos_of_type(apparent).is_none()
+            {
+                return None;
+            }
+            missing = true;
+        }
+        let mentions = [node.object_type, node.index_type]
+            .into_iter()
+            .flatten()
+            .filter_map(|operand| tsr_ast::Node::from(operand).node_id())
+            .any(|operand| self.subtree_mentions_frame_parameter(operand, 0));
+        (missing && mentions).then_some(self.intrinsics.unknown)
+    }
+
+    /// Whether a type node's subtree names a type parameter bound in one of
+    /// the alias-evaluation frames.
+    fn subtree_mentions_frame_parameter(&self, node: NodeId, depth: u32) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let Some(typed) = self.node_map.get(node) else { return false };
+        if let Node::TypeReferenceNode(reference) = typed
+            && let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
+            && let Some(symbol) = name.node_id.and_then(|id| {
+                self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    name.text,
+                    SymbolFlags::TYPE,
+                )
+            })
+            && self.alias_evaluation_bindings.iter().any(|frame| frame.contains_key(&symbol))
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        children.into_iter().any(|child| self.subtree_mentions_frame_parameter(child, depth + 1))
     }
 
     /// The literal-key texts of a string-literal union (or single literal, or

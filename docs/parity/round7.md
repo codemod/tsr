@@ -1203,3 +1203,66 @@ previous freeze: types +13 RIGHT / 0 lost / 0 missing, diagnostics +0 cases / 0 
 | `checker_types_configured` | 1,847 | 1,848 |
 | `diagnostics` | 5,108 | 5,108 |
 | `diagnostics_configured` | 1,033 | 1,033 |
+
+### Batch 73 — r7-contextual `1457fff5`, r7-flow `ee9b2307`, r7-reports `f214bf07`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **11036 / 12797 EXACT (86.24%)**, 32 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +4 RIGHT / 0 lost / 0 missing, diagnostics +3 cases / 0 lost / 0 missing. jsTyping 104 → 104 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0000, domain-model 1.0003. No suite's failure count rose.
+
+| Suite | Before | Batch 73 |
+|---|---|---|
+| `checker_types` | 9,037 | 9,038 |
+| `checker_types_configured` | 1,848 | 1,848 |
+| `diagnostics` | 5,108 | 5,110 |
+| `diagnostics_configured` | 1,033 | 1,034 |
+
+### Batch 74 — r7-calls `c31cb547`, r7-parser `312c66e3`, r7-printer `3c1f3b24`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **11118 / 12797 EXACT (86.88%)**, 82 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +13 RIGHT / 0 lost / 0 missing, diagnostics +12 cases / 0 lost / 0 missing. jsTyping 104 → 104 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0002, domain-model 1.0017. No suite's failure count rose.
+
+| Suite | Before | Batch 74 |
+|---|---|---|
+| `checker_types` | 9,038 | 9,040 |
+| `checker_types_configured` | 1,848 | 1,848 |
+| `diagnostics` | 5,110 | 5,121 |
+| `diagnostics_configured` | 1,034 | 1,035 |
+
+The loop blocked this batch on its jsTyping leg. moduleNameResolver.ts(1087,9) is a TS2322 that tsgo does not report and the base already printed; only its message changed, because optional parameters now print as `T | undefined`, as native's typeToString does. The integration owner landed the batch by hand. From this batch on, the leg keys false lines by location and code, so a reworded message on a line that was already false is not counted as new.
+
+**Ownership change (after batch 74).** r7-calls exhausted its call-rooted rank
+buckets, so the JS/JSDoc checking files move to it from r7-reports:
+`jsdoc_*.rs`, `js_case_data.rs`, `assignment_declarations.rs`. r7-reports
+keeps relater, assignreport, implicit_any and JSX. Grants are default-on for
+small atomic consumer hunks in another lane's file, when they share the commit's
+native root cause and pass every gate (named in the lane note). ADR-0056
+(rebasable node ids, per-file bind) is funded as a no-flag-day migration in
+r7-perf.
+
+### Batch 75 — r7-contextual `5a5b2283`, r7-flow `98781152`, r7-parser `3fe71bfd`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **11135 / 12797 EXACT (87.01%)**, 17 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +23 RIGHT / 0 lost / 0 missing, diagnostics +4 cases / 0 lost / 0 missing. jsTyping 104 → 104 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0001, domain-model 1.0006. No suite's failure count rose.
+
+| Suite | Before | Batch 75 |
+|---|---|---|
+| `checker_types` | 9,040 | 9,044 |
+| `checker_types_configured` | 1,848 | 1,848 |
+| `diagnostics` | 5,121 | 5,125 |
+| `diagnostics_configured` | 1,035 | 1,035 |
+
+### Batch 76 — r7-contextual `644412cf`, r7-declared `2cb99999`, r7-reports `71426c39`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **11150 / 12797 EXACT (87.13%)**, 15 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +57 RIGHT / 0 lost / 0 missing, diagnostics +2 cases / 0 lost / 0 missing. jsTyping 104 → 100 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0001, domain-model 1.0004. No suite's failure count rose.
+
+| Suite | Before | Batch 76 |
+|---|---|---|
+| `checker_types` | 9,044 | 9,045 |
+| `checker_types_configured` | 1,848 | 1,852 |
+| `diagnostics` | 5,125 | 5,127 |
+| `diagnostics_configured` | 1,035 | 1,035 |

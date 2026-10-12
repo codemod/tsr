@@ -1718,16 +1718,24 @@ impl Checker<'_, '_> {
                     // names it (§325's merge, keyed on written names). The
                     // pair's type goes through get_type_of_accessors, the
                     // same road class accessors take.
-                    if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
+                    // A string or numeric literal name is the same member,
+                    // spelled as the property road spells it
+                    // (`written_property_name`): `{ get 0() { … }, set 0(x) {
+                    // … } }` is `{ 0: number; }`. The binder merges the pair
+                    // into one symbol, which identifies the sibling.
+                    if !matches!(accessor.name, tsr_ast::PropertyName::ComputedPropertyName(_))
+                        && let Some(spelled) = written_property_name(&accessor.name)
+                    {
                         let Some(id) = accessor.node_id else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
                         let setter_sibling =
                             node.properties.iter().find_map(|sibling| match sibling {
                                 tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
                                     setter,
-                                ) if matches!(setter.name,
-                                    tsr_ast::PropertyName::Identifier(other)
-                                        if other.text == name.text) =>
+                                ) if setter
+                                    .node_id
+                                    .and_then(|setter| self.binder.symbol_of(setter))
+                                    == Some(symbol) =>
                                 {
                                     Some(setter)
                                 }
@@ -1737,7 +1745,7 @@ impl Checker<'_, '_> {
                             upsert_member(
                                 &mut members,
                                 Member::Property {
-                                    name: name.text.to_string(),
+                                    name: spelled.clone(),
                                     optional: false,
                                     readonly: const_context || setter_sibling.is_none(),
                                     printed: DEFERRED_ACCESSOR_TEXT.to_string(),
@@ -1780,7 +1788,7 @@ impl Checker<'_, '_> {
                                 };
                                 let printed = format!(
                                     "get {}(): {}",
-                                    name.text,
+                                    spelled,
                                     self.type_to_string(signature.r#type)
                                 );
                                 members.push(Member::Signature { printed });
@@ -1797,7 +1805,7 @@ impl Checker<'_, '_> {
                         upsert_member(
                             &mut members,
                             Member::Property {
-                                name: name.text.to_string(),
+                                name: spelled.clone(),
                                 optional: false,
                                 readonly: const_context || setter_sibling.is_none(),
                                 printed,
@@ -1897,14 +1905,16 @@ impl Checker<'_, '_> {
                     // the binder merges same-named accessors into one symbol,
                     // so both arms compute the SAME get_type_of_accessors
                     // answer and the upsert keeps one row.
-                    if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
+                    if !matches!(accessor.name, tsr_ast::PropertyName::ComputedPropertyName(_))
+                        && let Some(spelled) = written_property_name(&accessor.name)
+                    {
                         let Some(id) = accessor.node_id else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
                         if self.accessor_type_deferred(symbol) {
                             upsert_member(
                                 &mut members,
                                 Member::Property {
-                                    name: name.text.to_string(),
+                                    name: spelled.clone(),
                                     optional: false,
                                     readonly: const_context,
                                     printed: DEFERRED_ACCESSOR_TEXT.to_string(),
@@ -1951,7 +1961,7 @@ impl Checker<'_, '_> {
                                 };
                                 let printed = format!(
                                     "set {}({}: {})",
-                                    name.text,
+                                    spelled,
                                     parameter_name,
                                     self.written_annotation_text(annotation)
                                         .unwrap_or_else(|| self.type_to_string(setter_type))
@@ -1970,7 +1980,7 @@ impl Checker<'_, '_> {
                         upsert_member(
                             &mut members,
                             Member::Property {
-                                name: name.text.to_string(),
+                                name: spelled.clone(),
                                 optional: false,
                                 readonly: const_context,
                                 printed,

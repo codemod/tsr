@@ -661,16 +661,25 @@ impl<'a> Parser<'a> {
         }
         let open_brace_position = self.token.span.start;
         self.expect(SyntaxKind::OpenBraceToken);
-        if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
-            return None;
-        }
-        // `parser.go:3039`.
-        if self.at(SyntaxKind::AssertKeyword) {
-            self.error_at_current(
-                &messages::IMPORT_ASSERTIONS_HAVE_BEEN_REPLACED_BY_IMPORT_ATTRIBUTES_USE_WITH_INSTEAD_OF_ASSERT,
-            );
-        }
-        let token = self.take_token();
+        // `currentToken` (`parser.go:3036`): `with` or `assert` is consumed,
+        // anything else is reported (`'with' expected`) and stays, but is
+        // still the attributes' token, and the rest of the arm runs.
+        let token = if self.at(SyntaxKind::WithKeyword) || self.at(SyntaxKind::AssertKeyword) {
+            // `parser.go:3039`.
+            if self.at(SyntaxKind::AssertKeyword) {
+                self.error_at_current(
+                    &messages::IMPORT_ASSERTIONS_HAVE_BEEN_REPLACED_BY_IMPORT_ATTRIBUTES_USE_WITH_INSTEAD_OF_ASSERT,
+                );
+            }
+            self.take_token()
+        } else {
+            self.error_at_current_with(&messages::_0_EXPECTED, &["with"]);
+            // Native keeps `currentToken` as a kind, not a node; every reader
+            // tests it for `assert` only, so a zero-width `with` stands in.
+            // A token node of the current kind (an identifier, say) would be
+            // a second, empty node of that kind in the tree.
+            self.alloc_token(SyntaxKind::WithKeyword, tsr_core::Span::at(self.token.span.start))
+        };
         self.expect(SyntaxKind::ColonToken);
         // `parseImportAttributes(currentToken, skipKeyword=true)` takes its
         // `pos` here, after `with:`: the node is the inner `{ … }`, which is

@@ -573,6 +573,27 @@ impl<'a> Checker<'a, '_> {
         if self.contextual_prefers_uninstantiated {
             return ty;
         }
+        // No candidate and no default yet: native skips the non-fixing mapper
+        // and reads only the return mapper, so a bare `T` keeps its constraint
+        // as the apparent type (`mapped2<T extends { [P in keyof T]:
+        // TakeString }>({ foo: s => 42 })` types `s` through `TakeString`).
+        if self.live_inference_context(node).is_some()
+            && !self.live_inference_has_candidates_or_default(node)
+        {
+            if let Some((map, parameters, names)) = self.live_contextual_return_mapper(node) {
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
+                if !self
+                    .store
+                    .get(image)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY | crate::flags::TypeFlags::UNKNOWN)
+                {
+                    return image;
+                }
+            }
+            return ty;
+        }
         if let Some((map, parameters, names)) = self.live_contextual_mapper(node, &[]) {
             let names: Vec<_> = names.iter().map(String::as_str).collect();
             let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
@@ -2053,9 +2074,34 @@ impl<'a> Checker<'a, '_> {
         let holder = self.nodes.parent(pattern)?;
         let parent_type = if self.nodes.kind(holder) == tsr_ast::SyntaxKind::BindingElement {
             self.contextual_type_for_binding_element(holder)?
-        } else {
-            let annotation = self.type_annotation_of(holder)?;
+        } else if let Some(annotation) = self.type_annotation_of(holder) {
             self.get_type_from_type_node(annotation)
+        } else {
+            // `getContextualTypeForVariableLikeDeclaration(parent) || parent
+            // .initializer && checkDeclarationInitializer(parent)`
+            // (getContextualTypeForBindingElement): an unannotated root projects
+            // its initializer's type. Only an initializer that cannot read
+            // this pattern's implied type back as its own context is checked
+            // here; a literal or a form passing context through keeps the
+            // implied-pattern fallback.
+            let initializer = match self.node_map.get(holder)? {
+                Node::VariableDeclaration(declaration) => declaration.initializer?,
+                _ => return None,
+            };
+            let mut peeled = initializer;
+            while let Expression::ParenthesizedExpression(inner) = peeled {
+                peeled = inner.expression?;
+            }
+            if !matches!(
+                peeled,
+                Expression::Identifier(_)
+                    | Expression::PropertyAccessExpression(_)
+                    | Expression::ElementAccessExpression(_)
+            ) || self.in_js_file(holder)
+            {
+                return None;
+            }
+            self.check_expression(initializer)
         };
         if array {
             let Node::BindingPattern(pattern) = self.node_map.get(pattern)? else { return None };

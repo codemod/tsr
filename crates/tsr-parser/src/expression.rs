@@ -1410,6 +1410,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// `NodeFlags::HAS_TRAILING_COMMA` when a list ended in a comma.
+    fn trailing_comma_flag(trailing_comma: bool) -> tsr_ast::NodeFlags {
+        if trailing_comma {
+            tsr_ast::NodeFlags::HAS_TRAILING_COMMA
+        } else {
+            tsr_ast::NodeFlags::empty()
+        }
+    }
+
     /// typescript-go's `Parser.parseArrayLiteralExpression` (`parser.go`):
     /// `parseDelimitedList(PCArrayLiteralMembers,
     /// parseArgumentOrArrayLiteralElement)`. An elision is an
@@ -1421,7 +1430,7 @@ impl<'a> Parser<'a> {
         let open_bracket_position = self.token.span.start;
         let open_bracket_parsed = self.expect(SyntaxKind::OpenBracketToken);
         let saved_no_in = std::mem::take(&mut self.no_in);
-        let (elements, _) =
+        let (elements, trailing_comma) =
             self.parse_delimited_list(ParsingContext::ArrayLiteralMembers, Self::parse_argument);
         self.no_in = saved_no_in;
         self.expect_matching_bracket(
@@ -1431,10 +1440,16 @@ impl<'a> Parser<'a> {
             open_bracket_position,
         );
         let elements = self.arena.alloc_slice(&elements);
-        let node = self.finish_node(
+        // `NodeList.HasTrailingComma`, as a binding pattern records it: the
+        // checker's destructuring-assignment TS1013 reads it
+        // (`checkArrayLiteralDestructuringElementAssignment`).
+        let end = self.node_end().max(start);
+        let node = self.finish_node_with_flags(
             ArrayLiteralExpression::new(elements, false),
             SyntaxKind::ArrayLiteralExpression,
             start,
+            end,
+            Self::trailing_comma_flag(trailing_comma),
         );
         Expression::ArrayLiteralExpression(node)
     }
@@ -1449,7 +1464,7 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         let open_brace_position = self.token.span.start;
         let open_brace_parsed = self.expect(SyntaxKind::OpenBraceToken);
-        let (properties, _) = self.parse_delimited_list(
+        let (properties, trailing_comma) = self.parse_delimited_list(
             ParsingContext::ObjectLiteralMembers,
             Self::parse_object_literal_element,
         );
@@ -1460,10 +1475,15 @@ impl<'a> Parser<'a> {
             open_brace_position,
         );
         let properties = self.arena.alloc_slice(&properties);
-        let node = self.finish_node(
+        // `NodeList.HasTrailingComma`: the checker's destructuring-assignment
+        // TS1013 reads it (`checkObjectLiteralDestructuringPropertyAssignment`).
+        let end = self.node_end().max(start);
+        let node = self.finish_node_with_flags(
             ObjectLiteralExpression::new(properties, false),
             SyntaxKind::ObjectLiteralExpression,
             start,
+            end,
+            Self::trailing_comma_flag(trailing_comma),
         );
         Expression::ObjectLiteralExpression(node)
     }

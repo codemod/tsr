@@ -7277,7 +7277,7 @@ impl<'a> Checker<'a, '_> {
                             "undefined",
                             SymbolFlags::VALUE,
                         )
-                        .is_none()
+                        .is_none_or(|symbol| Some(symbol) == self.binder.undefined_symbol())
             }
             _ => false,
         }

@@ -418,7 +418,6 @@ impl Checker<'_, '_> {
                         node,
                         true,
                         statement.label.map(|label| label.text),
-                        ambient,
                     );
                 }
                 ambient
@@ -429,7 +428,6 @@ impl Checker<'_, '_> {
                         node,
                         false,
                         statement.label.map(|label| label.text),
-                        ambient,
                     );
                 }
                 ambient
@@ -549,8 +547,12 @@ impl Checker<'_, '_> {
                         Diagnostic::new(&messages::SETTERS_CANNOT_RETURN_A_VALUE, span),
                     );
                 }
-                self.check_grammar_statement_in_ambient_context(node, ambient);
-                self.check_return_container(node, ambient);
+                // `checkReturnStatement` (`checker.go:4095`): the container
+                // test runs only when the ambient-statement check did not
+                // report, and that reports once per block.
+                if !self.check_grammar_statement_in_ambient_context(node, ambient) {
+                    self.check_return_container(node);
+                }
                 self.check_return_statement(node, ambient);
                 self.check_return_statement_implicit_returns(
                     node,
@@ -753,6 +755,7 @@ impl Checker<'_, '_> {
             Node::CallExpression(call) => {
                 self.resolve_call_before_callback_bodies(node, call.arguments);
                 self.check_call_expression_diagnostics(node);
+                self.check_import_call_type_arguments(node);
                 self.check_import_call_trailing_comma(node);
                 self.check_import_call_specifier(node);
                 ambient
@@ -993,6 +996,7 @@ impl Checker<'_, '_> {
         }
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_intrinsic_tag_exists(node, typed);
+        self.check_jsx_preconditions(node, typed);
         self.mark_jsx_alias_referenced(node, typed);
         self.check_jsx_component_bound(node, typed);
         self.check_jsx_string_literal_tag(node, typed);
@@ -1012,6 +1016,7 @@ impl Checker<'_, '_> {
             for (_, list) in self.jsdoc_template_lists(node) {
                 self.check_type_parameter_list(&list);
             }
+            self.check_jsdoc_import_specifiers(node);
         }
         if self.nodes.kind(node) == SyntaxKind::SwitchStatement {
             self.check_switch_case_comparable(node);
@@ -7446,9 +7451,25 @@ impl Checker<'_, '_> {
     fn check_constructor_type_parameters(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
         let (Some(first), Some(last)) = (node.type_parameters.first(), node.type_parameters.last())
         else {
+            let Some(id) = node.node_id else { return };
+            // In a JavaScript file the reparser gathers `@template` tags into
+            // the constructor's type parameters (`gatherTypeParameters`,
+            // `parser/reparser.go:293`), a list from the first tag's `Pos()`
+            // to the last's `End()`.
+            if let Some((start, end)) = self.jsdoc_constructor_template_range(id)
+                && let Some(file) = self.source_file_of_for_diagnostics(id)
+            {
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::TYPE_PARAMETERS_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                        tsr_core::Span::new(start, end),
+                    ),
+                );
+                return;
+            }
             // An empty `<>`: the list's `Pos() == End()`, right after the
             // `<`, so the report is zero-width there.
-            let Some(id) = node.node_id else { return };
             let Some(list) = self
                 .written_list(id, crate::resolution::WrittenListKind::TypeParameters)
                 .filter(|list| list.empty)
@@ -7478,12 +7499,52 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// The `@template` tags of a JavaScript constructor's last comment, as
+    /// the range `gatherTypeParameters` gives the reparsed list: the first
+    /// tag's start to the last tag's end. `None` without such a tag, or when
+    /// the comment declares a typedef or callback (whose type the templates
+    /// belong to).
+    fn jsdoc_constructor_template_range(&self, constructor: NodeId) -> Option<(u32, u32)> {
+        if !self.in_js_file(constructor) {
+            return None;
+        }
+        let doc = *self.jsdoc_entries.get(&constructor)?.last()?;
+        let mut range: Option<(u32, u32)> = None;
+        for tag in doc.tags {
+            match tag {
+                tsr_ast::JSDocTag::JSDocTypedefTag(_) | tsr_ast::JSDocTag::JSDocCallbackTag(_) => {
+                    return None;
+                }
+                tsr_ast::JSDocTag::JSDocTemplateTag(template) => {
+                    let span = self.nodes.span(template.node_id?);
+                    range =
+                        Some(range.map_or((span.start, span.end), |(start, _)| (start, span.end)));
+                }
+                _ => {}
+            }
+        }
+        range
+    }
+
     /// TS1093 — `Type annotation cannot appear on a constructor declaration.`
     ///
     /// `checkGrammarConstructorTypeAnnotation` (`grammarchecks.go:1874`),
     /// reported on the annotation. §823.
     fn check_constructor_type_annotation(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
-        let Some(at) = node.r#type.and_then(|t| t.node_id()) else { return };
+        // In a JavaScript file the reparser makes a `@returns` type the
+        // constructor's `Type` (`reparseHosted`), so it is reported too.
+        let reparsed = || {
+            node.node_id
+                .filter(|&id| self.in_js_file(id))
+                .and_then(|id| self.jsdoc_reparsed_function(id).return_type)
+        };
+        let Some(mut at) = node.r#type.or_else(reparsed).and_then(|t| t.node_id()) else { return };
+        // The reparsed type is the tag's type, not its `{…}` expression.
+        if let Some(Node::JSDocTypeExpression(expression)) = self.node_map.get(at)
+            && let Some(inner) = expression.r#type.and_then(|t| t.node_id())
+        {
+            at = inner;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         self.report(
@@ -8528,11 +8589,8 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
-        let (Some(first_text), Some(next_text)) =
-            (self.type_to_string_at(first, node), self.type_to_string_at(next, node))
-        else {
-            return;
-        };
+        let first_text = self.type_to_string_for_message(first, node);
+        let next_text = self.type_to_string_for_message(next, node);
         let message = if is_property {
             &messages::SUBSEQUENT_PROPERTY_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_PROPERTY_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
         } else {
@@ -8881,8 +8939,8 @@ impl Checker<'_, '_> {
     /// is nothing at all. Both branches ported — the static-block one has no
     /// blocked cases and is free, and shipping one branch of a two-branch `if`
     /// is §230's shape. §296.
-    fn check_return_container(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+    fn check_return_container(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
             return;
         }
         let container = self
@@ -8900,10 +8958,7 @@ impl Checker<'_, '_> {
         };
         // `grammarErrorOnFirstToken(node, …)` — the `return` keyword, not the
         // statement (r7-grammar §52).
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let whole = self.nodes.span(node);
-        let span = self.first_token_span(node, whole.start).unwrap_or(whole);
-        self.report(file, Diagnostic::new(message, span));
+        self.grammar_error_on_first_token(node, message);
     }
 
     /// `checkGrammarClassLikeDeclaration` and
@@ -10926,7 +10981,8 @@ impl Checker<'_, '_> {
                 &messages::DECORATORS_MAY_NOT_APPEAR_AFTER_EXPORT_OR_EXPORT_DEFAULT_IF_THEY_ALSO_APPEAR_BEFORE_EXPORT,
                 self.nodes.span(trailing),
             );
-            // Related information carries its file (r7-grammar §34, §69).
+            // `createDiagnosticForNode`, with the file `attachFileToDiagnostics`
+            // sets on a parse diagnostic's related information.
             let related = modifiers[decorator_index].node_id().map(|first| {
                 self.related_diagnostic_at(
                     first,
@@ -10969,6 +11025,7 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §608.
     fn check_rest_element_is_last(&mut self, node: NodeId, typed: Node<'_>) {
+        self.check_rest_element_trailing_comma(node, typed);
         let offenders: Vec<NodeId> = match typed {
             // The binding-pattern form is `checkGrammarBindingElement`'s
             // `grammarErrorOnNode` (`grammarchecks.go:1540`), silent in a file
@@ -11048,6 +11105,76 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// TS1013 — `A rest parameter or binding pattern may not have a trailing
+    /// comma.` for a pattern whose last element is a rest:
+    /// `checkGrammarBindingElement` (`grammarchecks.go:1542`) for `var
+    /// [...a,]`, and the destructuring-assignment arms of
+    /// `checkObjectLiteralDestructuringPropertyAssignment` (`checker.go:12636`)
+    /// and `checkArrayLiteralDestructuringElementAssignment` (`:12690`, not
+    /// when the rest has an `= initializer`). Each is
+    /// `checkGrammarForDisallowedTrailingComma`, so `grammarErrorAtPos` over
+    /// the comma, behind the file's parse errors. The parser flags the list
+    /// (`HAS_TRAILING_COMMA`); the comma is the token after the last element.
+    fn check_rest_element_trailing_comma(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors
+            || !self.nodes.flags(node).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA)
+        {
+            return;
+        }
+        let last = match typed {
+            Node::BindingPattern(pattern) => pattern
+                .elements
+                .last()
+                .filter(|element| element.dot_dot_dot_token.is_some())
+                .and_then(|element| element.node_id),
+            Node::ObjectLiteralExpression(literal) if self.is_assignment_target_literal(node) => {
+                match literal.properties.last() {
+                    Some(tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread)) => {
+                        spread.node_id
+                    }
+                    _ => None,
+                }
+            }
+            Node::ArrayLiteralExpression(literal) if self.is_assignment_target_literal(node) => {
+                match literal.elements.last() {
+                    Some(tsr_ast::Expression::SpreadElement(spread))
+                        if !matches!(
+                            spread.expression,
+                            Some(tsr_ast::Expression::BinaryExpression(binary))
+                                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+                        ) =>
+                    {
+                        spread.node_id
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let Some(last) = last else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(last) else { return };
+        let end = self.nodes.span(last).end;
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(end as usize..))
+        else {
+            return;
+        };
+        let comma = tsr_scanner::Scanner::new(rest).scan();
+        if comma.kind != SyntaxKind::CommaToken {
+            return;
+        }
+        let span = tsr_core::Span::new(end + comma.span.start, end + comma.span.end);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_REST_PARAMETER_OR_BINDING_PATTERN_MAY_NOT_HAVE_A_TRAILING_COMMA,
+                span,
+            ),
+        );
     }
 
     /// Is this array literal the left-hand side of an assignment — a
@@ -11584,23 +11711,12 @@ impl Checker<'_, '_> {
     /// whose own kind is function-like cannot occur and the first iteration is
     /// always a no-op — kept that way because it is upstream's loop and moving
     /// the start is the kind of edit that silently changes a boundary case.
-    fn check_break_or_continue(
-        &mut self,
-        node: NodeId,
-        is_break: bool,
-        label: Option<&str>,
-        ambient: bool,
-    ) {
+    fn check_break_or_continue(&mut self, node: NodeId, is_break: bool, label: Option<&str>) {
         // `checkBreakOrContinueStatement` (`checker.go:4081`) runs this grammar
         // check **only if** `checkGrammarStatementInAmbientContext` did not
-        // report — and in an ambient context that function reports TS1036
-        // `Statements are not allowed in ambient contexts` and short-circuits.
-        // TS1036 is not ported (19 cases of its own on `diaggap.rs`'s board), so
-        // the short-circuit is reproduced as a refusal: silence where upstream
-        // says something else. It was worth exactly the two wrong lines this
-        // rule's first measurement produced, `parserBreakStatement1.d` and
-        // `parserContinueStatement1.d`, both one-line `.d.ts` files.
-        if self.file_has_parse_errors || ambient {
+        // report, which the caller tests; that check reports once per block,
+        // so a later `break` in an ambient block still reaches this one.
+        if self.file_has_parse_errors {
             return;
         }
         let mut current = Some(node);
@@ -14321,6 +14437,10 @@ impl OverloadFlags {
 /// See `docs/architecture/checker-notes-diag2.md` §43.
 pub(crate) fn declaration_name_to_string(name: tsr_ast::PropertyName<'_>) -> Option<String> {
     match name {
+        // `DeclarationNameToString`: a missing name (no width) is `(Missing)`.
+        tsr_ast::PropertyName::Identifier(identifier) if identifier.text.is_empty() => {
+            Some("(Missing)".to_string())
+        }
         tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
         // The parser keeps the `#` in the text, as upstream's scanner does.
         tsr_ast::PropertyName::PrivateIdentifier(private) => Some(private.text.to_string()),
@@ -14428,3 +14548,4 @@ pub(crate) enum DuplicateMemberKey {
 fn chain_lacks_file(diagnostic: &Diagnostic) -> bool {
     diagnostic.message_chain().iter().any(|child| child.file().is_none() || chain_lacks_file(child))
 }
+

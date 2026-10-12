@@ -3866,11 +3866,11 @@ impl Checker<'_, '_> {
     /// from `checkCallExpression` (a call or `new`), `checkTaggedTemplateExpression`
     /// behind TS1358, `checkTypeReferenceNode`, `checkGrammarJsxElement` and
     /// `checkGrammarExpressionWithTypeArguments` (an expression with type
-    /// arguments or a type query, whose `import<T>` arm is TS1326, unported).
+    /// arguments or a type query, whose `import<T>` arm is TS1326).
     pub(crate) fn check_grammar_type_arguments(&mut self, node: NodeId, typed: Node<'_>) {
         match typed {
-            // An import call is `checkImportCallExpression`'s, which reports
-            // its type arguments as TS1326 instead (`checker.go:7773`).
+            // An `import(…)` call is `checkImportCallExpression`'s, never
+            // `checkCallExpression`'s; its type arguments are TS1326 there.
             Node::CallExpression(call)
                 if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
                     if keyword.kind == SyntaxKind::ImportKeyword) =>
@@ -3891,11 +3891,22 @@ impl Checker<'_, '_> {
                 }
             }
             Node::ExpressionWithTypeArguments(expression) => {
+                // `checkGrammarExpressionWithTypeArguments` (`:885`): `import`
+                // with a type-argument list (empty included) is TS1326 on
+                // the node, instead of the list checks.
                 if expression
                     .expression
                     .and_then(|expression| expression.node_id())
                     .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)
                 {
+                    let has_list = !expression.type_arguments.is_empty()
+                        || self.written_list(node, WrittenListKind::TypeArguments).is_some();
+                    if has_list && !self.file_has_parse_errors {
+                        self.grammar_error_on_node(
+                            node,
+                            &messages::THIS_USE_OF_IMPORT_IS_INVALID_IMPORT_CALLS_CAN_BE_WRITTEN_BUT_THEY_MUST_HAVE_PARENTHESES_AND_CANNOT_HAVE_TYPE_ARGUMENTS,
+                        );
+                    }
                     return;
                 }
             }

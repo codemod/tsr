@@ -1238,6 +1238,124 @@ the line of `body.Pos()`, the end of `=>`, so `() =>\n{ … }` ends at the
 `=>` line's break. The ECMAScript line terminators (U+2028, U+2029) count as line breaks too. A probe file with all three shapes now prints
 byte for byte as tsgo does.
 
+## 39. The types dump reads `getTypeOfExpression`'s quick path
+
+Consumer hunk in another lane's file, under the default grant for an atomic
+hunk of the same root cause: `tsr-conformance/src/types_producer.rs`,
+`type_id_at_location_arm_inner`'s expression arm.
+
+Native's type writer asks `getTypeAtLocation`, which reaches
+`getTypeOfExpression`. That function answers first from
+`getQuickTypeOfExpression` (`checker.go`):
+
+- a call or `new` whose non-nullable callee has exactly one non-generic
+  signature of the kind (`getSingleSignature`) answers that signature's
+  return type, without resolving the call;
+- an `await` answers the awaited quick type of its operand;
+- a non-`const` assertion answers its written type.
+
+So `new A()` on an abstract class prints `A` natively, although
+`resolveNewExpression` reports TS2511 and the checked type is the error
+type. TSR's producer printed `check_expression`'s answer (`any`).
+
+`Checker::quick_type_of_expression` (calls.rs) ports the quick path. It
+excludes `super`, `import()`, `require("…")` and `Symbol()`/`Symbol.for()`
+calls, as native does. Call chains are excluded as well
+(`propagateOptionalTypeMarker` is not ported there), and so is a JavaScript
+parenthesized expression, which may carry a JSDoc cast that native reparses
+into an assertion. The producer still checks the expression first, because
+this port's later reads (a callback parameter's contextual type) depend on
+the call having been resolved, and then prints the quick type when there is
+one. Printing it without the check moved six `contextualOverloadListFromArrayUnion`
+lines to `any`.
+
+Types dump against main `41e3bf25`: +10 RIGHT, 0 lost (abstractClassInLocalScopeIsAbstract,
+fallbackToBindingPatternForTypeInference ×6, inferFromGenericFunctionReturnTypes3,
+inferredRestTypeFixedOnce ×2).
+
+## 40. A non-array rest parameter relates its trailing arguments' spread tuple
+
+Consumer hunk in another lane's file, under the default grant: visibility
+only, `inference.rs`'s `inference_spread_argument_type` made `pub(crate)`.
+
+`isSignatureApplicable` (`checker.go:9256`) relates the arguments past a
+non-array rest parameter (a tuple, a variadic tuple, `never`) as one
+`getSpreadArgumentType` tuple. One trailing argument reports at its
+`getEffectiveCheckNode`; several report over a synthetic node spanning
+the first to the last. §16 handled the no-trailing-argument case (the
+empty tuple) and declined the rest, because the tuple's construction (tuple
+spreads expanded, each element widened under its contextual element type)
+lived only in `inference.rs`'s `inference_spread_argument_type`.
+
+That function is now `pub(crate)` (a visibility-only change in
+inference.rs). The report pass hands it the written arguments and their
+checked types, and relates its tuple to the rest type. A synthetic argument
+anywhere in the list (a decorator's, a tagged template's strings, an
+expanded tuple spread) keeps the written list from lining up with the
+effective one, so it declines. So does a pair over type variables, the
+refusal elsewhere in this file: `f(...args)` against `...args: T` builds
+`[...T]`, which this port's relater rejects where native relates it.
+
+A rest that is a bare type parameter is the one type-variable side
+admitted: a concrete spread tuple against `T` fails the way native's does
+(`'[{ a: true; }]' is assignable to the constraint of type 'T', but 'T'
+could be instantiated with a different subtype…`;
+typeSatisfaction_errorLocations1's `f({ a: true } satisfies unknown)` under
+`(...args: T) => void`). The spread itself must hold no type variable.
+
+variadicTuples2 gets five of native's missing TS2345s (`[]`, `[1, 2]`,
+`["abc", 1, "def"]`, `["abc", "def", true]` against
+`[...strs: string[], n2: number]`, and `boolean` against `number`). The
+others there sit behind generic candidates whose inference declines.
+
+## 41. Report-pass certification: empty literals, kept `NoInfer`
+
+`report_argument_type_is_certified` decides whether a written argument's
+published type is the type `checkExpressionWithContextualType(arg, target)`
+gives it natively under an instantiated candidate. Two arms change, and a
+third was tried and kept:
+
+- **A class expression still declines.** Its type does not follow the
+  context (`checkClassExpression` answers the class symbol's type), but this
+  port's inference from a class expression (a generic candidate's `T` read
+  off a member) is not native's. Certifying it turned
+  typeArgumentInferenceWithClassExpression1/3 into false TS2345s on the
+  corpus compare, so the arm stays.
+- **An empty array literal under a tuple-like target is certified** when
+  its published type is the empty tuple. It has no element to widen, so
+  `f0([])` against `[T, ...U[]]` reports `'[]'` against
+  `'[unknown, ...unknown[]]'` (restTupleElements1). Other array literals
+  under a tuple-like side still decline (tuple-ness follows the context).
+- **A literal argument against a kept `NoInfer` declines.** `getNoInferType`
+  keeps the wrapper around an object type (`isNoInferTargetType`), and
+  native's contextual type reads through the substitution, so
+  `foo3('foo', ['bar'])` keeps `"bar"` literal and elaborates it against
+  `"foo"`. This port's check under the wrapper widened it to `string[]`, so
+  the pair is not native's. noInfer's three false TS2345s (and
+  noInferUnionExcessPropertyCheck1's one) go. The contextual-type half is
+  routed.
+
+## 42. An overload failure with written type arguments instantiates by them
+
+`pickLongestCandidateSignature` (`checker.go:9510`) instantiates the
+longest generic candidate. With written type arguments it uses
+`createSignatureInstantiation(candidate, getTypeArgumentsFromNodes(…))`:
+the written list truncated to the candidate's type parameters, the tail
+filled with each parameter's default, else its constraint, else `unknown`.
+It infers (`inferSignatureInstantiationForOverloadFailure`) only when
+there are none. The transcribed walk's failure answer always inferred, and
+`check_generic_call_with` declines a written list longer than the
+candidate's type parameters. So `_.map<number, string, Date>(c2, (x, y) => …)`
+over `map<T, U>(…)` / `map<T, U, V>(…)` gapped: the walk was undone, the
+callback was left without contextual parameter types, and the TS2345 was
+lost.
+
+`instantiate_with_written_type_arguments` is the getTypeArgumentsFromNodes
+half that `written_type_argument_arity_failure` already had, now shared:
+the walk's failure answer takes it when the call has written type
+arguments. genericCombinators2 becomes exact (TS2345 at the callback,
+`r5a: Collection<any, any>`).
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
