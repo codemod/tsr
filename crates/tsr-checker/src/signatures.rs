@@ -719,6 +719,14 @@ impl<'a> Checker<'a, '_> {
                 let b = self.context_free_return_expression_type(node.when_false?)?;
                 self.union_with_subtype_reduction(&[a, b])
             }
+            // checkObjectLiteral under SkipContextSensitive: the literal's
+            // context-sensitive members are anyFunctionType, its data members
+            // checked (r7-contextual §48).
+            Expression::ObjectLiteralExpression(_)
+                if self.is_context_sensitive_argument(&expression) =>
+            {
+                self.context_free_object_inference_type(expression)
+            }
             _ if !self.is_context_sensitive_argument(&expression) => {
                 let ty = self.check_expression(expression);
                 (ty != self.intrinsics.error).then_some(ty)

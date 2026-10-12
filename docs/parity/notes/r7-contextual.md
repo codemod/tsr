@@ -1304,3 +1304,18 @@ signatures.rs's `is_literal_of_contextual_type`, under round 7's default
 grant for a small atomic consumer hunk with the same native root cause.
 The case still differs in one diagnostic span (TS2322 at the variable where
 native elaborates to the `"c"` element), which is assignreport's elaboration.
+
+## 48. A context-sensitive object-literal return infers under SkipContextSensitive (signatures.rs hunk, default grant)
+
+inferTypeArguments' first pass checks a context-sensitive function argument
+with `SkipContextSensitive`. Its return expression is then checked with its
+own context-sensitive members as `anyFunctionType` (non-inferrable), and its
+data members are typed. `canYouInferThis(() => ({ a: { BLAH: 33 }, b: x => {}
+}))` therefore infers `A = { BLAH: number }` from `a`.
+`context_free_return_expression_type`, the port's return reader for that pass,
+answered `None` for a context-sensitive object literal, and `A` was `unknown`
+(badInferenceLowerPriorityThanGoodInference 11 → 0 non-RIGHT lines; no loss
+across 67,722 related verdict lines). The arm now delegates to
+`context_free_object_inference_type`, the existing SkipContextSensitive
+object-literal image. **Cross-lane hunk:** one match arm in signatures.rs,
+under the default grant (same native root cause, every gate).
