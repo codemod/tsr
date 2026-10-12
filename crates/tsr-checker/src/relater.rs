@@ -971,6 +971,22 @@ impl Checker<'_, '_> {
         (!compatible).then_some((source, target))
     }
 
+    /// `signaturesRelatedTo` (`relater.go:4441`) for one signature kind of a
+    /// pair, as the report retrace asks it: a kind that relates is passed
+    /// over and the next one explained (r7-reports §96).
+    pub(crate) fn chain_signature_kind_related(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Ternary {
+        let mut relater = Relater::new(self, Relation::Assignable, None);
+        let answer = relater
+            .related_signature_kind(source, target, kind)
+            .map_or(Ternary::Unknown, RelationResult::public_answer);
+        if relater.overflow { Ternary::Unknown } else { answer }
+    }
+
     /// [`Checker::relate_ternary`] as `typeRelatedToEachType` relates each
     /// constituent of a target intersection: `isRelatedToEx(…,
     /// IntersectionStateTarget)`, which nested comparisons inherit
@@ -5165,6 +5181,18 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, constraint]);
             }
+            // A deferred `keyof` source is instantiable too: the source
+            // switch's index arm relates the property-key domain
+            // (relater.go:3694; r7-reports §102).
+            if !result.is_success() && self.checker.deferred_keyof_operands.contains_key(&source) {
+                let keys = self.checker.get_union_type(&[
+                    self.checker.intrinsics.string,
+                    self.checker.intrinsics.number,
+                    self.checker.intrinsics.es_symbol,
+                ]);
+                let keys = self.is_related_to_with_flags(keys, target, RecursionFlags::SOURCE);
+                return RelationResult::any([result, keys]);
+            }
             // The same fallthrough for a type variable: `S extends "a" | "b"`
             // relates to `"a" | "b"` through its constraint, and `T["kind"]`
             // with `T extends { kind: SK }` to `SK` (relater.go:3652), not
@@ -5220,6 +5248,18 @@ impl Relater<'_, '_, '_> {
                 && let Some(constraint) = self.string_like_source_constraint(source, target)
             {
                 return RelationResult::any([result, constraint]);
+            }
+            // A deferred `keyof` source is instantiable too: the source
+            // switch's index arm relates the property-key domain
+            // (relater.go:3694; r7-reports §102).
+            if !result.is_success() && self.checker.deferred_keyof_operands.contains_key(&source) {
+                let keys = self.checker.get_union_type(&[
+                    self.checker.intrinsics.string,
+                    self.checker.intrinsics.number,
+                    self.checker.intrinsics.es_symbol,
+                ]);
+                let keys = self.is_related_to_with_flags(keys, target, RecursionFlags::SOURCE);
+                return RelationResult::any([result, keys]);
             }
             // The same fallthrough for a type variable: `S extends "a" | "b"`
             // relates to `"a" | "b"` through its constraint, and `T["kind"]`
