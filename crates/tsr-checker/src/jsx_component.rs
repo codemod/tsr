@@ -670,15 +670,16 @@ impl Checker<'_, '_> {
                 Some(value) => value.node_id(),
                 None => None,
             };
-            elements.push((name_id, next, source_member, target_member));
+            elements.push((name_id, next, text, source_member, target_member));
         }
         let mut reported = false;
-        for (name_id, next, source_member, target_member) in elements {
+        for (name_id, next, text, source_member, target_member) in elements {
             let before = self.diagnostics.len();
             if let Some(next) = next {
                 self.check_excess_properties(target_member, next);
             }
             if self.diagnostics.len() != before {
+                self.add_expected_type_related_info(before, name_id, next, target, &text);
                 reported = true;
                 continue;
             }
@@ -695,6 +696,8 @@ impl Checker<'_, '_> {
                     None,
                 )
             };
+            // `elaborateElement`'s expected-type origin (r7-reports §39).
+            self.add_expected_type_related_info(before, name_id, next, target, &text);
         }
         let children = self.elaborate_jsx_children(attributes, source, target)?;
         Some(reported || children)
@@ -839,7 +842,21 @@ impl Checker<'_, '_> {
             Ternary::NotRelated => {}
         }
         let child = valid[0];
-        self.report_jsx_child_failure(child, tag, &name, source_children, children_target)
+        let before = self.diagnostics.len();
+        let reported =
+            self.report_jsx_child_failure(child, tag, &name, source_children, children_target);
+        // `elaborateElement(…, "children")` adds the expected-type origin to
+        // its own report, the TS2747 factory's included (r7-reports §39).
+        if let Some(at) = child.node_id() {
+            let next = match child {
+                tsr_ast::JsxChild::JsxExpression(expression) => {
+                    expression.expression.and_then(|inner| inner.node_id())
+                }
+                _ => None,
+            };
+            self.add_expected_type_related_info(before, at, next, target, &name);
+        }
+        reported
     }
 
     /// `elaborateIterableOrArrayLikeTargetElementwise` (`jsx.go:419`) over
