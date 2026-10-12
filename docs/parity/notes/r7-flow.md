@@ -1236,3 +1236,14 @@ Measured on `c1a10e20` unfiltered: types and diagnostics verdicts unchanged,
 0 lost; exact oracle 9681 → 9681, 0 lost; jsTyping 111 → 111, new_false 0,
 lost_true 0; Ir gi 0.9999, dm
 0.9999.
+
+§31 update: `nullish.rs`' `getSyntacticNullishnessSemantics` identifier arm
+made the same stale test (an `undefined` that "resolves to nothing"), so
+`(opt ? undefined : null) ?? x` missed TS2871 (`predicateSemantics`, two
+rows); `truthiness.rs` had already been corrected. The routed diff now covers
+both files. Re-measured on `954817a5` unfiltered: types **+6**, diagnostics
+unchanged, 0 lost; exact oracle 9681 → 9683, 0 lost; jsTyping 111 → 111,
+new_false 0, lost_true 0; Ir gi 0.9999, dm 1.0000. `predicateSemantics`
+keeps a TS2872 span difference: `GetErrorRangeForNode`'s `SatisfiesExpression`
+arm (the `satisfies` keyword) is missing from the shared `error_span`, which
+§38's routed diff could take too.
