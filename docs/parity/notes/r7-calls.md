@@ -1485,6 +1485,55 @@ Not traced.
 statement, for example a `@type` on `(x) = …`. The reparser's hosted arms
 read the paren's comment, so none is expected.
 
+## 46. JSDoc type names resolve like written ones (TS2304 lifted)
+
+Bucket 7 of the JS rank: TS2304/TS2552 missing on a name inside a JSDoc
+type. These are `jsdocOuterTypeParameters1`, `typedefScope1`,
+`reuseTypeAnnotationImportTypeInGlobalThisTypeArgument`, the `@template`
+families and others, about 20 cases on the JS subset.
+
+r6-names §6 kept `check_type_reference_name`'s JSDoc decline. Lifting it on
+r6's base lost 6 cases, all through resolution gaps:
+
+- typedef placement;
+- `import()` types;
+- `@callback` names;
+- CommonJS class references;
+- the TS2583 lib arm.
+
+§43 lifted only the meaning arms. Lifted wholesale on top of §45, the decline
+now loses **no** exact case on the JS subset, and 5 become exact. The JSDoc
+lanes have closed the r6 gaps in the meantime; `checkJsdocTypeTag8`'s TS2583
+is right today.
+
+What the first lift did break was a native rule this port had never needed:
+`getTypeFromTypeReference` (`checker.go:23003`) asks
+`getIntendedTypeFromJSDocTypeReference` (`:23020`) **before** resolving. So
+`{function}`, `{String}`, `{Void}`, `{Undefined}`, `{Null}`, `{Object}` and
+the noImplicitAny-gated `{array}`/`{promise}` answer a type with no lookup and
+are never TS2304. Without that rule, 14 exact cases lost a false
+`Cannot find name 'function'` (`checkJsdocTypeTag1`, `jsdocFunctionType`,
+…). `jsdoc_name_has_intended_type` (`jsdoc_checks.rs`) asks the same
+`get_intended_type_from_jsdoc_type_reference` the typing road already asks.
+That function becomes `pub(crate)`.
+
+**This supersedes §43's mechanism, not its finding.** JSDoc names now take
+the ordinary path, which runs `report_meaning_mismatch_in_type_position`
+after the `TYPE` lookup exactly as for TypeScript. So
+`report_jsdoc_meaning_mismatch` is deleted, along with §43's `pub(crate)` on
+`alias_chain_carries`. Measured against §45 on the JS subset: 10 better,
+0 worse, 0 exact lost. The two that grew are native-skipped.
+
+Consumer hunks under the default grant (same root):
+
+- `check.rs::check_type_reference_name`;
+- `name_slots.rs::names_in_jsdoc`'s doc comment, corrected in place;
+- `declared.rs::get_intended_type_from_jsdoc_type_reference`'s visibility.
+
+**Falsifier.** A JS baseline with a JSDoc name that native does not resolve
+and does not report, outside the intended-type names. That would be a
+second JSDoc-only resolution rule.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

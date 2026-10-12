@@ -125,10 +125,10 @@ impl Checker<'_, '_> {
     /// `getTypeFromTypeReference` resolves it as in TypeScript — the baselines
     /// of `fillInMissingTypeArgsOnJSConstructCalls` and
     /// `parserArrowFunctionExpression10`/`17` carry TS2304 beside TS8010.
-    /// JSDoc type names keep the decline: their resolution
-    /// (`resolveTypeReferenceName`'s JSDoc arms, typedef scopes) is the jsdoc
-    /// lane's, and lifting it measured 6 cases lost
-    /// (`docs/parity/notes/r6-names.md` §6).
+    /// JSDoc type names kept the decline while their resolution lagged
+    /// (`docs/parity/notes/r6-names.md` §6, 6 cases lost when lifted); since
+    /// r7-calls §46 they skip only `getIntendedTypeFromJSDocTypeReference`'s
+    /// names.
     ///
     /// A reparsed JSDoc root has no parent edge here (the parser's
     /// `attach_jsdoc`), so a walk that ends anywhere but a source file is in

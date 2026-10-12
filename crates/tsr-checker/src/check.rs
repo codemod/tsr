@@ -5054,13 +5054,17 @@ impl Checker<'_, '_> {
         if is_specially_diagnosed_name(text) {
             return;
         }
-        // **A JSDoc name still reaches the meaning cascade.** The TS2304 half
-        // of the JSDoc decline stays (r6-names §6), but a name that resolves
-        // only as a value is TS2749 natively — tsgo dropped Strada's
-        // value-as-type fallback, so `@param {Image}` or an `@enum` const is
-        // `checkAndReportErrorForUsingValueAsType`. r7-calls §43.
-        if self.in_js_file(node) && self.names_in_jsdoc(node) {
-            self.report_jsdoc_meaning_mismatch(node, text);
+        // **A JSDoc name resolves like a written one.** r6-names §6 declined
+        // every name inside a JSDoc comment until typedef placement,
+        // `import()` types, `@callback` names and CommonJS class references
+        // resolved as natively; r7-calls §43 lifted the meaning arms
+        // (TS2749/TS2709) and §46 the rest. The one JSDoc-only rule is
+        // `getIntendedTypeFromJSDocTypeReference`, which answers `{function}`
+        // or `{String}` before any lookup.
+        if self.in_js_file(node)
+            && self.names_in_jsdoc(node)
+            && self.jsdoc_name_has_intended_type(node, text)
+        {
             return;
         }
         // **A duplicate heritage clause is recovered syntax.** `class C

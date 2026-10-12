@@ -1802,7 +1802,7 @@ impl<'a> Checker<'a, '_> {
     /// `getTypeAliasInstantiation(Record, [K, V])`. This port has no alias
     /// instantiation by type list, so that arm declines and the reference
     /// resolves as written, as it did before this function existed.
-    fn get_intended_type_from_jsdoc_type_reference(
+    pub(crate) fn get_intended_type_from_jsdoc_type_reference(
         &mut self,
         node: &tsr_ast::TypeReferenceNode<'a>,
         name: &str,
