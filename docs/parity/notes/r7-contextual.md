@@ -1148,3 +1148,23 @@ secondarySkillA = "secondary"] = ["noSkill", "noSkill"]]: Robot)` answered
 `error` for both nested names
 (sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2:
 2 → 0 non-RIGHT lines). An annotated root now checks the default ordinarily.
+
+## 40. Refused: the signature-flag contextual instantiation waiting for a candidate or default
+
+`instantiateContextualType` (`checker.go:30817`) maps through the non-fixing
+mapper only when `core.Some(inferences, hasInferenceCandidatesOrDefault)`;
+otherwise a bare `T` keeps its constraint as the apparent type.
+`instantiate_contextual_inference_type` uses the live mapper unconditionally.
+Porting the gate fixed mappedTypeContextualTypesApplied (`mapped2<T extends
+{ [P in keyof T]: TakeString }>({ foo: s => 42 })`: 4 → 0 non-RIGHT lines,
+`s: string`), and lost nothing across 27,768 `*nfer*`/`*ontextual*` verdict
+lines. The corpus gate (cg1, against b67) still measured **+11 / −32 types,
+−1 diagnostics case**, every loss in correlatedUnions. In
+`processRecord({ kind: 'n', v: 42, f: v => v.toExponential() })`, native gets
+`K = "n"` in phase 1 by inferring into `UnionRecord<K> = { [P in K]: … }[K]`
+through the indexed-access-of-mapped simplification. This port's phase-1
+collector gets no candidate there (the gate saw none at either read). It only
+reached `K = "n"` through the live mapper, which the gate now skipped, so `v`
+widened to `string | number | boolean`. Not landed. It lands once phase-1
+inference into a `{ [P in K]: X }[K]` target yields that candidate natively,
+with the gate kept as written and the probe re-measured.
