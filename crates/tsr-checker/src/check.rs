@@ -13571,7 +13571,25 @@ impl Checker<'_, '_> {
 
     /// Append to the collection upstream keeps as `c.diagnostics`
     /// (`checker.go:661`), drained by `GetDiagnostics` (`checker.go:13951`).
-    pub(crate) fn report(&mut self, file: NodeId, diagnostic: Diagnostic) {
+    pub(crate) fn report(&mut self, file: NodeId, mut diagnostic: Diagnostic) {
+        // `NewDiagnosticChain` (`ast/diagnostic.go:152`) builds every chain
+        // level from its child's file, so each level of a reported chain
+        // carries the reported file. Children built before the report have
+        // none; they take the file's image here.
+        if chain_lacks_file(&diagnostic) {
+            let image = if let Some(image) = self.chain_file_images.get(&file) {
+                Some(std::sync::Arc::clone(image))
+            } else {
+                let image = self.diagnostic_file_image(file);
+                if let Some(image) = &image {
+                    self.chain_file_images.insert(file, std::sync::Arc::clone(image));
+                }
+                image
+            };
+            if let Some(image) = image {
+                crate::calls::set_chain_file(&mut diagnostic, &image);
+            }
+        }
         self.diagnostics.push((file, diagnostic));
     }
 
@@ -14345,4 +14363,9 @@ fn is_trivia_only(text: &str) -> bool {
 pub(crate) enum DuplicateMemberKey {
     Early(tsr_binder::SymbolId),
     Late(String, Option<TypeId>),
+}
+
+/// Whether some chain child of `diagnostic`, at any depth, has no file.
+fn chain_lacks_file(diagnostic: &Diagnostic) -> bool {
+    diagnostic.message_chain().iter().any(|child| child.file().is_none() || chain_lacks_file(child))
 }

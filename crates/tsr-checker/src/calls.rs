@@ -6411,7 +6411,7 @@ enum OverloadPass {
 /// from the child's file and location, so every level of a reported chain
 /// carries the reported file; this port's children are built before the
 /// report gives the head its file.
-fn set_chain_file(
+pub(crate) fn set_chain_file(
     diagnostic: &mut Diagnostic,
     image: &std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>,
 ) {
