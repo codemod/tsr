@@ -2091,3 +2091,28 @@ compares indexed accesses by object and then index (`CompareTypes`,
   because the JSX overload resolution finds a candidate applicable before
   any elaboration runs. That is a verdict on `{ children: [unknown,
   string] }` against `[string, number] | boolean[]`, not a report.
+
+## 71. Type parameters against unions, tuples against arrays, intersection sources
+
+- **A type-parameter source against a union.** `typeRelatedToSomeType`
+  fails first, but its best-match elaboration has no candidate: every
+  `getBestMatchingType` arm reads an object source. The type-variable arm
+  then relates the constraint with errors, as it does against an object.
+  The arm declined every union target. (`typeVariableConstraintedToAliasNotAssignableToUnion`
+  now reads the right levels. Its constraint prints the alias `Table`
+  where native prints `TableClass<any>`, an alias of a reference that
+  carries no alias natively. That is the printer's, not this arm's.)
+- **A tuple against an array** (`relater.go:3780`). A readonly array
+  target accepts any array or tuple, and a mutable one a mutable tuple; the
+  two number-index types are related with errors:
+  `Type 'readonly [1]' is not assignable to type 'readonly boolean[]'.` →
+  `Type 'number' is not assignable to type 'boolean'.`
+  (`readonlyTupleAndArrayElaboration`).
+- **An intersection source's missing members.** `unmatched_property_report`
+  answers only for plain object pairs. For an intersection of plain
+  objects, the retrace lists the target's required members that the
+  combined members lack, in target order, and reports them through
+  `missing_properties_diagnostic` (TS2741 + TS2728, or TS2739/TS2740). An
+  intersection source also enters the union-target best-match arm
+  (`findMostOverlappyType` reads intersections). `intersectionAndUnionTypes`
+  is EXACT.
