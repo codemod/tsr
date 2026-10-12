@@ -749,7 +749,7 @@ pub struct Checker<'a, 'n> {
     pub(crate) merge_conflicts_reported: bool,
     /// `moduleSymbolLinks.exportsChecked`: the module symbols whose
     /// `export =` TS2309 test has run (`checkExternalModuleExports`,
-    /// merge_conflicts.rs; r7-grammar §73).
+    /// `merge_conflicts.rs`; r7-grammar §73).
     pub(crate) export_equals_checked: rustc_hash::FxHashSet<SymbolId>,
     /// Every position `report_assignability_failure` was *asked about*, with
     /// the gate that decided it. Filled only under `TSR_ASSIGN_PROBE`.

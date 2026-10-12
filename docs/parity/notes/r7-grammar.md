@@ -1827,3 +1827,11 @@ come from `@types/node`, not from synthesis. The decline is narrowed to
 against `target/tsgo-pinned` on the cases the original decline was measured
 against (`modulePreserve4`, `maxNodeModuleJsDepthDefaultsToZero`,
 `jsdocReferenceGlobalTypeInCommonJs`).
+
+*Correction (§75).* The first gate of §75's span merged with main lost five
+`duplicateIdentifierRelatedSpans*` cases. merge_conflicts.rs's
+`duplicate_declaration_span` (TS2300 across files, and its TS6203 related
+spans) took `error_span(declaration)`, which was a method signature's name
+until §75. Native's `addDuplicateDeclarationError` reports at
+`getAdjustedNodeForError`, i.e. `GetNameOfDeclaration`, never at the error
+range. The default arm now takes the declaration's name.

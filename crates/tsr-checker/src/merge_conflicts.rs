@@ -64,7 +64,7 @@ impl Checker<'_, '_> {
     /// The declaration is the alias's (`getDeclarationOfAliasSymbol`), else
     /// the value declaration (a JS `module.exports =`). It is not reported in
     /// an external module augmentation. Native runs it for an external or
-    /// CommonJS source file after its check and for an export assignment's
+    /// `CommonJS` source file after its check and for an export assignment's
     /// container; the `export *` half is check.rs's
     /// `check_export_star_conflicts` (r7-grammar §73).
     pub(crate) fn check_external_module_export_equals(&mut self, module: tsr_ast::NodeId) {
@@ -448,7 +448,12 @@ impl Checker<'_, '_> {
             ) => {
                 name.node_id.map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id))
             }
-            _ => self.error_span(declaration),
+            // `GetNameOfDeclaration` for every other kind, the name's own
+            // span: a method signature's error range is its whole member
+            // (r7-grammar §75), its name is not.
+            _ => self
+                .declaration_name_of(declaration)
+                .map_or_else(|| self.error_span(declaration), |name| self.error_span(name)),
         }
     }
 
