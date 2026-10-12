@@ -559,8 +559,17 @@ impl Checker<'_, '_> {
                         | SyntaxKind::ConstructSignature
                         | SyntaxKind::MethodSignature
                         | SyntaxKind::IndexSignature => true,
+                        // A computed nil contextual signature
+                        // (`getContextuallyTypedParameterType` answering nil)
+                        // is the same absence, shown semantically:
+                        // `id1<T>(input: T)` called with
+                        // `function ({ foo = 42 }) { … }`.
                         SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression => {
                             self.has_no_contextual_type(f)
+                                || matches!(
+                                    self.contextual_signature_result(f),
+                                    Some(crate::contextual::ContextualSignature::Absent)
+                                )
                         }
                         _ => false,
                     });
