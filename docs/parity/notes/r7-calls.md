@@ -1185,6 +1185,59 @@ output has chain rows, 16 become exact, and no file-less chain row remains
 in any of them. The 435 EXACT cases with chain rows stay exact. What
 remains in the others is the chains' content (the relation reporter).
 
+## 37. A reference argument's candidate-context check is not published (createToken)
+
+Held since round 7's early batches (`box/r7-calls-held-createtoken`) because
+the jsTyping leg refused it while the relater rejected `T["kind"]` → `SK`.
+r7-reports' indexed-access-to-constraint relation is on main now, so it is
+re-landed here.
+
+**Repro.** `declare function createToken(token: SK.D): Tok<SK.D>;` followed
+by `declare function createToken<TKind extends SK>(token: TKind): Tok<TKind>;`,
+then `createToken(value)` with `value: TKind` inside
+`f<TKind extends SK>(value: TKind): Tok<TKind>`. TSR answered `Tok<SK>`
+(a false TS2322 at the `return`); tsgo answers `Tok<TKind>`.
+
+**Cause.** The overload walk makes every argument's first check under the
+first arity-matching candidate (`check_argument_in_candidate_context`, with
+the call memo set to that candidate) and publishes it. Under the non-generic
+`token: SK.D`, a contextual type with no generic types,
+`getNarrowableTypeForReference` substitutes the generic reference's
+constraint (`hasContextualTypeWithNoGenericTypes`), so `value` reads `SK`.
+The generic candidate's inference then reads that published `SK`
+(`TKind := SK`). Native's check is per candidate and uncached.
+
+**Change.** A reference argument (an identifier, or a property or element
+access, through parentheses) checked under a candidate's context keeps no
+published state: its subtree state is restored after the check
+(`literal_subtree_state`, the same set the literal re-check restores). After
+a literal re-check, the argument types are re-read with the reference read
+under that candidate again rather than context-free.
+
+## 38. `GetErrorRangeForNode`'s unnamed-declaration, `satisfies` and arrow-function arms (check.rs, granted)
+
+The integrator granted this lane the check.rs half of r7-flow's routed
+error-span diff (`r7-flow-error-span-unnamed.diff`, r7-flow §38). Applied
+to the shared `error_span`, so every report at such a node moves, not only
+the call reports:
+
+- a function declaration, method, class or function or class expression
+  with no name (`errorNode == nil`, `scanner.go:2644`) reports at its first
+  token (`function`, `class`, a leading modifier);
+- a `satisfies` expression reports at its `satisfies` keyword
+  (`scanner.go:2626`);
+- an arrow function whose block body's full start (the end of `=>`) and
+  end lie on different lines reports from the arrow's start to the end of
+  that first line (`getErrorRangeForArrowFunction`, `scanner.go:2542`).
+
+The diff as routed differed from native in the arrow arm, and is corrected
+here. It ended the span one past the line break and searched for the line
+break from the body's `{`. `GetECMAEndLinePosition(startLine) + 1`
+(`scanner.go:2703`) is the line break's own position, and `startLine` is
+the line of `body.Pos()`, the end of `=>`, so `() =>\n{ … }` ends at the
+`=>` line's break. The ECMAScript line terminators (U+2028, U+2029) count as line breaks too. A probe file with all three shapes now prints
+byte for byte as tsgo does.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

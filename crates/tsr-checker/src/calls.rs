@@ -6185,7 +6185,10 @@ impl Checker<'_, '_> {
         }
         if self.recheck_literal_arguments_in_context(call, candidate, arguments) {
             for (slot, &argument) in argument_types.iter_mut().zip(arguments) {
-                *slot = self.check_expression(argument);
+                // A reference keeps no published candidate-context type
+                // ([`Checker::check_argument_in_candidate_context`]); it is
+                // read under this candidate again.
+                *slot = self.check_argument_in_candidate_context(call, Some(candidate), argument);
             }
         }
         *context = Some(candidate.declaration);
@@ -6345,12 +6348,44 @@ impl Checker<'_, '_> {
             && let Some(call) = call
             && !self.call_inference_signatures.contains_key(&call)
         {
+            // A reference's type under a candidate's context is that
+            // candidate's alone: `getNarrowableTypeForReference` substitutes a
+            // generic reference's constraint only under a contextual type
+            // with no generic types (`hasContextualTypeWithNoGenericTypes`),
+            // so `value: TKind` reads `SK` under `token: SK.D` and `TKind`
+            // under a generic candidate's `token: TKind`. Native's check is
+            // uncached; published here it would be every later candidate's
+            // answer (the generic one would infer `TKind := SK`). Its
+            // published state is put back.
+            let saved = Self::is_reference_argument(argument)
+                .then(|| argument.node_id().map(|id| self.literal_subtree_state(id)))
+                .flatten();
             self.call_inference_signatures.insert(call, candidate.clone());
             let checked = self.check_expression(argument);
             self.call_inference_signatures.remove(&call);
+            if let Some(saved) = saved {
+                self.restore_literal_subtree_state(saved);
+            }
             return checked;
         }
         self.check_expression(argument)
+    }
+
+    /// An identifier, property access or element access, through
+    /// parentheses: an argument whose type is a reference's narrowable type
+    /// (`getNarrowableTypeForReference`, which reads the contextual type).
+    fn is_reference_argument(argument: Expression<'_>) -> bool {
+        let mut inner = argument;
+        while let Expression::ParenthesizedExpression(parenthesized) = inner {
+            let Some(expression) = parenthesized.expression else { return false };
+            inner = expression;
+        }
+        matches!(
+            inner,
+            Expression::Identifier(_)
+                | Expression::PropertyAccessExpression(_)
+                | Expression::ElementAccessExpression(_)
+        )
     }
 
     /// §273's admission test, shared with the `new`-expression road: the
