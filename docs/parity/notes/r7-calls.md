@@ -1021,6 +1021,29 @@ signature's borrowed declaration passing `is_signature_declaration`.
   files: about 98 of the 387 WRONG cases carrying a call diagnostic became
   exact in a per-case run, and the 133 EXACT ones stayed exact.
 
+## 31. TS2793 against a generic implementation
+
+§30's `addImplementationSuccessElaboration` declined a generic
+implementation. Native runs `chooseOverload` against it like any lone
+generic candidate (`checker.go:9040-9080`): `inferTypeArguments`,
+`getSignatureInstantiation`, the non-array-rest arity re-check, then
+`isSignatureApplicable`. `generic_implementation_applicable` does the same
+through the shared inference worker (`check_generic_call_with`'s
+out-slot), then relates the plain arguments to the instantiation.
+
+Inference checks the arguments under the implementation's parameters,
+which this port publishes, while native's checks there are uncached. So
+every argument subtree's published state (node types, resolved signatures,
+symbol types: `literal_subtree_state`) is saved before the inference and
+put back after. Only a call or `new` takes this arm. A tagged template
+(its positions are shifted past the strings argument) and a non-array rest
+decline.
+
+overloadErrorMatchesImplementationElaboaration (`publish<T>(event: T)`
+behind `publish(event: string, data?: any)`) becomes exact. A per-case
+oracle run over the 190 EXACT cases carrying a call diagnostic (base
+`cand17`) kept every one exact.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

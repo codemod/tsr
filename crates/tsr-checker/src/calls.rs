@@ -1804,9 +1804,6 @@ impl Checker<'_, '_> {
             return None;
         }
         let candidate = self.get_signature_from_declaration(implementation)?;
-        if !candidate.type_parameters.is_empty() {
-            return None;
-        }
         let written = self.written_call_arguments(node)?;
         let effective = self.effective_written_arguments(&written)?;
         if effective.iter().any(|argument| argument.spread)
@@ -1815,7 +1812,12 @@ impl Checker<'_, '_> {
             return None;
         }
         let plain = self.plain_overload_arguments(node)?;
-        if !self.plain_candidate_applicable(node, &candidate, &plain)? {
+        let applicable = if candidate.type_parameters.is_empty() {
+            self.plain_candidate_applicable(node, &candidate, &plain)?
+        } else {
+            self.generic_implementation_applicable(node, &candidate, &plain)?
+        };
+        if !applicable {
             return None;
         }
         Some(self.related_diagnostic_at(
@@ -1824,6 +1826,46 @@ impl Checker<'_, '_> {
             self.signature_declaration_error_span(implementation),
             Vec::new(),
         ))
+    }
+
+    /// `chooseOverload`'s generic arm for a lone implementation candidate
+    /// (`checker.go:9040-9080`): `inferTypeArguments` and
+    /// `getSignatureInstantiation` through the shared inference worker
+    /// ([`Checker::check_generic_call_with`]'s out-slot), the non-array-rest
+    /// arity re-check, then `isSignatureApplicable` over the plain
+    /// arguments. Inference checks the arguments under the implementation's
+    /// parameters, so every argument subtree's published state is saved
+    /// first and put back after (native's checks there are uncached). A call
+    /// or `new` only; a tagged template's shifted positions and a non-array
+    /// rest decline.
+    fn generic_implementation_applicable(
+        &mut self,
+        node: tsr_ast::NodeId,
+        candidate: &Signature,
+        plain: &PlainOverloadArguments<'_>,
+    ) -> Option<bool> {
+        if plain.strings.is_some() || self.signature_non_array_rest_type(candidate).is_some() {
+            return None;
+        }
+        let mut saved = Vec::new();
+        for argument in &plain.arguments {
+            saved.extend(self.literal_subtree_state(argument.node_id()?));
+        }
+        let mut instantiated = None;
+        let answer = self.check_generic_call_with(
+            candidate,
+            Some(node),
+            &plain.arguments,
+            Some(&mut instantiated),
+        );
+        let applicable = match instantiated {
+            Some(instantiated) if answer != self.intrinsics.error => {
+                self.plain_candidate_applicable(node, &instantiated, plain)
+            }
+            _ => None,
+        };
+        self.restore_literal_subtree_state(saved);
+        applicable
     }
 
     /// `GetErrorRangeForNode` (`scanner.go:2588`) of a signature
