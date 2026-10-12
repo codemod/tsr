@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8962/9538 (93.96%)
-Assertion lines: 475946/478853 (99.39%)  — a gradient, not a pass rate
-Failed         : 576
+Passed         : 8963/9538 (93.97%)
+Assertion lines: 475954/478853 (99.39%)  — a gradient, not a pass rate
+Failed         : 575
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 576 failures:
+First 100 of 575 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -191,8 +191,6 @@ compiler/declarationEmitComputedPropertyNameEnum1
   index.ts: >foo : { x?: { [Enum.A]: 0; }; } — expected >foo : { x?: { a: 0; }; }
 compiler/declarationEmitComputedPropertyNameEnum3
   index.ts: >foo : { x?: { [Foo.Enum]: 0; }; } — expected >foo : { x?: {}; }
-compiler/declarationEmitDestructuring2
-  declarationEmitDestructuring2.ts: >f : ({ x, y: [a, b, c, d] }?: { x: number; y: [number, number, number, number]; }) => void — expected >f : ({ x, y: [a, b, c, d] }?: { x?: number; y?: [number, number, number, number]; }) => void
 compiler/declarationEmitDestructuringArrayPattern2
   declarationEmitDestructuringArrayPattern2.ts: >[1, ["hello", { x12: 5, y12: true }]] : [number, [string, { x12: number; y12: boolean; }]] — expected >[1, ["hello", { x12: 5, y12: true }]] : [number, [string, { x12: number; y12: true; }]]
 compiler/declarationEmitExportAssignedNamespaceNoTripleSlashTypesReference
@@ -213,3 +211,5 @@ compiler/declarationEmitInferredTypeAlias4
   declarationEmitInferredTypeAlias4.ts: >f : <A>() => Foo<A[]> — expected >f : <A>() => A[] | { x: A[] | any; }
 compiler/declarationEmitInlinedDistributiveConditional
   test.ts: >dropPrivateProps2 : <Obj>(obj: Obj) => { [K in PublicKeys2<keyof Obj>]: Obj[K]; } — expected >dropPrivateProps2 : <Obj>(obj: Obj) => { [K in keyof Obj extends infer T ? T extends keyof Obj ? T extends `_${string}` ? never : T : never : never]: Obj[K]; }
+compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
+  node_modules/@trpc/server/index.d.ts: >middleware : any — expected >middleware : <TNewParams extends Record<string, any>>(fn: import("./middleware").MiddlewareFunction<{ _config: RootConfig<{ errorShape: ErrorFormatterShape<PickFirstDefined<TOptions["errorFormatter"], ErrorFormatter<TParams["ctx"] extends object ? TParams["ctx"] : object, DefaultErrorShape>>>; }>; }, TNewParams>) => import("./middleware").MiddlewareBuilder<{ _config: RootConfig<{ errorShape: ErrorFormatterShape<PickFirstDefined<TOptions["errorFormatter"], ErrorFormatter<TParams["ctx"] extends object ? TParams["ctx"] : object, DefaultErrorShape>>>; }>; }, TNewParams>
