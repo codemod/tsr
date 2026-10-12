@@ -2629,6 +2629,22 @@ impl<'a> Checker<'a, '_> {
         //
         // Generic mapped targets substitute the property key before concrete
         // lookup; other contexts retain the concrete/union lookup order.
+        // A unique-symbol key's member is named `__@name@id` natively
+        // (`getPropertyNameFromType`), the symbol name the lookup uses. The
+        // port spells a literal's late-bound member `[A]`, while a resolved
+        // mapped type over unique-symbol keys lists the escaped name, so the
+        // lookup takes the escaped name where only that one is listed.
+        let name = match name_type.and_then(|key| self.unique_symbol_property_name(key)) {
+            Some(escaped)
+                if self.get_property_of_type(contextual, &name).is_none()
+                    && self
+                        .get_property_names_of_type(contextual)
+                        .is_some_and(|names| names.contains(&escaped)) =>
+            {
+                escaped
+            }
+            _ => name,
+        };
         let mapped = match name_type {
             Some(key) => self.generic_mapped_contextual_property_type_of_key(contextual, key),
             None => self.generic_mapped_contextual_property_type(contextual, &name),
@@ -2660,7 +2676,17 @@ impl<'a> Checker<'a, '_> {
                     .get_type_of_property_of_type(contextual, &name)
                     .unwrap_or_else(|| self.get_type_of_symbol(property)),
                 Some(property) => self.get_type_of_symbol(property),
-                None => self.union_contextual_property_type(contextual, &name, object_literal)?,
+                // getTypeFromIndexInfosOfContextualType reads the index infos
+                // with the member's name type when it has one (a unique
+                // symbol finds a `[sym: symbol]` index, `checker.go:30646`).
+                None => {
+                    match self.union_contextual_property_type(contextual, &name, object_literal) {
+                        Some(property) => property,
+                        None => {
+                            self.contextual_index_value_for_name_type(contextual, name_type?)?
+                        }
+                    }
+                }
             }
         };
         // SS141: a reference context's member instantiates through the

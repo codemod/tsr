@@ -973,3 +973,25 @@ circularInlineMappedGenericTupleTypeNoCrash 0:17–0:18.
 `new Foo<[...Elements, "abc"]>(...this.elements, { bar: "abc" })` read
 `{ bar: "abc" }` where native prints `{ bar: string }`. With the boundary it is
 back to its b57 state (one non-RIGHT line, unchanged).
+
+## 32. A unique-symbol member of an object literal reads its context by the escaped name, then by name type
+
+`getContextualTypeForObjectLiteralElement` (`checker.go:29924`) looks the
+member up by its symbol's name. For a late-bound unique-symbol key that name
+is `__@A@<id>` (`getPropertyNameFromType`), and the lookup carries the key as
+`nameType`. The port spells the literal's member `[A]`
+(`late_bound_symbol_member_name`), but a resolved mapped type over
+unique-symbol keys lists `__@A@<id>`, so `{ [A]: ap => … }` against
+`{ [K in Action["type"]]: (p: K) => void }` (resolved) found no member, and `ap`
+was `any`. The lookup now takes the escaped name
+(`unique_symbol_property_name`) when the context lists only that spelling.
+When no member exists at all, it falls back to the index infos read with the
+name type, as `getTypeFromIndexInfosOfContextualType` (`:30646`) does:
+`const x: { [sym: symbol]: (p: string) => void } = { [A]: s => s.length }` now
+types `s : string`. contextuallyTypedSymbolNamedProperties: 20 → 3 non-RIGHT
+lines on the verdict dump. The last three wait on mapped.rs:
+`generic_mapped_contextual_property_type_of_key` reads the generic
+`{ [K in T["type"]]: … }` with the constraint `T["type"]` unreduced
+(`contextual_mapped_key_base_constraint`). Native's `getBaseConstraintOrType`
+gives `string | symbol`, which admits the key, so during inference the
+`[A]` arrow gets no contextual signature and caches `error`.
