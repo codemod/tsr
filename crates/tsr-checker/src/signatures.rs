@@ -4239,6 +4239,19 @@ impl<'a> Checker<'a, '_> {
             return Some(self.intrinsics.any);
         }
         let widened = self.get_widened_literal_type(id);
+        // `getWidenedLiteralLikeTypeForContextualType` (`checker.go:25517`)
+        // pairs `getWidenedLiteralType` with `getWidenedUniqueESSymbolType`,
+        // and `getReturnTypeFromBody` reaches it only for a unit return
+        // (`isUnitType`): `function x(p: ns.undefined) { return p }` with
+        // `type undefined = typeof s` (a unique symbol) infers `symbol`
+        // (`typeNamedUndefined1/2`, r7-shared.md §34). A union keeps its
+        // unique symbols, as native's unit gate does.
+        let widened =
+            if self.store.get(id).flags.intersects(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL) {
+                self.intrinsics.es_symbol
+            } else {
+                widened
+            };
         if widened != id && self.has_a_written_contextual_type(declaration) {
             // §445 — the position this doc's older half calls "the one
             // position that still refuses" now answers where the annotation's

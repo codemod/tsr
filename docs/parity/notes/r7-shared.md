@@ -1027,3 +1027,19 @@ whose every declaration sits directly in an `InterfaceDeclaration`; a JS
 constructor's members still decline. Witness: `Tag` in
 `contextualParamTypeVsNestedReturnTypeInference2/3/4`. The `Tag<I, S>`
 reference side already resolved through `declared.rs`.
+
+## 34. An inferred unit `unique symbol` return widens to `symbol` (RETURN-WIDEN-UNIQUE-SYMBOL)
+
+`getReturnTypeFromBody` sends a unit return through
+`getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded`, and from there
+to `getWidenedLiteralLikeTypeForContextualType` (checker.go:25517). That
+function widens with `getWidenedUniqueESSymbolType(getWidenedLiteralType(t))`
+unless the contextual type keeps the literal. This port's
+`inferred_return_type` applied only the literal half, so `function x(p:
+ns.undefined) { return p }`, where `type undefined = typeof s` names a
+unique symbol, inferred `unique symbol`; native infers `symbol`
+(`typeNamedUndefined1/2`). The unique-symbol half now applies to a return
+that is itself a unique symbol, which is the only unit case it changes.
+`is_literal_of_contextual_type` already carries native's
+`UniqueESSymbol` arm, so a symbol-typed context still keeps it. A union
+return is not a unit type and keeps its unique symbols, as natively.
