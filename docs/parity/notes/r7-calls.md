@@ -1185,6 +1185,35 @@ output has chain rows, 16 become exact, and no file-less chain row remains
 in any of them. The 435 EXACT cases with chain rows stay exact. What
 remains in the others is the chains' content (the relation reporter).
 
+## 37. A reference argument's candidate-context check is not published (createToken)
+
+Held since round 7's early batches (`box/r7-calls-held-createtoken`) because
+the jsTyping leg refused it while the relater rejected `T["kind"]` → `SK`.
+r7-reports' indexed-access-to-constraint relation is on main now, so it is
+re-landed here.
+
+**Repro.** `declare function createToken(token: SK.D): Tok<SK.D>;` followed
+by `declare function createToken<TKind extends SK>(token: TKind): Tok<TKind>;`,
+then `createToken(value)` with `value: TKind` inside
+`f<TKind extends SK>(value: TKind): Tok<TKind>`. TSR answered `Tok<SK>`
+(a false TS2322 at the `return`); tsgo answers `Tok<TKind>`.
+
+**Cause.** The overload walk makes every argument's first check under the
+first arity-matching candidate (`check_argument_in_candidate_context`, with
+the call memo set to that candidate) and publishes it. Under the non-generic
+`token: SK.D`, a contextual type with no generic types,
+`getNarrowableTypeForReference` substitutes the generic reference's
+constraint (`hasContextualTypeWithNoGenericTypes`), so `value` reads `SK`.
+The generic candidate's inference then reads that published `SK`
+(`TKind := SK`). Native's check is per candidate and uncached.
+
+**Change.** A reference argument (an identifier, or a property or element
+access, through parentheses) checked under a candidate's context keeps no
+published state: its subtree state is restored after the check
+(`literal_subtree_state`, the same set the literal re-check restores). After
+a literal re-check, the argument types are re-read with the reference read
+under that candidate again rather than context-free.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
