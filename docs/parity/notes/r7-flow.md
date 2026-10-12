@@ -1254,3 +1254,89 @@ the `satisfies` keyword). Re-measured on `bae795fe` unfiltered: legacy verdicts
 unchanged; exact oracle 9681 → 9686 (the same five; `predicateSemantics`
 gains with §31's diff as well), 0 lost; jsTyping 111 → 111, new_false 0,
 lost_true 0; Ir gi 1.0001, dm 1.0002.
+
+## §47 TS2542 through a `readonly` mapped type with a generic key
+
+`checkIndexedAccessIndexType` (`checker.go:8219`) has a readonly arm the port
+lacked: an element access that is an assignment target, whose type stayed a
+deferred `Object[Index]` with every index constituent assignable to the
+object's keys, and whose object is a mapped type with a `readonly` (or
+`+readonly`) modifier, reports TS2542 "Index signature in type
+'Readonly<T>' only permits reading." at the access, printing the mapped type
+(`y[k] = x[k]` with `y: Readonly<T>`, `k: keyof T`; `mappedTypeRelationships`
+×4). `check_readonly_mapped_index_write` (readonly_target.rs) reads the
+access's own type and this port's deferred mint
+(`deferred_indexed_access_types`) for the object and index, which is native's
+`t.flags&IndexedAccess` test: the mint exists only when
+`getIndexedAccessTypeOrUndefined` deferred. It is entered only when the
+receiver is itself a readonly mapped type, so the common `array[i] = v` does
+not read the access type.
+
+Declined rather than reproduced: a remapping (`as`) mapped object, whose keys
+are `getIndexTypeForMappedType`'s, and the `hasNumberIndexInfo` disjunct (an
+index it alone admits declines; it never reports). Both directions miss
+rather than over-report.
+
+## §48 TS2536/TS4105: the final arms of `checkIndexedAccessIndexType`
+
+TS2536 ("Type '{0}' cannot be used to index type '{1}'.") was not reported
+anywhere. Native reports it, at the access node, for a deferred access whose
+index has a constituent not assignable to the object's `getIndexType`, unless
+the index names a property of the distributed apparent object that is
+non-public, which is TS4105 ("Private or protected member '{0}' cannot be
+accessed on a type parameter.") instead, for a generic object
+(`getConstituentProperty`, `:8257`). Both arms are now
+`check_deferred_access_index_type` (index_access_reports.rs), called from the
+indexed access type node check (native `checkIndexedAccessType`) with this
+port's deferred mint of the node, and from the element access check for a
+generic index (native `checkElementAccessExpression`). The element access
+road cannot use the mint: this port's `deferred_indexed_access` (indexed.rs)
+mints only after the key is admitted, so the receiver (less a written
+`null`/`undefined`, `checkNonNullExpression`) and index are read directly.
+
+The relation is the judgment call. A port relation that answers
+`NotRelated` where native answers `True` reports a TS2536 native never
+does, so the arm uses `relate_ternary` and declines on `Unknown`. On the
+jsTyping leg the plain `is_type_assignable_to` produced two false TS2536
+(`parser.ts(504,59)`, `visitorPublic.ts(619,55)`: `TNode["kind"]` with a
+mapped type parameter constrained to the 300-member `ForEachChildNodes`);
+with the ternary both are `Unknown`, and two corpus true positives go with
+them (`mappedTypeErrors2` (15,38), `intersectionsOfLargeUnions` (21,15)'s
+second report).
+
+The type node arm is declined where native reaches the node through a
+substitution or not at all:
+- the true branch of a conditional type, and the template of a mapped type
+  without an `as` clause: `getConditionalFlowTypeOfType` substitutes the
+  implied constraint there (and `number | `${number}`` for a mapped type's
+  parameter over an array-constrained homomorphic variable, which made
+  `mappedTypeInferenceFromApparentType` (6,59) a false report). This port has
+  no substitution types on that road; native's report in a true branch
+  (`P["ctx"] extends object ? P["ctx"] : object` reports both) is a missed
+  positive here;
+- an import type's type arguments: `checkImportType` (`:3324`) never
+  `checkSourceElements` them, unlike `checkTypeReferenceNode` (`:2994`); the
+  port's walk visits them (`declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile`
+  was a RIGHT→WRONG loss before this decline).
+
+Also declined: a remapping mapped object, an apparent `number` index info,
+and an object or index this port could not compute (`is_gap`,
+`unresolved_types`; `keyof U` for a constrained `U` is such a gap today, so
+`mappedTypeRelationships`' `x[k]` with `k: keyof U` stays missing).
+Known remaining false reports, in a case already EMPTY_WRONG:
+`ramdaToolsNoInfinite2` (45,83) and (60,42), where this port resolves an ambient module's
+`import { Boolean } from "Boolean/Boolean"` to the global `Boolean`
+interface, so the index's constraint is wrong before this rule reads it
+(routed to the integration thread).
+
+No table or cache: the relation's own caches. The type node arm runs one
+relation per deferred indexed access type node, lib files included.
+
+Measured (§47 and §48 together) on `de5cbc86` (main `cdb668dc` + the three
+§46/§31/§38 commits, rebased): types unchanged; diagnostics **+1** case
+(`indexedAccessPrivateMemberOfGenericConstraint`, its three TS4105), 22 more
+right diagnostics across nine still-wrong cases (`mappedTypeRelationships`'
+four TS2542 and two TS2536, `mappedTypeErrors2` ×4, `keyofAndIndexedAccessErrors`
+×2, `constraintWithIndexedAccess`, `intersectionsOfLargeUnions(2)`,
+`unknownControlFlow`), 0 lost; exact oracle 10635 → 10636, 0 lost; jsTyping
+gap 28 → 28, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0013.
