@@ -1006,3 +1006,33 @@ walks for an enclosing `async`. That was reported to the integration thread.
 
 *Falsifier.* A TS1106 in a static block, or a missing one in a non-async
 function, in a corpus case.
+
+## §54 TS2373's parameter as written; TS18033 through the relater
+
+*TS2373/TS2372.* `checkResolvedBlockScopedVariable`'s parameter arm reports
+`Parameter '{0}' cannot reference identifier '{1}' declared after it.` with
+`DeclarationNameToString(associatedDeclaration.Name())`. That is the name's
+source text, so a binding pattern prints as written, computed keys and
+defaults included (`{ [a() ?? "d"]: c = "" }`). class_fields.rs's
+`binding_name_text` rebuilt the pattern from its element names (`{ c }`).
+It now takes `declaration_name_source_text` (§35) and keeps the rebuild only
+as the no-source fallback. Converted (CLI vs `target/tsgo-pinned`):
+`nullishCoalescingOperatorInParameterBindingPattern.2`,
+`classWithStaticFieldInParameterBindingPattern.2` (4 oracle rows, the
+`TS2373 message-text-only` buckets).
+
+*TS18033.* `computeConstantEnumMemberValue`'s default arm is
+`checkTypeAssignableTo(checkExpression(initializer), numberType, initializer,
+Type_0_is_not_assignable_to_type_1_as_required_for_computed_enum_member_values)`.
+That is the relater's `reportRelationError` under the head, so a literal
+source is generalized against `number` (`typeCouldHaveTopLevelSingletonTypes`
+is false), and the elaboration chain follows. enum_initializer.rs printed
+`type_to_string(source)`. That gave `'"bar"'` for `` `${BAR}`! ``, where
+native prints `'string'`, and it dropped the chain (`TS2322 in TS18033`,
+`TS2692 in TS18033`). The check now goes through `report_relation_failure`
+with the head, as heritage_conformance.rs's TS2415/TS2430 do (§41). A
+declined report keeps the bare head.
+
+*Falsifier.* A TS18033 whose type text or chain differs from the relater's
+TS2322 for the same pair. That would be the relater's divergence, not this
+call's.

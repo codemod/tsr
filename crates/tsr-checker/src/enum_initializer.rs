@@ -47,9 +47,24 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // `checkTypeAssignableTo(…, initializer, headMessage)`: the relater's
+        // report under the TS18033 head, so the source is generalized
+        // (`reportRelationError`'s literal widening against `number`) and the
+        // elaboration chain follows (r7-grammar §54). A declined report
+        // keeps the bare head.
+        let span = self.error_span(at);
+        if self.report_relation_failure(
+            at,
+            span,
+            None,
+            source,
+            number,
+            Some(&messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_AS_REQUIRED_FOR_COMPUTED_ENUM_MEMBER_VALUES),
+        ) {
+            return;
+        }
         let printed = self.type_to_string(source);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.error_span(at);
         self.report(
             file,
             Diagnostic::with_args(
