@@ -4481,6 +4481,11 @@ impl Checker<'_, '_> {
                     bump(&COUNTERS.single_candidate_generic_error);
                 }
             }
+            if answer == error
+                && let Some(returned) = self.type_parameter_free_return(&signature)
+            {
+                return returned;
+            }
             return answer;
         }
         if node.arguments.iter().any(|argument| {
@@ -4974,9 +4979,32 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            return error;
+            return self.type_parameter_free_return(&signature).unwrap_or(error);
         }
         signature.r#type
+    }
+
+    /// The return type of a generic signature when none of its type
+    /// parameters reaches it: `getReturnTypeOfSignature` of any
+    /// instantiation (`getSignatureInstantiation`, `checker.go:19293`) is
+    /// then the declared return type, so the call's type does not wait on
+    /// inference (a tag `function noParams<T>(n: T) {}` answers `void`
+    /// whatever `T` is). Tested by instantiating the return
+    /// with every type parameter mapped to `unknown` and comparing
+    /// identities. `None` when a parameter reaches it or the signature's
+    /// type parameters cannot be read.
+    fn type_parameter_free_return(&mut self, signature: &Signature) -> Option<TypeId> {
+        let parameters = self.type_parameter_types(signature)?;
+        let names: Vec<String> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let unknown = self.intrinsics.unknown;
+        let map: Vec<(TypeId, TypeId)> =
+            parameters.iter().map(|&parameter| (parameter, unknown)).collect();
+        let returned = signature.r#type;
+        (!self.is_gap(returned)
+            && self.instantiate_type(returned, &map, &parameters, &names) == returned)
+            .then_some(returned)
     }
 
     /// Whether `signature` accepts exactly `count` arguments. §788.

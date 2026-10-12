@@ -1133,6 +1133,26 @@ reporter's. Only the plain-argument road (the non-generic walk's report and
 §30's TS2793 check) reads the new predicate; the type road's walk keeps
 `literal_subtree_has_resolution`.
 
+## 35. A generic call whose return no type parameter reaches has that return
+
+`getSignatureInstantiation` (`checker.go:19293`) instantiates the return
+type with the inferred (or written) type arguments. When no type parameter
+reaches the declared return, every instantiation returns it unchanged. The
+call's type then does not wait on inference, and an overload failure's
+`pickLongestCandidateSignature` over the same single candidate answers the
+same type. Two type roads answered `error` (a GAP) when inference declined:
+
+- the single generic call (`check_call_expression_worker`): `genericFunc<this>(undefined)`
+  with an unresolvable written argument (thisInInvalidContexts);
+- the tagged template with no substitution, which never infers
+  (`` noParams`` `` over `function noParams<T>(n: T) {}`,
+  taggedTemplateStringsTypeArgumentInference).
+
+`type_parameter_free_return` instantiates the return with every type
+parameter mapped to `unknown` and compares identities. If they match, it is
+the answer. It is consulted only after the inference road answered `error`,
+so every answer that road gives today stands.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
