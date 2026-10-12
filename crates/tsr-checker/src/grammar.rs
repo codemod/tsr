@@ -3423,7 +3423,9 @@ impl Checker<'_, '_> {
         if self.is_in_parameter_initializer_before_containing_function(node)
             && let Some(file) = self.source_file_of_for_diagnostics(node)
         {
-            let span = self.nodes.span(node);
+            // `c.error(node, …)`: `GetErrorRangeForNode`'s yield arm, the
+            // keyword.
+            let span = self.error_span(node);
             self.report(
                 file,
                 Diagnostic::new(

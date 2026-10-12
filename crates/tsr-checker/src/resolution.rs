@@ -166,6 +166,14 @@ pub trait ModuleHost {
         &[]
     }
 
+    /// `Program.GetSourceFileMetaData(file.Path())`'s package.json half:
+    /// the `type` field of the nearest enclosing `package.json` (empty when it
+    /// has none) and that file's directory (empty when there is none). `None`
+    /// (the default) declines.
+    fn package_json_scope(&self, _file: NodeId) -> Option<(String, String)> {
+        None
+    }
+
     /// The parse diagnostics of `file`: native's `sourceFile.Diagnostics()`,
     /// which the checker reads in one place, `checkBinaryLikeExpressionWorker`'s
     /// comma arm (`checker.go:12537`). Witnessed against `nodes` as

@@ -973,6 +973,25 @@ impl Checker<'_, '_> {
             self.check_grammar_accessor(node, typed);
             self.resolve_accessor_symbol_type(node);
         }
+        self.check_constructor_named_member(node, typed);
+        if matches!(typed, Node::InferTypeNode(_)) {
+            self.check_infer_type_position(node);
+        }
+        // `checkEnumMember` (`checker.go:5122`): a private-name member is
+        // TS18024, a `c.error` on the member (its name, by error span).
+        if let Node::EnumMember(member) = typed
+            && matches!(member.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let span = self.error_span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AN_ENUM_MEMBER_CANNOT_BE_NAMED_WITH_A_PRIVATE_IDENTIFIER,
+                    span,
+                ),
+            );
+        }
         // **Every kind 's default arm names**, not
         // just  — §623, and §600's dispatch class for the
         // ninth time.
@@ -983,7 +1002,10 @@ impl Checker<'_, '_> {
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
         self.check_grammar_type_arguments(node, typed);
-        self.check_grammar_parameter_list(node);
+        if !self.check_grammar_parameter_list(node) && !self.modifier_chain_reported.contains(&node)
+        {
+            self.check_grammar_use_strict_simple_parameter_list(node);
+        }
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {
             self.check_grammar_modifier_shapes(node, typed);
@@ -1404,10 +1426,14 @@ impl Checker<'_, '_> {
                     tsr_ast::TypeElement::SetAccessorDeclaration(accessor) => accessor.name,
                     _ => continue,
                 };
-                let tsr_ast::PropertyName::PrivateIdentifier(private) = name else { continue };
-                let Some(id) = private.node_id else { continue };
+                let tsr_ast::PropertyName::PrivateIdentifier(_) = name else { continue };
+                // `c.error(node, …)` on the member (`checkPropertySignature`,
+                // `checkMethodDeclaration`, `checker.go:2717`, `:2813`): its
+                // error range, the name for a property signature or an
+                // accessor and the whole member for a method signature.
+                let Some(id) = tsr_ast::Node::from(*member).node_id() else { continue };
                 let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-                let span = self.nodes.span(id);
+                let span = self.error_span(id);
                 self.report(
                     file,
                     Diagnostic::new(
@@ -3079,15 +3105,15 @@ impl Checker<'_, '_> {
         let [first, rest @ ..] = declarations.declarations else { return };
         if let Some(second) = rest.first()
             && let Some(id) = second.node_id
-            && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
-            let span = self.error_span(id);
             let message = if for_in {
                 &messages::ONLY_A_SINGLE_VARIABLE_DECLARATION_IS_ALLOWED_IN_A_FOR_IN_STATEMENT
             } else {
                 &messages::ONLY_A_SINGLE_VARIABLE_DECLARATION_IS_ALLOWED_IN_A_FOR_OF_STATEMENT
             };
-            self.report(file, Diagnostic::new(message, span));
+            // `grammarErrorOnFirstToken(declarations.Nodes[1], …)`
+            // (`grammarchecks.go:1279`): `{` of a destructuring name.
+            self.grammar_error_on_first_token(id, message);
             return;
         }
         if first.initializer.is_some()
@@ -3825,7 +3851,69 @@ impl Checker<'_, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(specifier) else { return };
         let span = self.error_span(specifier);
-        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        // `createModeMismatchDetails` (`checker.go:15339`) for a `.ts`, `.js`,
+        // `.tsx` or `.jsx` importer, chained under the message
+        // (`NewDiagnosticChainForNode`); the import-equals arm has none.
+        let details = (!in_import_equals)
+            .then(|| self.mode_mismatch_details(importing, specifier, span))
+            .flatten();
+        let diagnostic = match details {
+            Some(details) => Diagnostic::new_chain(Some(details), message, [text.to_string()]),
+            None => Diagnostic::with_args(message, span, [text.to_string()]),
+        };
+        self.report(file, diagnostic);
+    }
+
+    /// `CreateModeMismatchDetails` (`checker/utilities.go:1821`) as
+    /// `createModeMismatchDetails` places it (`checker.go:15524`): how to make
+    /// the importing file an ECMAScript module, from its extension and its
+    /// `package.json` scope. Only a `.ts`, `.js`, `.tsx` or `.jsx` importer
+    /// gets one (`TryGetExtensionFromPath`, so `.d.ts` is not `.ts`).
+    fn mode_mismatch_details(
+        &self,
+        importing: NodeId,
+        error_node: NodeId,
+        span: tsr_core::Span,
+    ) -> Option<Diagnostic> {
+        let host = self.module_host?;
+        let name = host.file_path(importing)?;
+        let lower = name.to_ascii_lowercase();
+        let extension = [".d.ts", ".tsx", ".jsx", ".ts", ".js"]
+            .into_iter()
+            .find(|extension| lower.ends_with(extension))?;
+        let target = match extension {
+            ".ts" => ".mts",
+            ".js" => ".mjs",
+            ".tsx" | ".jsx" => "",
+            _ => return None,
+        };
+        let (package_type, package_directory) = host.package_json_scope(importing)?;
+        let package_json = || tsr_path::combine_paths(&package_directory, &["package.json"]);
+        let (message, args): (&'static tsr_diagnostics::Message, Vec<String>) =
+            if !package_directory.is_empty() && package_type.is_empty() {
+                if target.is_empty() {
+                    (
+                        &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_ADD_THE_FIELD_TYPE_COLON_MODULE_TO_0,
+                        vec![package_json()],
+                    )
+                } else {
+                    (
+                        &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_CHANGE_ITS_FILE_EXTENSION_TO_0_OR_ADD_THE_FIELD_TYPE_COLON_MODULE_TO_1,
+                        vec![target.to_string(), package_json()],
+                    )
+                }
+            } else if target.is_empty() {
+                (
+                    &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_CREATE_A_LOCAL_PACKAGE_JSON_FILE_WITH_TYPE_COLON_MODULE,
+                    Vec::new(),
+                )
+            } else {
+                (
+                    &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_CHANGE_ITS_FILE_EXTENSION_TO_0_OR_CREATE_A_LOCAL_PACKAGE_JSON_FILE_WITH_TYPE_COLON_MODULE,
+                    vec![target.to_string()],
+                )
+            };
+        Some(self.related_diagnostic_at(error_node, message, span, args))
     }
 
     /// The tail of `resolveExternalModule` (`checker.go:15420`-`:15441`) for a
@@ -4752,7 +4840,12 @@ impl Checker<'_, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        let mut diagnostic = Diagnostic::with_args(message, span, [text.to_string()]);
+        // `addTypeOnlyDeclarationRelatedInfo(…, getTypeOnlyAliasDeclarationEx(result,
+        // SymbolFlagsValue), name)` (`checker.go:1866`).
+        let declaration = self.type_only_alias_declaration_node_ex(symbol, SymbolFlags::VALUE);
+        self.add_type_only_declaration_related_info(&mut diagnostic, declaration, text);
+        self.report(file, diagnostic);
     }
 
     /// `IsValidTypeOnlyAliasUseSite` (`ast/utilities.go:3124`) — §121's debt,
@@ -9112,15 +9205,15 @@ impl Checker<'_, '_> {
     /// One loop with a `seenOptionalParameter` flag, returning on the **first**
     /// offender, which is why this runs once per *list* and not once per
     /// parameter. §287.
-    fn check_grammar_parameter_list(&mut self, owner: NodeId) {
+    fn check_grammar_parameter_list(&mut self, owner: NodeId) -> bool {
         if self.file_has_parse_errors {
-            return;
+            return false;
         }
         // `checkGrammarFunctionLikeDeclaration`'s `||` chain (`:762`) and
         // `checkGrammarClassLikeDeclaration`'s (`:769`): an empty type
         // parameter list (TS1098) comes before the parameter list.
         if self.check_grammar_type_parameter_list(owner) {
-            return;
+            return true;
         }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
@@ -9160,7 +9253,7 @@ impl Checker<'_, '_> {
                     continue;
                 };
                 self.report_grammar_at(at, message);
-                return;
+                return true;
             }
             // `isOptionalDeclaration` is **`ast.HasQuestionToken` alone**
             // (`checker/utilities.go:299`) — an initialiser does *not* make a
@@ -9192,30 +9285,30 @@ impl Checker<'_, '_> {
                     name,
                     &messages::A_REQUIRED_PARAMETER_CANNOT_FOLLOW_AN_OPTIONAL_PARAMETER,
                 );
-                return;
+                return true;
             }
         }
         // `checkGrammarArrowFunction` (`grammarchecks.go:772`), the next link
         // of `checkGrammarFunctionLikeDeclaration`'s `||` chain.
-        self.check_grammar_arrow_line_terminator(owner);
+        self.check_grammar_arrow_line_terminator(owner)
     }
 
     /// TS1200 — `Line terminator not permitted before arrow.`
     /// `checkGrammarArrowFunction`'s tail (`grammarchecks.go:790`): the `=>`
     /// token's full text, from the previous token's end, holds a line break
     /// (in its trivia, a block comment's included), reported on the token.
-    fn check_grammar_arrow_line_terminator(&mut self, owner: NodeId) {
-        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(owner) else { return };
+    fn check_grammar_arrow_line_terminator(&mut self, owner: NodeId) -> bool {
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(owner) else { return false };
         let Some(token) = arrow.equals_greater_than_token.and_then(|token| token.node_id) else {
-            return;
+            return false;
         };
-        let Some(file) = self.source_file_of_for_diagnostics(token) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(token) else { return false };
         let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
         else {
-            return;
+            return false;
         };
         let start = self.nodes.span(token).start as usize;
-        let Some(mut before) = text.get(..start) else { return };
+        let Some(mut before) = text.get(..start) else { return false };
         let line_break = loop {
             let trimmed =
                 before.trim_end_matches(|c: char| c.is_whitespace() && !is_line_break_char(c));
@@ -9234,6 +9327,168 @@ impl Checker<'_, '_> {
                 &messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW,
             );
         }
+        line_break
+    }
+
+    /// `checkGrammarForUseStrictSimpleParameterList` (`grammarchecks.go:722`),
+    /// the last link of `checkGrammarFunctionLikeDeclaration`'s chain for a
+    /// function-like declaration: from ES2016, a body whose prologue holds
+    /// `"use strict"` makes each parameter with an initializer, a binding
+    /// pattern or a rest TS1346 (related: the directive), and the directive
+    /// TS1347 (related: each such parameter). `c.error`, so not gated on
+    /// parse errors.
+    fn check_grammar_use_strict_simple_parameter_list(&mut self, owner: NodeId) {
+        if self.language_version < tsr_core::ScriptTarget::ES2016 {
+            return;
+        }
+        let body = match self.node_map.get(owner) {
+            Some(Node::FunctionDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::FunctionExpression(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::MethodDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::ConstructorDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::GetAccessorDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::SetAccessorDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::ArrowFunction(f)) => f.body.and_then(|b| b.node_id()),
+            _ => None,
+        };
+        let Some(Node::Block(block)) = body.and_then(|body| self.node_map.get(body)) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(owner) else { return };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return;
+        };
+        // `binder.FindUseStrictPrologue`: the prologue's string-literal
+        // statements, the first spelled exactly `"use strict"`/`'use strict'`.
+        let mut directive = None;
+        for statement in block.statements {
+            let tsr_ast::Statement::ExpressionStatement(expression) = statement else { break };
+            let Some(tsr_ast::Expression::StringLiteral(literal)) = expression.expression else {
+                break;
+            };
+            let Some(id) = literal.node_id else { break };
+            let span = self.nodes.span(id);
+            if matches!(
+                text.get(span.start as usize..span.end as usize),
+                Some("\"use strict\"" | "'use strict'")
+            ) {
+                directive = expression.node_id;
+                break;
+            }
+        }
+        let Some(directive) = directive else { return };
+        let non_simple: Vec<NodeId> = self
+            .parameters_of(owner)
+            .into_iter()
+            .filter(|&parameter| {
+                matches!(self.node_map.get(parameter), Some(Node::ParameterDeclaration(p))
+                    if p.initializer.is_some()
+                        || p.dot_dot_dot_token.is_some()
+                        || matches!(p.name, Some(tsr_ast::BindingName::BindingPattern(_))))
+            })
+            .collect();
+        if non_simple.is_empty() {
+            return;
+        }
+        let directive_span = self.error_span(directive);
+        for &parameter in &non_simple {
+            let mut diagnostic = Diagnostic::new(
+                &messages::THIS_PARAMETER_IS_NOT_ALLOWED_WITH_USE_STRICT_DIRECTIVE,
+                self.error_span(parameter),
+            );
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                directive,
+                &messages::USE_STRICT_DIRECTIVE_USED_HERE,
+                directive_span,
+                Vec::new(),
+            )));
+            self.report(file, diagnostic);
+        }
+        let mut diagnostic = Diagnostic::new(
+            &messages::USE_STRICT_DIRECTIVE_CANNOT_BE_USED_WITH_NON_SIMPLE_PARAMETER_LIST,
+            directive_span,
+        );
+        for (index, &parameter) in non_simple.iter().enumerate() {
+            let message = if index == 0 {
+                &messages::NON_SIMPLE_PARAMETER_DECLARED_HERE
+            } else {
+                &messages::AND_HERE
+            };
+            let span = self.error_span(parameter);
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                parameter,
+                message,
+                span,
+                Vec::new(),
+            )));
+        }
+        self.report(file, diagnostic);
+    }
+
+    /// `checkInferType`'s grammar arm (`checker.go:3289`): an `infer`
+    /// declaration with no ancestor that is a conditional type's `extends`
+    /// type is TS1338 on the node, behind the file's parse errors.
+    fn check_infer_type_position(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let in_extends = std::iter::once(node).chain(self.nodes.ancestors(node)).any(|at| {
+            self.nodes.parent(at).is_some_and(|parent| {
+                matches!(self.node_map.get(parent), Some(Node::ConditionalTypeNode(conditional))
+                    if conditional.extends_type.and_then(|t| t.node_id()) == Some(at))
+            })
+        });
+        if !in_extends {
+            self.grammar_error_on_node(
+                node,
+                &messages::INFER_DECLARATIONS_ARE_ONLY_PERMITTED_IN_THE_EXTENDS_CLAUSE_OF_A_CONDITIONAL_TYPE,
+            );
+        }
+    }
+
+    /// A class member named `constructor` that is not one:
+    /// `checkAccessorDeclaration`'s TS1341 (`checker.go:2936`) for an accessor
+    /// whose parent is class-like, and `checkMethodDeclaration`'s TS1368
+    /// (`:2799`) for a generator method, behind `checkGrammarMethod` (its
+    /// modifier chain is the arm this port tracks). Both are `c.error` on the
+    /// name.
+    fn check_constructor_named_member(&mut self, node: NodeId, typed: Node<'_>) {
+        let (name, message) = match typed {
+            Node::GetAccessorDeclaration(accessor) => {
+                (accessor.name, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_AN_ACCESSOR)
+            }
+            Node::SetAccessorDeclaration(accessor) => {
+                (accessor.name, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_AN_ACCESSOR)
+            }
+            Node::MethodDeclaration(method)
+                if method.asterisk_token.is_some()
+                    && !self.modifier_chain_reported.contains(&node) =>
+            {
+                (method.name, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_A_GENERATOR)
+            }
+            _ => return,
+        };
+        let tsr_ast::PropertyName::Identifier(identifier) = name else { return };
+        if identifier.text != "constructor" {
+            return;
+        }
+        let class_like = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        });
+        // `checkMethodDeclaration` is reached for a class or interface
+        // member only; an object-literal method goes through
+        // `checkObjectLiteralMethod`.
+        if !class_like {
+            return;
+        }
+        let Some(at) = identifier.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// `checkAccessorDeclaration`'s grammar arm (`checker.go:2932`):
@@ -10350,7 +10605,27 @@ impl Checker<'_, '_> {
         // `error_span` would give the name at column 11. This is the one report
         // site in `crate::check` that must not go through `error_span`, and §48
         // centralised the others precisely so an exception is visible.
-        let span = self.nodes.span(node);
+        //
+        // The range runs to the **last** statement of the run
+        // (`checkSourceElementUnreachable`, `checker.go:2431`): in a parent
+        // that can have statements, the following statements that are
+        // themselves potentially executable and unreachable join it.
+        let mut span = self.nodes.span(node);
+        if matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::SourceFile
+                | SyntaxKind::Block
+                | SyntaxKind::ModuleBlock
+                | SyntaxKind::CaseClause
+                | SyntaxKind::DefaultClause
+        ) {
+            for &next in &siblings[index + 1..] {
+                if !self.is_unreachable_run_member(next) {
+                    break;
+                }
+                span.end = self.nodes.span(next).end;
+            }
+        }
         self.report(file, Diagnostic::new(&messages::UNREACHABLE_CODE_DETECTED, span));
     }
 
@@ -13812,7 +14087,8 @@ impl Checker<'_, '_> {
     /// `KindSourceFile`, `KindArrowFunction`, the case/default clauses, and
     /// `return`/`yield`/`constructor`. The `return`/`yield` arm scans the
     /// keyword through the module host's text (`docs/parity/notes/decls.md`
-    /// §18); the others keep the node's own span (§48).
+    /// §18), and the clause arm reads it to step back to the `:`
+    /// (r7-parser §13); the others keep the node's own span (§48).
     /// [`Checker::error_span`], exposed for probes.
     ///
     /// A diagnostic's position is `error_span(anchor)`, so joining a baseline
@@ -13825,7 +14101,17 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
-        if let Some(name) = self.declaration_name_of(node) {
+        // The name-narrowing arm's kinds (`scanner.go:2598`): a method
+        // signature is not among them, and a reparsed function or method
+        // declaration keeps its own range.
+        let narrows = match self.nodes.kind(node) {
+            SyntaxKind::MethodSignature => false,
+            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => {
+                !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED)
+            }
+            _ => true,
+        };
+        if narrows && let Some(name) = self.declaration_name_of(node) {
             return self.error_span(name);
         }
         let span = self.nodes.span(node);
@@ -13891,6 +14177,59 @@ impl Checker<'_, '_> {
         {
             return token;
         }
+        match self.node_map.get(node) {
+            // The declaration arms whose `GetNameOfDeclaration` is nil (an
+            // anonymous function or class expression, `export default
+            // function () {}`): "set the error on the first token of
+            // construct".
+            Some(
+                Node::FunctionExpression(_)
+                | Node::ClassExpression(_)
+                | Node::FunctionDeclaration(_)
+                | Node::ClassDeclaration(_),
+            ) if !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED) => {
+                if let Some(token) = self.first_token_span(node, span.start) {
+                    return token;
+                }
+            }
+            // `getErrorRangeForArrowFunction` (`scanner.go:2542`): a block body
+            // spanning lines ends the range at the line break after the
+            // body's `Pos()`, the end of `=>`.
+            Some(Node::ArrowFunction(arrow)) => {
+                if let Some(tsr_ast::ConciseBody::Block(block)) = arrow.body
+                    && let Some(block) = block.node_id
+                    && let Some(arrow_token) =
+                        arrow.equals_greater_than_token.and_then(|token| token.node_id)
+                    && let Some(end) = self.arrow_first_line_end(block, arrow_token)
+                {
+                    return tsr_core::Span::new(span.start, end.max(span.start));
+                }
+                return span;
+            }
+            _ => {}
+        }
+        // The constructor arm (`scanner.go:2645`): from the first token to
+        // the end of the `constructor` keyword (or its string-literal
+        // spelling), so modifiers are included and the signature is not.
+        if self.nodes.kind(node) == SyntaxKind::Constructor
+            && !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED)
+            && let Some(span) = self.constructor_keyword_span(node, span.start)
+        {
+            return span;
+        }
+        // The case/default-clause arm (`scanner.go:2614`): from the clause's
+        // start to its first statement's `Pos()`, the end of the `:` (the
+        // whitespace before the statement stepped back over), else the
+        // clause's end.
+        if let Some(Node::CaseOrDefaultClause(clause)) = self.node_map.get(node)
+            && let Some(first) = clause.statements.first().and_then(tsr_ast::Statement::node_id)
+        {
+            let first_start = self.nodes.span(first).start;
+            return tsr_core::Span::new(
+                span.start,
+                self.missing_node_full_start(first, first_start).max(span.start),
+            );
+        }
         // `GetErrorRangeForNode` (`scanner.go:2649`) skips trivia only for a
         // node that is not missing: a missing node (a missing declaration
         // name included) reports zero-width at its own `Pos()`, the end of the
@@ -13916,6 +14255,43 @@ impl Checker<'_, '_> {
             .and_then(|text| text.get(start as usize..))?;
         let token = tsr_scanner::Scanner::new(rest).scan().span;
         Some(tsr_core::Span::new(start + token.start, start + token.end))
+    }
+
+    /// For an arrow's block body: when the block's full text (from its
+    /// `Pos()`, the end of `=>`) holds a line break, the position of the first
+    /// one (`GetECMAEndLinePosition(startLine) + 1`). Trivia between `=>` and
+    /// `{` is part of that text, comments included.
+    fn arrow_first_line_end(&self, block: NodeId, arrow_token: NodeId) -> Option<u32> {
+        let file = self.source_file_of_for_diagnostics(block)?;
+        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
+        let span = self.nodes.span(block);
+        let pos = self.nodes.span(arrow_token).end;
+        let body = text.get(pos as usize..span.end as usize)?;
+        let offset = body.find(['\n', '\r', '\u{2028}', '\u{2029}'])?;
+        Some(pos + u32::try_from(offset).ok()?)
+    }
+
+    /// `GetErrorRangeForNode`'s `KindConstructor` arm: scan from the node's
+    /// first token until `constructor`, a string literal or the end of the
+    /// file, and span from the first token's start to that token's end.
+    fn constructor_keyword_span(&self, node: NodeId, start: u32) -> Option<tsr_core::Span> {
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let rest = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(start as usize..))?;
+        let mut scanner = tsr_scanner::Scanner::new(rest);
+        let first = scanner.scan().span;
+        let mut token = scanner.token();
+        loop {
+            match token.kind {
+                SyntaxKind::ConstructorKeyword
+                | SyntaxKind::StringLiteral
+                | SyntaxKind::EndOfFile => break,
+                _ => token = scanner.scan(),
+            }
+        }
+        Some(tsr_core::Span::new(start + first.start, start + token.span.end))
     }
 
     /// `node.Pos()` for a zero-width (missing) node whose span sits at the

@@ -85,7 +85,13 @@ impl Checker<'_, '_> {
                         };
                         let name = self.property_name_or_name_text(node).unwrap_or_default();
                         let span = self.error_span(node);
-                        self.report(file, Diagnostic::with_args(message, span, [name]));
+                        let mut diagnostic = Diagnostic::with_args(message, span, [name.clone()]);
+                        self.add_type_only_declaration_related_info(
+                            &mut diagnostic,
+                            type_only_alias.filter(|_| !is_type),
+                            &name,
+                        );
+                        self.report(file, diagnostic);
                     }
                     if is_type
                         && kind == SyntaxKind::ImportEqualsDeclaration
@@ -110,7 +116,7 @@ impl Checker<'_, '_> {
                         let name = self.property_name_or_name_text(node).unwrap_or_default();
                         let flag = self.isolated_modules_like_flag_name().to_string();
                         let span = self.error_span(node);
-                        let diagnostic = if is_type {
+                        let mut diagnostic = if is_type {
                             Diagnostic::with_args(
                                 &messages::RE_EXPORTING_A_TYPE_WHEN_0_IS_ENABLED_REQUIRES_USING_EXPORT_TYPE,
                                 span,
@@ -120,9 +126,14 @@ impl Checker<'_, '_> {
                             Diagnostic::with_args(
                                 &messages::_0_RESOLVES_TO_A_TYPE_ONLY_DECLARATION_AND_MUST_BE_RE_EXPORTED_USING_A_TYPE_ONLY_RE_EXPORT_WHEN_1_IS_ENABLED,
                                 span,
-                                [name, flag],
+                                [name.clone(), flag],
                             )
                         };
+                        self.add_type_only_declaration_related_info(
+                            &mut diagnostic,
+                            type_only_alias.filter(|_| !is_type),
+                            &name,
+                        );
                         self.report(file, diagnostic);
                     }
                 }
@@ -252,7 +263,15 @@ impl Checker<'_, '_> {
                         } else {
                             &messages::_0_RESOLVES_TO_A_TYPE_ONLY_DECLARATION_AND_MUST_BE_MARKED_TYPE_ONLY_IN_THIS_FILE_BEFORE_RE_EXPORTING_WHEN_1_IS_ENABLED_CONSIDER_USING_EXPORT_TYPE_0_AS_DEFAULT
                         };
-                        self.report(file, Diagnostic::with_args(message, span, [text, flag]));
+                        let mut diagnostic =
+                            Diagnostic::with_args(message, span, [text.clone(), flag]);
+                        // `checker.go:5649`.
+                        self.add_type_only_declaration_related_info(
+                            &mut diagnostic,
+                            type_only_declaration,
+                            &text,
+                        );
+                        self.report(file, diagnostic);
                     }
                 }
             }
@@ -1115,7 +1134,7 @@ impl Checker<'_, '_> {
     /// same condition as `check.rs`'s [`Checker::type_only_alias_declaration`]
     /// (`r6-smallcodes4`). Each hop's link already covers the pure-alias hops
     /// behind it, so re-reading them on the way is redundant, never wrong.
-    fn type_only_alias_declaration_node_ex(
+    pub(crate) fn type_only_alias_declaration_node_ex(
         &mut self,
         symbol: SymbolId,
         meaning: SymbolFlags,
@@ -1502,6 +1521,38 @@ impl Checker<'_, '_> {
             }
         }
         None
+    }
+
+    /// `addTypeOnlyDeclarationRelatedInfo` (`checker.go:2168`): relate the
+    /// type-only declaration (`'{0}' was exported here.` for an export
+    /// specifier, export declaration or namespace export, else `'{0}' was
+    /// imported here.`) to `diagnostic`, at the declaration's error span and
+    /// with its file. No declaration, no related information.
+    pub(crate) fn add_type_only_declaration_related_info(
+        &self,
+        diagnostic: &mut Diagnostic,
+        declaration: Option<NodeId>,
+        name: &str,
+    ) {
+        let Some(declaration) = declaration else { return };
+        let is_export = matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::ExportSpecifier
+                | SyntaxKind::ExportDeclaration
+                | SyntaxKind::NamespaceExport
+        );
+        let message = if is_export {
+            &messages::_0_WAS_EXPORTED_HERE
+        } else {
+            &messages::_0_WAS_IMPORTED_HERE
+        };
+        let span = self.error_span(declaration);
+        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+            declaration,
+            message,
+            span,
+            vec![name.to_string()],
+        )));
     }
 
     /// `ast.IsNonLocalAlias(symbol, excludes)` (`ast/utilities.go:2608`): an
