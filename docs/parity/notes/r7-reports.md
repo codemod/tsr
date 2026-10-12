@@ -2127,3 +2127,16 @@ carries no `private`/`protected` this port could read, and the relation
 that failed did not fail on one either. The retrace now treats it as
 public and relates the types. `genericDerivedTypeWithSpecializedBase` and
 `…2` are EXACT.
+
+## 73. A protected target member: `isValidOverrideOf`
+
+`propertyRelatedTo`'s protected-target arm (`relater.go:4285`) passes
+when the source member's declaring class is the target member's declaring
+class or derives from it (`isPropertyInClassDerivedFrom`, `hasBaseType`).
+Otherwise it fails with `Property 'x' is protected but type 'S' is not a
+class derived from 'T'.`, naming the two declaring classes. §58 left this
+arm declined. `chain_declaring_class` reads the class off the member's
+value declaration, and `chain_class_derives_from` walks
+`base_symbols_of_ex`; an unreadable base list declines. `protectedMembers`
+(`b1 = a1` / `a1 = b1`) and `derivedClassTransitivity4` now read native's
+levels; the latter still differs on `(x?: string)`'s printed `| undefined`.
