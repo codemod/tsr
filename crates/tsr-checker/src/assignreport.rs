@@ -2072,9 +2072,18 @@ impl<'a> Checker<'a, '_> {
     ) -> Diagnostic {
         // `reportUnmatchedProperty` names the pair by
         // `getTypeNamesForErrorDisplay` (`relater.go:4345`; r7-printer §61).
-        let (source_text, target_text) = match at {
-            Some(at) => self.type_names_for_error_display(source, target, at),
-            None => (self.type_to_string(source), self.type_to_string(target)),
+        // Without a site, two types that print alike are still re-printed
+        // fully qualified (r7-reports §108).
+        let (source_text, target_text) = if let Some(at) = at {
+            self.type_names_for_error_display(source, target, at)
+        } else {
+            let (source_text, target_text) =
+                (self.type_to_string(source), self.type_to_string(target));
+            if source_text == target_text {
+                (self.type_name_for_error_display(source), self.type_name_for_error_display(target))
+            } else {
+                (source_text, target_text)
+            }
         };
         let (message, args) = if properties.len() == 1 {
             (
@@ -2220,6 +2229,7 @@ impl<'a> Checker<'a, '_> {
         // binder's table does not hold (`private [x]: number`; r7-reports §88).
         if !self.binder.symbols().get(symbol).members.is_empty()
             || !self.late_bound_members_of(symbol, false).is_empty()
+            || self.declares_signature_members(symbol)
         {
             return None;
         }
@@ -2235,6 +2245,33 @@ impl<'a> Checker<'a, '_> {
         let bases = self.get_base_types(symbol);
         let &[base] = bases.as_slice() else { return None };
         Some(base)
+    }
+
+    /// Members native binds under internal names that this port's binder
+    /// table leaves out: a class constructor (`__constructor`) and an
+    /// interface's call and construct signatures (`__call`, `__new`). Any of
+    /// them makes `getMembersOfSymbol` non-empty (r7-reports §110).
+    fn declares_signature_members(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class.members.iter().any(|member| {
+                    matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(_))
+                }),
+                Some(Node::ClassExpression(class)) => class.members.iter().any(|member| {
+                    matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(_))
+                }),
+                Some(Node::InterfaceDeclaration(interface)) => {
+                    interface.members.iter().any(|member| {
+                        matches!(
+                            member,
+                            tsr_ast::TypeElement::CallSignatureDeclaration(_)
+                                | tsr_ast::TypeElement::ConstructSignatureDeclaration(_)
+                        )
+                    })
+                }
+                _ => false,
+            }
+        })
     }
 
     /// The class half of `getSingleBaseForNonAugmentingSubtype`'s gate: no
@@ -2888,6 +2925,110 @@ impl<'a> Checker<'a, '_> {
             && !self.type_of(no).flags.contains(TypeFlags::NEVER)
     }
 
+    /// `keyof T` over a type parameter, minted from a type node as an
+    /// unresolved placeholder that still records its operand
+    /// (`declared.rs`): the relater's index arms read that operand, so its
+    /// decided answers are not a gap's (r7-reports §109).
+    fn is_deferred_keyof_mint(&self, ty: TypeId) -> bool {
+        self.deferred_keyof_operands
+            .get(&ty)
+            .is_some_and(|&operand| self.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER))
+    }
+
+    /// `reportUnmatchedProperty`'s private-identifier arm: the target's
+    /// `#name` is declared by another class than the source's own `#name`.
+    fn private_name_mismatch(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        name: &str,
+    ) -> Option<ChainEntry> {
+        let source_property = self.get_property_of_type(source, name)?;
+        let target_property = self.get_property_of_type(target, name)?;
+        let source_declaration = self.binder.symbols().get(source_property).value_declaration?;
+        let target_declaration = self.binder.symbols().get(target_property).value_declaration?;
+        if source_declaration == target_declaration {
+            return None;
+        }
+        let class_name = |checker: &Self, declaration: NodeId| -> Option<String> {
+            let class = checker.nodes.parent(declaration)?;
+            let symbol = checker.binder.symbol_of(class)?;
+            let symbols = checker.binder.symbols();
+            symbols
+                .get(symbol)
+                .flags
+                .contains(SymbolFlags::CLASS)
+                .then(|| symbols.get(symbol).name.to_string())
+        };
+        let source_class = class_name(self, source_declaration)?;
+        let target_class = class_name(self, target_declaration)?;
+        Some(ChainEntry {
+            message: &messages::PROPERTY_0_IN_TYPE_1_REFERS_TO_A_DIFFERENT_MEMBER_THAT_CANNOT_BE_ACCESSED_FROM_WITHIN_TYPE_2,
+            args: vec![name.to_string(), source_class, target_class],
+        })
+    }
+
+    /// Every instantiable constituent of an intersection is a type parameter
+    /// whose apparent type has no members (no constraint, `unknown` or
+    /// `object`), and none is a union.
+    fn intersection_instantiables_are_unconstrained(&mut self, ty: TypeId) -> bool {
+        let TypeData::Intersection { types, .. } = self.type_of(ty).data.clone() else {
+            return false;
+        };
+        types.into_iter().all(|part| {
+            let flags = self.type_of(part).flags;
+            if flags.contains(TypeFlags::UNION) {
+                return false;
+            }
+            if !flags.intersects(TypeFlags::INSTANTIABLE) {
+                return true;
+            }
+            // Unconstrained, or constrained to `unknown` or `object`: the
+            // apparent type has no members either way.
+            flags.contains(TypeFlags::TYPE_PARAMETER)
+                && match self.constraint_of_type(part) {
+                    crate::constraints::ConstraintOfType::Nil => true,
+                    crate::constraints::ConstraintOfType::Constraint(constraint) => {
+                        constraint == self.intrinsics.unknown
+                            || self.type_of(constraint).flags == TypeFlags::NON_PRIMITIVE
+                    }
+                    crate::constraints::ConstraintOfType::Undecided => false,
+                }
+        })
+    }
+
+    /// [`Self::chain_best_matching_type`] for a fixed tuple source and a
+    /// union whose every constituent is a fixed tuple.
+    fn tuple_union_best_match(&self, source: TypeId, types: &[TypeId]) -> Option<TypeId> {
+        let fixed_length = |checker: &Self, ty: TypeId| -> Option<usize> {
+            if checker.variadic_tuple_elements.contains_key(&ty)
+                || checker.tuple_rest_tails.contains_key(&ty)
+                || checker.tuple_optional_masks.get(&ty).is_some_and(|mask| mask.contains(&true))
+            {
+                return None;
+            }
+            checker.tuple_element_lists.get(&ty).map(|(elements, _)| elements.len())
+        };
+        let length = fixed_length(self, source)?;
+        let lengths: Option<Vec<usize>> = types.iter().map(|&ty| fixed_length(self, ty)).collect();
+        let lengths = lengths?;
+        let matches: Vec<usize> =
+            lengths.iter().enumerate().filter(|(_, l)| **l == length).map(|(i, _)| i).collect();
+        if let [only] = matches.as_slice() {
+            return Some(types[*only]);
+        }
+        let mut best = None;
+        let mut count = 0usize;
+        for (index, &part_length) in lengths.iter().enumerate() {
+            let shared = length.min(part_length);
+            if shared >= count {
+                best = Some(types[index]);
+                count = shared;
+            }
+        }
+        best
+    }
+
     /// The global `Object` interface's own declared type.
     fn is_global_object_type(&mut self, ty: TypeId) -> bool {
         matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
@@ -3173,6 +3314,29 @@ impl<'a> Checker<'a, '_> {
         self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
 
+    /// `checkTypeComparableTo` with a head message (TS2352): the head with
+    /// the pair's `reportRelationError` explanation, the comparable chain
+    /// retraced under it, and the head's `extends` hint (r7-reports §107).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn report_comparable_failure(
+        &mut self,
+        at: NodeId,
+        file: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        message: &'static tsr_diagnostics::Message,
+        source_text: String,
+        target_text: String,
+    ) {
+        let chain = self.comparable_failure_chain(at, span, source, target);
+        let mut diagnostic =
+            self.relation_diagnostic(span, source, target, message, source_text, target_text);
+        add_relation_chain(&mut diagnostic, chain);
+        self.attach_chain_file(at, span, &mut diagnostic);
+        self.report_relation_head_diagnostic(file, source, target, diagnostic);
+    }
+
     /// `NewDiagnosticChain` gives every chain level the error node's file
     /// (`createDiagnosticChainFromErrorChain`); a chain child built here
     /// without one takes the head's (r7-reports §36).
@@ -3292,6 +3456,18 @@ impl<'a> Checker<'a, '_> {
         let TypeData::Intersection { types, .. } = self.type_of(target).data.clone() else {
             return self.report_relation_failure(at, span, None, source, target, None);
         };
+        // `reportErrorResults`' JSX arm (`relater.go:4724`) reads
+        // `ObjectFlagsJsxAttributes`, which only the attributes object type
+        // carries: a spread type parameter (`<C {...props} />` with `props:
+        // P`) or an intersection keeps the whole head (r7-reports §105).
+        if !self.type_of(source).flags.contains(TypeFlags::OBJECT)
+            || self
+                .type_of(source)
+                .flags
+                .intersects(TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+        {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        }
         let intrinsic = |checker: &mut Self, name: &str| {
             checker
                 .jsx_type_symbol(location, name)
@@ -3651,7 +3827,7 @@ impl<'a> Checker<'a, '_> {
             // above describes, under a different type id — a type the port
             // could not build, which the relater cannot distinguish from one
             // that failed.
-            if self.is_gap(side) || side == any {
+            if (self.is_gap(side) && !self.is_deferred_keyof_mint(side)) || side == any {
                 return false;
             }
             // The `unknown` SOURCE is a real type that fails real relations
@@ -5926,6 +6102,9 @@ struct ChainStack {
     /// `getTypeNamesForErrorDisplay`; r7-printer §61). `None` keeps the
     /// site-free print.
     site: Option<NodeId>,
+    /// Retracing a comparable relation (`checkTypeComparableTo`, TS2352)
+    /// rather than an assignable one (r7-reports §107).
+    comparable: bool,
 }
 
 impl std::ops::Deref for ChainStack {
@@ -6006,7 +6185,30 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<Diagnostic> {
-        let mut stack = ChainStack { site: Some(at), ..ChainStack::default() };
+        self.relation_failure_chain_in(at, span, source, target, false)
+    }
+
+    /// [`Self::relation_failure_chain`] for `checkTypeComparableTo`'s
+    /// comparable relation: TS2352's chain under its conversion head.
+    pub(crate) fn comparable_failure_chain(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Diagnostic> {
+        self.relation_failure_chain_in(at, span, source, target, true)
+    }
+
+    fn relation_failure_chain_in(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        comparable: bool,
+    ) -> Option<Diagnostic> {
+        let mut stack = ChainStack { site: Some(at), comparable, ..ChainStack::default() };
         stack.assumed.push((source, target, false));
         stack.assumed_source_only.push(false);
         self.explain_relation(&mut stack, source, target, 0)?;
@@ -6143,7 +6345,9 @@ impl Checker<'_, '_> {
                 });
             }
         }
-        let message = if same_name {
+        let message = if stack.comparable {
+            &messages::TYPE_0_IS_NOT_COMPARABLE_TO_TYPE_1
+        } else if same_name {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_TWO_DIFFERENT_TYPES_WITH_THIS_NAME_EXIST_BUT_THEY_ARE_UNRELATED
         } else if self.exact_optional_object_mismatch(source, target) {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPES_OF_THE_TARGET_S_PROPERTIES
@@ -6380,6 +6584,11 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> crate::relater::Ternary {
+        let relation = if stack.comparable {
+            crate::relater::Relation::Comparable
+        } else {
+            crate::relater::Relation::Assignable
+        };
         if !stack.assumed.is_empty() {
             self.relate_ternary_assuming(
                 source,
@@ -6387,15 +6596,12 @@ impl Checker<'_, '_> {
                 &stack.assumed,
                 &stack.assumed_source_only,
                 stack.intersection_target,
+                relation,
             )
         } else if stack.intersection_target {
-            self.relate_ternary_in_intersection_target(
-                source,
-                target,
-                crate::relater::Relation::Assignable,
-            )
+            self.relate_ternary_in_intersection_target(source, target, relation)
         } else {
-            self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+            self.relate_ternary(source, target, relation)
         }
     }
 
@@ -6413,12 +6619,18 @@ impl Checker<'_, '_> {
         use crate::relater::Ternary;
         let mut source_only = stack.assumed_source_only.clone();
         source_only.push(true);
+        let relation = if stack.comparable {
+            crate::relater::Relation::Comparable
+        } else {
+            crate::relater::Relation::Assignable
+        };
         let answer = self.relate_ternary_assuming(
             constraint,
             target,
             &stack.assumed,
             &source_only,
             stack.intersection_target,
+            relation,
         );
         match answer {
             Ternary::NotRelated => {
@@ -6439,7 +6651,9 @@ impl Checker<'_, '_> {
         depth: usize,
     ) -> Option<()> {
         use crate::relater::Ternary;
-        if depth > 12 || self.is_gap(source) || self.is_gap(target) {
+        let gap =
+            |checker: &Self, ty: TypeId| checker.is_gap(ty) && !checker.is_deferred_keyof_mint(ty);
+        if depth > 12 || gap(self, source) || gap(self, target) {
             return None;
         }
         let target = self.chain_normalized_target(source, target);
@@ -6462,6 +6676,28 @@ impl Checker<'_, '_> {
         {
             let empty = self.intrinsics.empty_object;
             return self.explain_object_relation(stack, empty, target, depth, false);
+        }
+        // `reportErrorResults`' never-intersection arm (`relater.go:4729`):
+        // the target reduced to `never`, so nothing structural reports, and
+        // the intersection and the property that reduced it are named
+        // (r7-reports §113).
+        if target_flags.contains(TypeFlags::INTERSECTION)
+            && let Some((property, private)) = self.never_reduced_property(target)
+        {
+            let message = if private {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_EXISTS_IN_MULTIPLE_CONSTITUENTS_AND_IS_PRIVATE_IN_SOME
+            } else {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_HAS_CONFLICTING_TYPES_IN_SOME_CONSTITUENTS
+            };
+            let text = self.type_to_string(target);
+            stack.push(ChainEntry { message, args: vec![text, property] });
+            return Some(());
+        }
+        // A `never` target: `isSimpleTypeRelatedTo` decides the failure for
+        // every source but a union (the each-type arm below), and nothing
+        // structural reports below (r7-reports §114).
+        if target_flags.contains(TypeFlags::NEVER) && !source_flags.contains(TypeFlags::UNION) {
+            return Some(());
         }
         // An `any` source fails only where `isSimpleTypeRelatedTo` decided
         // it (a `never` target), and nothing structural reports below
@@ -6488,6 +6724,16 @@ impl Checker<'_, '_> {
         if let TypeData::Union { types, .. } = self.type_of(source).data.clone() {
             if source_flags.intersects(TypeFlags::PRIMITIVE) {
                 return Some(());
+            }
+            // Under the comparable relation a union source needs only some
+            // constituent (`someTypeRelatedToType`), and only the last
+            // constituent's failure is reported (r7-reports §107).
+            if stack.comparable {
+                let last = *types.last()?;
+                return match self.chain_relate(stack, last, target) {
+                    Ternary::NotRelated => self.explain_pair(stack, last, target, depth),
+                    _ => None,
+                };
             }
             for part in types {
                 match self.chain_relate(stack, part, target) {
@@ -6605,10 +6851,14 @@ impl Checker<'_, '_> {
         // constituent makes that pass read `getApparentType` of the
         // intersection (`Number & { __brand: T }`), which this arm does not
         // build, so it declines (r7-reports §78).
+        // An unconstrained type-parameter constituent contributes nothing to
+        // the intersection's apparent members (its apparent type is `{}`),
+        // so the same pass applies (r7-reports §113).
         if source_flags.contains(TypeFlags::INTERSECTION)
             && target_flags.contains(TypeFlags::OBJECT)
             && !target_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
-            && !self.intersection_has_instantiable(source)
+            && (!self.intersection_has_instantiable(source)
+                || self.intersection_instantiables_are_unconstrained(source))
         {
             if let TypeData::Intersection { types, .. } = &self.type_of(source).data
                 && types
@@ -6881,6 +7131,40 @@ impl Checker<'_, '_> {
                 }
                 _ => None,
             };
+        }
+        // An alias instantiation whose body is a tuple (`type T1<T> =
+        // [number, T1<{ x: T }>]`) is minted under its alias name; the
+        // structural walk reads the tuple it stands for (r7-reports §111).
+        let alias_tuple = |checker: &mut Self, ty: TypeId| -> Option<TypeId> {
+            if checker.tuple_element_lists.contains_key(&ty)
+                || checker.variadic_tuple_elements.contains_key(&ty)
+            {
+                return None;
+            }
+            let (symbol, arguments) = checker.type_reference_targets.get(&ty)?.clone();
+            if !checker.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+                return None;
+            }
+            let body = checker.evaluate_alias_body(symbol, &arguments)?;
+            (checker.tuple_element_lists.contains_key(&body)
+                || checker.variadic_tuple_elements.contains_key(&body))
+            .then_some(body)
+        };
+        // Two instantiations of one alias relate its arguments first
+        // (alias variance, below); only distinct aliases are read here.
+        let same_alias = matches!(
+            (self.type_reference_targets.get(&source), self.type_reference_targets.get(&target)),
+            (Some((left, _)), Some((right, _))) if left == right
+        );
+        let (source_body, target_body) = if same_alias {
+            (None, None)
+        } else {
+            (alias_tuple(self, source), alias_tuple(self, target))
+        };
+        if source_body.is_some() || target_body.is_some() {
+            let source = source_body.unwrap_or(source);
+            let target = target_body.unwrap_or(target);
+            return self.explain_fixed_tuple_target(stack, source, target, depth);
         }
         // Array and tuple pairs have arms of their own (tuple elements,
         // `tryElaborateArrayLikeErrors`), not retraced here. An array or
@@ -7197,6 +7481,15 @@ impl Checker<'_, '_> {
                     };
                     Some(format!("{quote}{}{quote}", literal.text))
                 }
+                // `declarationNameToString`: a numeric name prints as
+                // written (`2.0`), not as its normalized key (r7-reports §110).
+                tsr_ast::PropertyName::NumericLiteral(literal) => {
+                    self.declaration_name_source_text(literal.node_id?)
+                }
+                // A computed name prints as its written `[c0]`.
+                tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                    self.declaration_name_source_text(computed.node_id?)
+                }
                 _ => None,
             }
         });
@@ -7432,6 +7725,16 @@ impl Checker<'_, '_> {
         };
         // `getUnmatchedProperty` first.
         for name in &names {
+            // A `#name` is keyed per declaring class natively
+            // (`GetSymbolNameForPrivateIdentifier`), so another class's
+            // `#name` is unmatched, and `reportUnmatchedProperty` names the
+            // two classes (r7-reports §113).
+            if name.starts_with('#')
+                && let Some(entry) = self.private_name_mismatch(source, target, name)
+            {
+                stack.push(entry);
+                return Some(());
+            }
             if self.get_type_of_property_of_type(source, name).is_none()
                 && !self.chain_property_is_optional(target, name)?
             {
@@ -8166,6 +8469,14 @@ impl Checker<'_, '_> {
         let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
             return Some(None);
         };
+        // A fixed tuple against a union of tuples: `length` is the
+        // discriminant (a literal per fixed tuple), and failing a unique
+        // match `findMostOverlappyType` counts the shared element keys, the
+        // `Array` members being common to all (ties go to the later
+        // constituent; r7-reports §115).
+        if let Some(best) = self.tuple_union_best_match(source, &types) {
+            return Some(Some(best));
+        }
         // findMatchingDiscriminantType.
         let discriminated = self.find_matching_discriminant_type(source, target)?;
         if discriminated != target {
@@ -8213,8 +8524,17 @@ impl Checker<'_, '_> {
         }
         // findMostOverlappyType: the last non-primitive constituent sharing
         // the most literal keys (ties go to the later one).
+        // `getIndexType` of each side: a `number` index adds `number`, which
+        // is not a unit type and meets no literal key, so only the shared
+        // literal names count; a `string` index meets every string literal
+        // key, which this count does not model (r7-reports §104).
+        let string = self.intrinsics.string;
         let source_names = self.get_property_names_of_type(source)?;
-        if !self.get_index_infos_of_type(source)?.is_empty() {
+        if self
+            .get_index_infos_of_type(source)?
+            .iter()
+            .any(|info| info.key != self.intrinsics.number)
+        {
             return None;
         }
         let mut best = None;
@@ -8223,7 +8543,7 @@ impl Checker<'_, '_> {
             if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
                 continue;
             }
-            if !self.get_index_infos_of_type(part)?.is_empty() {
+            if self.get_index_infos_of_type(part)?.iter().any(|info| info.key == string) {
                 return None;
             }
             let names = self.get_property_names_of_type(part)?;

@@ -20,7 +20,7 @@
 //! The error node is the whole assertion expression.
 
 use tsr_ast::{Node, NodeId};
-use tsr_diagnostics::{Diagnostic, messages};
+use tsr_diagnostics::messages;
 
 use crate::{checker::Checker, relater::Relation, relater::Ternary};
 
@@ -109,13 +109,18 @@ impl<'a> Checker<'a, '_> {
         let span = self.error_span(error_node);
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
-        self.report(
+        // `checkTypeComparableTo` with the conversion head: the pair's own
+        // `reportRelationError` explanation and the retraced chain under it
+        // (r7-reports §107).
+        self.report_comparable_failure(
+            error_node,
             file,
-            Diagnostic::with_args(
-                &messages::CONVERSION_OF_TYPE_0_TO_TYPE_1_MAY_BE_A_MISTAKE_BECAUSE_NEITHER_TYPE_SUFFICIENTLY_OVERLAPS_WITH_THE_OTHER_IF_THIS_WAS_INTENTIONAL_CONVERT_THE_EXPRESSION_TO_UNKNOWN_FIRST,
-                span,
-                [source_text, target_text],
-            ),
+            span,
+            source,
+            target,
+            &messages::CONVERSION_OF_TYPE_0_TO_TYPE_1_MAY_BE_A_MISTAKE_BECAUSE_NEITHER_TYPE_SUFFICIENTLY_OVERLAPS_WITH_THE_OTHER_IF_THIS_WAS_INTENTIONAL_CONVERT_THE_EXPRESSION_TO_UNKNOWN_FIRST,
+            source_text,
+            target_text,
         );
     }
 }
