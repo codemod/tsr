@@ -6257,6 +6257,29 @@ impl Checker<'_, '_> {
         written.unwrap_or_else(|| chain_property_display(name))
     }
 
+    /// `getParameterNameAtPosition` (`relater.go:1929`): a non-rest
+    /// parameter's own name, else the rest parameter's. A tuple rest names
+    /// its element by label (`getTupleElementLabel`), which declines here.
+    fn parameter_name_at_position(
+        &mut self,
+        signature: &crate::signatures::Signature,
+        index: usize,
+    ) -> Option<String> {
+        let has_rest = signature.parameters.last().is_some_and(|parameter| parameter.rest);
+        let fixed = signature.parameters.len() - usize::from(has_rest);
+        if index < fixed {
+            return Some(signature.parameters[index].name.clone());
+        }
+        let rest = signature.parameters.get(fixed)?;
+        let rest_type = self.parameter_type(rest);
+        if self.tuple_element_lists.contains_key(&rest_type)
+            || self.variadic_tuple_elements.contains_key(&rest_type)
+        {
+            return None;
+        }
+        Some(rest.name.clone())
+    }
+
     /// `relateVariances` for two references to one class or interface
     /// (`relater.go:3266`, `typeArgumentsRelatedTo` at `:3903`): the first
     /// type argument that fails under its variance is the explanation.
@@ -6710,10 +6733,7 @@ impl Checker<'_, '_> {
         (callback, bivariant_callback): (bool, bool),
     ) -> Option<()> {
         use crate::relater::Ternary;
-        if source.predicate.is_some()
-            || target.predicate.is_some()
-            || source.parameters.iter().chain(&target.parameters).any(|parameter| parameter.rest)
-        {
+        if source.predicate.is_some() || target.predicate.is_some() {
             return None;
         }
         // compareSignaturesRelated (`relater.go:1462`): a generic source whose
@@ -6739,7 +6759,7 @@ impl Checker<'_, '_> {
         // `sourceHasMoreParameters` (`relater.go:1470`), reported outside
         // strict arity.
         let source_minimum = self.signature_min_argument_count(source);
-        if source_minimum > target_count {
+        if !self.signature_has_effective_rest(target) && source_minimum > target_count {
             stack.push(ChainEntry {
                 message: &messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
                 args: vec![source_minimum.to_string(), target_count.to_string()],
@@ -6788,11 +6808,29 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        for index in 0..source_count.max(target_count) {
-            let (Some(source_type), Some(target_type)) = (
-                self.signature_type_at_position(source, index),
-                self.signature_type_at_position(target, index),
-            ) else {
+        // A non-array rest on either side caps the walk at the shorter list,
+        // its last position read as the rest (`relater.go:1532`).
+        let non_array_rest = self.signature_non_array_rest_type(source).is_some()
+            || self.signature_non_array_rest_type(target).is_some();
+        let parameter_count = if non_array_rest {
+            source_count.min(target_count)
+        } else {
+            source_count.max(target_count)
+        };
+        let rest_index = non_array_rest.then(|| parameter_count.checked_sub(1)).flatten();
+        for index in 0..parameter_count {
+            let (source_type, target_type) = if rest_index == Some(index) {
+                (
+                    Some(self.signature_rest_or_any_at_position(source, index)),
+                    Some(self.signature_rest_or_any_at_position(target, index)),
+                )
+            } else {
+                (
+                    self.signature_type_at_position(source, index),
+                    self.signature_type_at_position(target, index),
+                )
+            };
+            let (Some(source_type), Some(target_type)) = (source_type, target_type) else {
                 continue;
             };
             if source_type == target_type {
@@ -6843,8 +6881,8 @@ impl Checker<'_, '_> {
                                 depth + 1,
                                 mode,
                             )?;
-                            let source_name = source.parameters.get(index)?.name.clone();
-                            let target_name = target.parameters.get(index)?.name.clone();
+                            let source_name = self.parameter_name_at_position(source, index)?;
+                            let target_name = self.parameter_name_at_position(target, index)?;
                             stack.push(ChainEntry {
                                 message: &messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
                                 args: vec![source_name, target_name],
@@ -6868,8 +6906,8 @@ impl Checker<'_, '_> {
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
                     self.explain_pair(stack, target_type, source_type, depth)?;
-                    let source_name = source.parameters.get(index)?.name.clone();
-                    let target_name = target.parameters.get(index)?.name.clone();
+                    let source_name = self.parameter_name_at_position(source, index)?;
+                    let target_name = self.parameter_name_at_position(target, index)?;
                     stack.push(ChainEntry {
                         message: &messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
                         args: vec![source_name, target_name],

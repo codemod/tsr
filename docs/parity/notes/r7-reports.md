@@ -1940,3 +1940,18 @@ so the origin is the first constituent's declaration, `…declared here on
 type 'Blah'`. The port's `get_property_of_type` has no union property, so
 `add_expected_type_related_info` takes the first constituent that has the
 member (`indirectDiscriminantAndExcessProperty`).
+
+## 62. Rest parameters in the chain
+
+`compareSignaturesRelated` (`relater.go:1532`) walks
+`max(sourceCount, targetCount)` positions. When either side has a
+non-array rest, it walks `min(…)` and reads the last position with
+`getRestOrAnyTypeAtPosition`. The arity check is skipped when the target
+has an effective rest. `explain_signature` declined every rest
+parameter; it now follows the same walk through the port's
+`signature_*_at_position` readers. Parameter names come from
+`getParameterNameAtPosition`: a position past the fixed parameters is
+named by the rest parameter. A tuple rest names its element by label,
+which declines here. `(...x: number[]) => void` against `(x: number[], y:
+string) => void` reads `Types of parameters 'x' and 'x' are
+incompatible.`
