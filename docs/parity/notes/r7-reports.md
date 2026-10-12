@@ -2886,3 +2886,16 @@ Refused here: in `contextuallyTypedStringLiteralsInJsxAttributes02`, `<MainButto
 last candidate's contextual literal `"home"`. The spread operand's object
 literal is checked once and cached. Native re-checks it under each
 candidate's context, and the expression cache is not this lane's.
+
+## 106. TS2786's `JSX.ElementType` chain
+
+`checkJsxOpeningLikeElementOrOpeningFragment` relates the tag's type to
+`JSX.ElementType` with `checkTypeRelatedTo`, using `Its type '{0}' is not a
+valid JSX element type.` as the head message under `_0_cannot_be_used_as_a_JSX_component`.
+The relation's own chain hangs below that head. The port reported the two
+headers alone. `check_jsx_element_type_constraint` now attaches
+`relation_failure_chain` under the second one. In `jsxElementType`, the
+union constituent picked by best match (`(props: any) => React18ReactNode`)
+and its arity line now follow. That line still differs from native in the
+lib's `React.ForwardedRef` qualification, which is printing. Quick oracles
+over `tsx` and `lementType`: 0 lost.
