@@ -1333,6 +1333,123 @@ and missed in others, so it is not verified with margin. generic-imports
 stays at 0.55–0.60 (§38.1). The levers left on dm/dml are other lanes'
 eager evaluations (§37, §38.2).
 
+## §40 Parse and bind on the libs: the hot-function list, and ADR-0056's staging
+
+This section is placed before §21, after §39, for the same reason as §32.
+The integrator asked for both on 2026-10-12, to decide grants.
+
+### §40.1 Where generic-imports' parse and bind go
+
+Callgrind, `--singleThreaded`, profiling build of main `41e3bf25`:
+generic-imports is 197.0 M Ir, of which parse is 132.6 M (67%) and bind
+56.0 M (28%). The check is 4.6 M. A perf sample profile of 30 runs of an
+empty file with the default es2022 libs adds what Ir cannot see:
+**15.9% of samples are kernel page faults**
+(`do_huge_pmd_anonymous_page`, zeroing 2 MB transparent huge pages),
+`Scanner::scan` is 11.8% self, and the binder's `bind_inner`, `bind` and
+`bind_children` together are 7.6%.
+
+| # | function (file) | Ir share, self (gi) | what the time is | native counterpart | saving, measured or estimated |
+|---|---|---:|---|---|---|
+| 1 | `Scanner::scan`'s token build (`tsr-scanner/src/lib.rs` 597–600) | part of scan's 14.3% | About 23% of `scan`'s **samples** sit on two instructions: `Span::new(self.token_start, self.pos)` loads two u32 fields with one 8-byte load just after `scan_token` stored them separately (a failed store-to-load forward), and `self.token` is reloaded right after it was stored | `scanner.go` `Scan` sets fields; no counterpart cost | **Measured** (scratch): build the token from locals. gi wall 0.987 · CPU 0.963 over 41 pairs; Ir unchanged |
+| 2 | `skip_block_comment` (`lib.rs` ~615–680) | `memchr` 3.5% (shared with #4) | After the first line it `memchr`s for `*`, which hits every JSDoc line's leading ` * ` | `scanner.go` skips comments byte by byte | **Measured**: search for `/` and test the byte before it. gi −0.26% Ir |
+| 3 | `scan_identifier_or_keyword` + `keyword_kind` (`lib.rs` 771–800, `generated/keywords.rs`) | 5.1% + 1.0% | The ASCII loop (6.2 M on one line) is tight; `match` already dispatches on length | `textToKeyword` map lookup | **Measured**: a first-byte lowercase reject gives about 0. No lever |
+| 4 | `jsdoc_tag_flags` (`lib.rs` 2245) | in `memchr` 3.5% | A second `find('@')` pass over every JSDoc comment (66% of lib bytes are comments) | `scanJSDocCommentForTags`: the same second `IndexByte` pass, with the same early exit | Estimated ≤1% Ir, by folding the `@` test into #2's comment walk. Faithful in effect, not in structure |
+| 5 | `Parser::next_token_without_check` + `capture_value` (`tsr-parser/src/parser.rs` 671, 1498) | 3.1% self | A `String` allocation for every token with a decoded value (string literals, escaped identifiers) | `tokenValue` is a Go substring, no copy | Estimated ~1% wall: borrow the slice when the value equals the source text |
+| 6 | binder dispatch: `bind_inner`, `bind`, `bind_children`, `bind_each_child`, `record_flow` (`tsr-binder/src/binder.rs`) | 5.4 + 2.6 + 1.3 + 0.7 + 0.9% | Per-node `match` dispatch. `bind_each_child` pushes the children into a `Vec` (`push_children`) and then walks it | `bindChildren` / `ForEachChild` with a callback, no buffer | Estimated 2–3% of bind: a callback walk instead of the buffer, and folding the repeated `match node` arms. No single hot line; the largest is 0.9 M Ir |
+| 7 | generated `Node::node_id`, `for_each_child_id`, `push_children` (`tsr-ast/src/generated/`) | 1.2 + 2.0 + 0.8% | Kind dispatch per call | field access | None in this form. ADR-0056 stage 0 does not change it |
+| 8 | `NodeTable::push`, `NodeMap::push`, arena (`tsr-ast`, `tsr-core`) and `memcpy` | ≈3.5% + 3.2% | Growth copies of the shared tables per file | slices per file | §11 refused the up-front reserve (noise) |
+| 9 | page faults (kernel; not in Ir) | **15.9% of samples** | mimalloc `madvise`s its 1 GiB arena `MADV_HUGEPAGE` and commits eagerly. RSS is 58.8 MB against a 22.5 MB glibc heap peak (massif); tsgo is 44.5 MB RSS with 20 MB in use | Go heap | **Refused, measured** (dist, 31 interleaved pairs, gi / dm / dml): THP disabled (`PR_SET_THP_DISABLE`) wall 1.172 / 1.147 / 1.098; `MIMALLOC_ARENA_EAGER_COMMIT=0` 1.164 / 1.156 / 1.151, though RSS drops to 36.9 MB. The allocator is at its local optimum, so the remaining lever is fewer bytes touched |
+
+**Combined scratch build of #1–#3:** gi Ir −0.25%; wall 0.996 and CPU
+0.991 over 41 pairs. That session did not reproduce #1's alone reading,
+so #1's real gain is within 1–4% of CPU.
+
+**Reading.** No 15% parse-and-bind speedup is concentrated in a few
+functions. The scanner is already byte-driven, the binder's cost is
+spread over per-node dispatch, and the largest wall item, page zeroing,
+is a footprint cost that the allocator settings cannot remove without
+losing more. Items 1, 2, 4, 5 and 6 together are a realistic **3–6%** of
+generic-imports' parse and bind, about 1–2 ms. Only ADR-0056's zero-copy
+publication, which overlaps the libs with lib.dom.d.ts, reaches the
+modelled 2.8–5.1 ms.
+
+### §40.2 ADR-0056 staging, with the node-id change measured as one codemod
+
+**Stage 0, the node-id accessor, probed** (`box/r7-perf-proposed-nodeid`
+`b82053cd`, one commit on main `8940d068`, scratch). The generated field
+`pub node_id: Option<NodeId>` becomes `pub(crate)`, behind an inherent
+`#[inline] pub fn node_id(&self) -> Option<NodeId>` on the 191 generated
+node structs and on `Token`. A regex then rewrote every `.node_id` read
+outside `tsr-ast` to `.node_id()`: 1,503 sites in 299 files. What the
+build then reported, and how it was fixed:
+
+- two parser writes (`allocated.node_id = Some(id)`) changed to
+  `HasNodeId::set_node_id`;
+- three struct literals that copy a node with its id (`spreads.rs` ×2, a
+  `calls.rs` test) changed to the generated `::new(..)` plus
+  `set_node_id`;
+- five false positives on non-AST structs with their own `node_id` field
+  (`ExpandoMember`, `CommonJsExport` in `tsr-declarations`) reverted. A
+  landable codemod rewrites only the sites rustc reports as E0616
+  (private field) and so has none.
+
+The whole workspace then builds (`--all-targets`). Callgrind:
+generic-imports 191,066,747 → 191,022,788 Ir, domain-model 798,496,712 →
+798,535,300. CLI output is `cmp`-identical on dm and gi. Node ids, their
+order and every answer are unchanged by construction.
+
+| crate | files | lines changed (+/−) |
+|---|---:|---:|
+| `tsr-checker` | 190 | +1,037 / −1,033 |
+| `tsr-declarations` | 5 | +132 / −132 |
+| `tsr-conformance` | 41 | +121 / −121 |
+| `tsr-binder` | 10 | +56 / −56 |
+| `tsr-parser` | 15 | +49 / −49 |
+| `tsr-dts` | 5 | +45 / −45 |
+| `tsr-compiler` | 22 | +33 / −33 |
+| `tsr-execute` | 5 | +17 / −17 |
+| `tsr-printer` | 4 | +9 / −9 |
+| `tsr-tsoptions`, `xtask` | 2 | +6 / −6 |
+| `tsr-ast` generated (from `xtask/src/gen_nodes.rs`, about 30 template lines) | 1 | +1,719 / −191 |
+| `tsr-ast/src/lib.rs` (`Token`) | 1 | +10 / −1 |
+| **total** | 301 | +3,234 / −1,693 |
+
+ADR-0056 counted 2,994 read sites. That count included the 1,653 sites
+that already call the `node_id()` accessor. 1,503 is the number of field
+reads.
+
+**Collision.** Stage 0 touches every lane's crates, but each change is
+one token per line. Two ways to land it:
+
+- **(a) One commit at a quiet point.** The codegen change, regeneration and
+  rewrite land together, right after a batch merge. A lane branch that
+  rebases over it and still reads `.node_id` gets E0616 ("field is
+  private; a method `node_id` exists"), and the same codemod, an `xtask`
+  subcommand driven by those errors, fixes its branch in one run.
+- **(b) Two commits, no flag day.** 0a: generate the inherent accessor
+  only, leaving the field `pub`. That is generated code, with no conflicts,
+  and `x.node_id()` and `x.node_id` both work, because Rust allows a field
+  and a method of the same name. Lanes switch reads as they touch code, or
+  the codemod runs per crate. 0b: flip the field to `pub(crate)` once
+  `rg '\.node_id\b[^(]'` is empty outside `tsr-ast`.
+
+**Later stages, mostly in this lane's files** (estimated sizes):
+
+| stage | content | crates and owner | size |
+|---|---|---|---|
+| 1 | `NodeIdCell` (relaxed `AtomicU32`) replaces `Option<NodeId>` behind the unchanged accessor; registration through it | `tsr-ast` generated plus `gen_nodes.rs`, `tsr-ast/src/lib.rs` (shared) | ~100 template lines, ~400 generated lines; no read-site churn |
+| 2 | publication as a rebase pass: `ParsedFile::publish` adds the file's base instead of copying; generated `publish.rs` becomes a rebase visitor | `tsr-parser` (`parsed_file.rs`), `tsr-ast` generated | ~150 + ~200 generated |
+| 3 | `ArenaPool` (append-only per-file arenas, one audited `unsafe`, ADR-0011 exception), and the loader keeps worker arenas | `tsr-core` (`arena.rs`), `tsr-compiler` loader (mine) | ~150 + ~250 |
+| 4 | per-file bind on the workers: `bind_file` + `publish_file` already exist and are verified (`parallel_tests.rs`); schedule parse-then-bind per job; drop r5-loader §3's gate and §2's static-lib exclusion | `tsr-compiler` (mine), small `tsr-binder` hooks | ~250 + ~50 |
+| 5 | measure against ADR-0056's falsifiers, then a new ADR records the decision | docs | — |
+
+Expected (ADR-0056's model, unchanged): generic-imports −2.8 to −5.1 ms,
+domain-model −12.3 to −15.1 ms, domain-model-large −22 to −30 ms per
+process. At §39's ratios that is roughly gi 0.50–0.53 and dm 0.44–0.47.
+Stages 1–4 are behind stage 0 and need no further cross-lane edits beyond
+the `tsr-parser`/`tsr-binder` hooks named above.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
