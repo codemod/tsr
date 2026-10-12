@@ -245,7 +245,7 @@ impl Checker<'_, '_> {
                 };
             let Some(file) = self.source_file_of_for_diagnostics(report_node) else { return };
             let span = self.error_span(report_node);
-            let printed = self.type_to_string(receiver_type);
+            let printed = self.type_to_string_for_message(receiver_type, node);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -383,7 +383,7 @@ impl Checker<'_, '_> {
                 let Some(argument) = access.argument_expression else { return };
                 let Some(argument_id) = argument.node_id() else { return };
                 let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                let printed = self.type_to_string(receiver_type);
+                let printed = self.type_to_string_for_message(receiver_type, node);
                 // `checkElementAccess` widens the receiver for an assignment
                 // target or a method access for a call, and
                 // `getWidenedTypeOfObjectLiteral` does not carry
@@ -566,7 +566,7 @@ impl Checker<'_, '_> {
             let span = self.error_span(name_id);
             // `typeName+"."+propName` (`checker.go:11553-11556`): the printed
             // containing type, `List<T>.Foo`, not the class's name.
-            let printed = self.type_to_string(containing);
+            let printed = self.type_to_string_for_message(containing, node);
             let member = format!("{printed}.{name_text}");
             self.report(
                 file,
@@ -587,7 +587,7 @@ impl Checker<'_, '_> {
         {
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
-            let printed = self.type_to_string(containing);
+            let printed = self.type_to_string_for_message(containing, node);
             self.report(
                 file,
                 Self::chained_miss(
@@ -615,7 +615,7 @@ impl Checker<'_, '_> {
             let suggestion = suggestion.to_string();
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
-            let printed = self.type_to_string(containing);
+            let printed = self.type_to_string_for_message(containing, node);
             let mut diagnostic = Self::chained_miss(
                 union_miss,
                 &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
@@ -653,7 +653,7 @@ impl Checker<'_, '_> {
             let index_type = self.check_expression(index);
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
             let span = self.error_span(node);
-            let printed = self.type_to_string(receiver_type);
+            let printed = self.type_to_string_for_message(receiver_type, node);
             let child = self.related_diagnostic_at(
                 node,
                 &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
@@ -678,7 +678,7 @@ impl Checker<'_, '_> {
         let never_intersection = apparent_receiver == self.intrinsics.never
             && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION);
         let shown = if never_intersection { apparent_receiver } else { containing };
-        let printed = self.type_to_string(shown);
+        let printed = self.type_to_string_for_message(shown, node);
         // `elaborateNeverIntersection` (`checker.go:21868`), on the property
         // access road only (`reportNonexistentProperty`): the intersection,
         // printed unreduced, and the property that reduced it.
@@ -811,7 +811,7 @@ impl Checker<'_, '_> {
             if self.apparent_type_lacks(apparent, name)? {
                 // `NewDiagnosticChainForNode(nil, propNode, …)`: the child
                 // carries the file (§56).
-                let printed = self.type_to_string(constituent);
+                let printed = self.type_to_string_for_message(constituent, node);
                 let span = self.error_span(name_id);
                 return Some(self.related_diagnostic_at(
                     name_id,

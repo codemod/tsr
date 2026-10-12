@@ -2274,9 +2274,10 @@ impl<'a> Checker<'a, '_> {
         // site visitor refused the node keeps the bare type.
         if !parameter.question
             || !self.strict_null_checks
-            || parameter.written_text.is_some_and(|written| {
-                written.is_equivalent_to(parameter_type, self.intrinsics.error)
-            })
+            || (!self.print_without_enclosing
+                && parameter.written_text.is_some_and(|written| {
+                    written.is_equivalent_to(parameter_type, self.intrinsics.error)
+                }))
         {
             return parameter_type;
         }
@@ -7514,7 +7515,8 @@ impl<'a> Checker<'a, '_> {
         index: usize,
         reference: NodeId,
     ) -> Option<String> {
-        if signature.target.is_some()
+        if self.print_without_enclosing
+            || signature.target.is_some()
             || signature.non_inferrable
             || !signature.type_parameters.is_empty()
             || signature.this_parameter.is_some()
@@ -8033,7 +8035,9 @@ impl<'a> Checker<'a, '_> {
         signature: &Signature,
         reference: tsr_ast::NodeId,
     ) -> Vec<(String, String)> {
-        if signature.type_parameters.is_empty() {
+        // A message prints without `GenerateNamesForShadowedTypeParams`
+        // (r7-printer §43): no rename.
+        if signature.type_parameters.is_empty() || self.print_without_enclosing {
             return Vec::new();
         }
         // The whole ancestor chain of the signature's own declaration is
