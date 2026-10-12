@@ -7264,6 +7264,14 @@ impl<'a> Checker<'a, '_> {
         if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
             && self.alias_rooted_reference_declines(node, resolved)
         {
+            // The declined reference keeps its unresolved mint, spelled as
+            // native prints the reference: a shorter written list shows its
+            // filled defaults (fillMissingTypeArguments, `React.ComponentClass<P,
+            // any>`), the written list going to the reuse channel
+            // (r7-declared §43).
+            if let Some(spelled) = self.declined_reference_with_defaults(node, resolved) {
+                return spelled;
+            }
             return self.unresolved_type_reference(node);
         }
         // QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE: an argument-less reference
@@ -7403,7 +7411,14 @@ impl<'a> Checker<'a, '_> {
         // spelling, and registers in `type_reference_targets` so the
         // tsr-4qx seam and instantiation both see a real reference.
         let parameters = self.local_type_parameters_of(resolved).len();
-        if parameters > 0 && node.type_arguments.len() == parameters {
+        // fillMissingTypeArguments (checker.go:19458): a shorter written list
+        // whose missing parameters all have defaults takes the defaults; the
+        // print shows every argument (`NS.CC<string, any>`) and a reused
+        // annotation the written ones (r7-declared §42).
+        let filled = (node.type_arguments.len() < parameters)
+            .then(|| self.qualified_reference_missing_defaults(resolved, node.type_arguments.len()))
+            .flatten();
+        if parameters > 0 && (node.type_arguments.len() == parameters || filled.is_some()) {
             let mut arguments = Vec::with_capacity(parameters);
             for argument in node.type_arguments {
                 let image = self.get_type_from_type_node(*argument);
@@ -7412,6 +7427,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 arguments.push(image);
             }
+            arguments.extend(filled.unwrap_or_default());
             let Some(written) = Self::entity_name_text(node.type_name) else { return error };
             let base = self.qualification_free_name(name, resolved);
             let printed_arguments: Vec<String> =
@@ -7467,6 +7483,69 @@ impl<'a> Checker<'a, '_> {
             return minted;
         }
         self.unresolved_type_reference(node)
+    }
+
+    /// [`Self::unresolved_type_reference`]'s mint for a declined alias-rooted
+    /// reference whose written list is shorter than `resolved`'s parameters
+    /// and whose missing parameters have defaults
+    /// ([`Self::qualified_reference_missing_defaults`]): the text prints every
+    /// argument, the written spelling goes to `qualified_written_text`.
+    fn declined_reference_with_defaults(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        resolved: SymbolId,
+    ) -> Option<TypeId> {
+        let written = node.type_arguments.len();
+        if written == 0 || written >= self.local_type_parameters_of(resolved).len() {
+            return None;
+        }
+        let defaults = self.qualified_reference_missing_defaults(resolved, written)?;
+        let base = Self::entity_name_text(node.type_name)?;
+        let mut printed = Vec::with_capacity(written + defaults.len());
+        for &argument in node.type_arguments {
+            let argument = self.get_type_from_type_node(argument);
+            if self.is_gap(argument) {
+                return None;
+            }
+            printed.push(self.type_to_string(argument));
+        }
+        let written_text = format!("{base}<{}>", printed.join(", "));
+        printed.extend(defaults.iter().map(|&default| self.type_to_string(default)));
+        let text = format!("{base}<{}>", printed.join(", "));
+        if let Some(id) = node.node_id {
+            self.qualified_written_text.entry(id).or_insert(written_text);
+        }
+        let minted = self.store.new_named(TypeFlags::ANY, text, None);
+        self.unresolved_types.insert(minted);
+        Some(minted)
+    }
+
+    /// The defaults of `resolved`'s type parameters from position `written`
+    /// on, when every one has a default that resolves without mentioning a
+    /// type parameter (a forward default needs substitution): the
+    /// fillMissingTypeArguments tail of a partially written qualified
+    /// reference.
+    fn qualified_reference_missing_defaults(
+        &mut self,
+        resolved: SymbolId,
+        written: usize,
+    ) -> Option<Vec<TypeId>> {
+        if written == 0 {
+            return None;
+        }
+        let declarations = self.local_type_parameters_of(resolved);
+        let mut defaults = Vec::new();
+        for declaration in declarations.get(written..)? {
+            let default = self.get_type_from_type_node(declaration.default_type?);
+            if self.is_gap(default)
+                || self.is_error(default)
+                || self.mentions_any_type_parameter(default, 4)
+            {
+                return None;
+            }
+            defaults.push(default);
+        }
+        Some(defaults)
     }
 
     /// fillMissingTypeArguments (checker.go:19458) for an argument-less
