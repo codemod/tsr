@@ -1288,3 +1288,24 @@ the tree round-trips.
 
 **Measured.** Round-trip: passed 11805 → 11810, failed 4 → 4, unsupported
 5 → 0, no other case moved.
+
+## 32. A `keyof` origin names its operand at the site
+
+**Forcing constraint.** Ten lines in intlNumberFormatES2020/ES2023,
+es2018IntlAPIs and formatToPartsFractionalSecond: native prints
+`keyof Intl.NumberFormatOptionsStyleRegistry`, the port
+`keyof NumberFormatOptionsStyleRegistry`.
+
+**Cause.** `getLiteralTypeFromProperties` gives a resolved key union the
+origin `newIndexType(t)`, and the node builder prints that origin's Index
+arm (`nodebuilderimpl.go:3472`) by writing `t` at the print site. The port
+baked `keyof <operand printed at creation>`. r7-declared §16
+(`cd49eafb4`) now records the operand beside the text
+(`instantiation_expressions.keyof_origin_operands`) for this arm.
+
+**The port.** `type_to_string_at_worker` prints such a union as
+`keyof <operand at the site>`, parenthesizing an operand that binds looser
+than a type operator (`keyof (A | B)`). It fires only where the baked text
+is exactly `keyof <operand's site-free print>`, so an origin text the arm
+does not own stays as it was. No cache or table of its own; the map is
+r7-declared's.
