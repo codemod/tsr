@@ -845,7 +845,7 @@ impl Checker<'_, '_> {
     /// Not ported: the expando-assignment disjunct (`:11420`, a property
     /// declared by `this.x = …` in the same container).
     pub(crate) fn check_property_used_before_assigned(&mut self, node: NodeId) {
-        if !self.strict_null_checks || !self.strict_property_initialization {
+        if !self.strict_null_checks {
             return;
         }
         let (receiver, name, error_node) = match self.node_map.get(node) {
@@ -871,32 +871,57 @@ impl Checker<'_, '_> {
         let Some(receiver_expression) = receiver else { return };
         let Some(receiver) = receiver_expression.node_id() else { return };
         let Some(error_node) = error_node else { return };
-        if self.nodes.kind(receiver) != SyntaxKind::ThisKeyword
-            || self.assignment_target_kind(node)
-                == crate::expressions::AssignmentTargetKind::Definite
-        {
+        if self.assignment_target_kind(node) == crate::expressions::AssignmentTargetKind::Definite {
             return;
         }
+        let receiver_is_this = self.nodes.kind(receiver) == SyntaxKind::ThisKeyword;
         let Some(container) = self.control_flow_container(node) else { return };
-        if self.nodes.kind(container) != SyntaxKind::Constructor {
-            return;
-        }
         let receiver_type = self.check_expression(receiver_expression);
         let Some(property) = self.get_property_of_type(receiver_type, &name) else { return };
         let Some(declaration) = self.binder.symbols().get(property).value_declaration else {
             return;
         };
-        let Some(Node::PropertyDeclaration(declared_node)) = self.node_map.get(declaration) else {
-            return;
+        // `checker.go:11414-11423`: the `this.x` arm (an instance property
+        // declaration without an initializer, read in a constructor of its
+        // class), else the expando arm (a property declared by an
+        // `X.y = …` assignment in the same control-flow container).
+        let this_arm = self.strict_property_initialization
+            && receiver_is_this
+            && match self.node_map.get(declaration) {
+                Some(Node::PropertyDeclaration(declared_node)) => {
+                    !(declared_node.initializer.is_some()
+                        || declared_node
+                            .postfix_token
+                            .is_some_and(|t| t.kind == SyntaxKind::ExclamationToken)
+                        || tsr_ast::has_syntactic_modifier(
+                            declared_node.modifiers,
+                            SyntaxKind::AbstractKeyword,
+                        )
+                        || tsr_ast::has_syntactic_modifier(
+                            declared_node.modifiers,
+                            SyntaxKind::DeclareKeyword,
+                        ))
+                }
+                _ => false,
+            };
+        let assume_uninitialized = if this_arm {
+            !tsr_ast::has_syntactic_modifier(
+                match self.node_map.get(declaration) {
+                    Some(Node::PropertyDeclaration(declared_node)) => declared_node.modifiers,
+                    _ => return,
+                },
+                SyntaxKind::StaticKeyword,
+            ) && self.nodes.kind(container) == SyntaxKind::Constructor
+                && self.nodes.parent(container) == self.nodes.parent(declaration)
+                && !self.nodes.flags(declaration).contains(NodeFlags::AMBIENT)
+        } else {
+            matches!(
+                self.node_map.get(declaration),
+                Some(Node::BinaryExpression(binary))
+                    if matches!(binary.left, Some(tsr_ast::Expression::PropertyAccessExpression(_)))
+            ) && self.control_flow_container(declaration) == Some(container)
         };
-        if declared_node.initializer.is_some()
-            || declared_node.postfix_token.is_some_and(|t| t.kind == SyntaxKind::ExclamationToken)
-            || tsr_ast::has_syntactic_modifier(declared_node.modifiers, SyntaxKind::AbstractKeyword)
-            || tsr_ast::has_syntactic_modifier(declared_node.modifiers, SyntaxKind::StaticKeyword)
-            || tsr_ast::has_syntactic_modifier(declared_node.modifiers, SyntaxKind::DeclareKeyword)
-            || self.nodes.flags(declaration).contains(NodeFlags::AMBIENT)
-            || self.nodes.parent(container) != self.nodes.parent(declaration)
-        {
+        if !assume_uninitialized {
             return;
         }
         let declared = self.get_type_of_symbol(property);
@@ -919,24 +944,6 @@ impl Checker<'_, '_> {
                 [name],
             ),
         );
-    }
-
-    /// `checkIdentifier`'s implicit-any test (`checker.go:11182`): whether the
-    /// flow type of `reference`, an identifier read of the auto-typed
-    /// `symbol`, is `autoType` itself — every path reaching the top of the
-    /// graph with the auto initial type unchanged, no assignment and no
-    /// union with anything else. The scalar half of
-    /// [`Checker::identifier_flow_auto_kind`], kept for the reporter in
-    /// `implicit_any.rs`, which prints `any`.
-    // Unused once the reporter asks `identifier_flow_auto_kind` itself
-    // (`docs/parity/notes/r7-flow-auto-array-reporter.diff`).
-    #[allow(dead_code)]
-    pub(crate) fn identifier_flow_type_is_auto(
-        &mut self,
-        reference: NodeId,
-        symbol: SymbolId,
-    ) -> bool {
-        self.identifier_flow_auto_kind(reference, symbol) == Some(AutoFlowType::Auto)
     }
 
     /// `checkIdentifier`'s implicit-any test (`checker.go:11182`): whether the

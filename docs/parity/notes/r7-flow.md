@@ -1816,3 +1816,25 @@ C4'` as the declaring class) stay missing.
 Measured on `4d769348`: legacy verdicts unchanged (the case keeps other
 differences; its five false TS2445 are gone), exact oracle unchanged, 0 lost;
 jsTyping gap 18 → 18, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0001.
+
+## §74 TS2565's expando arm
+
+`getFlowTypeOfAccessExpression`'s `assumeUninitialized` (`checker.go:11411-11423`)
+has a second arm §16 left out: a property whose value declaration is an
+`X.y = …` assignment (an expando), read in the same control-flow container,
+walks from `getOptionalType(propType)` under `strictNullChecks` alone (no
+`strictPropertyInitialization`), so `if (b) { d.q = false } d.q` reports
+"Property 'q' is used before being assigned." (`typeFromPropertyAssignment36`).
+`check_property_used_before_assigned` now decides both arms in native's order
+after the one property lookup. Not covered: an expando on a `const` function
+expression (`g.expando`), whose member this port's lookup does not answer
+from that declaration.
+
+Also removed: `identifier_flow_type_is_auto`, dead since §66 applied the
+auto-array reporter (its two doc references in `implicit_any.rs` and
+`intrinsics.rs` now name `identifier_flow_auto_kind`).
+
+Measured on `06968dce`: diagnostics **+1** case, 0 lost; exact oracle +1, 0
+lost; jsTyping gap 18 → 18, new_false 0, lost_true 0; Ir gi 0.9998, dm
+1.0029 (the expando arm's property lookup on every strict-mode property read,
+native's own order; within the gate).

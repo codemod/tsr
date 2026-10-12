@@ -133,7 +133,7 @@ pub struct Intrinsics {
     pub unique_literal: TypeId,
     /// `autoType` — `checker.go:976`: the declared type of an unannotated,
     /// uninitialized variable, an `any` with its own identity. Only the flow
-    /// walk's auto query ([`Checker::identifier_flow_type_is_auto`](crate::Checker))
+    /// walk's auto query ([`Checker::identifier_flow_auto_kind`](crate::Checker))
     /// mints it as a walk's declared/initial type and compares the answer
     /// by identity; it never leaves that query. The query road still spells
     /// auto as [`Intrinsics::any`] (`docs/parity/notes/r7-flow.md` §8).
