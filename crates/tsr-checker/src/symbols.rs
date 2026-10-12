@@ -7074,6 +7074,7 @@ impl<'a> Checker<'a, '_> {
             // The assignment-time record TS7006 reads (r7-reports §18).
             self.record_parameter_context_at_assignment(declaration, contextual.is_none());
             if let Some(contextual) = contextual {
+                let contextual = self.binding_pattern_fallback_for_unknown(declaration, contextual);
                 return Some(self.add_optionality_for_declaration(contextual, declaration));
             }
         }

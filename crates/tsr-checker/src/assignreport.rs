@@ -6097,6 +6097,13 @@ impl Checker<'_, '_> {
         // below the relation error. Against an object,
         // `structuredTypeRelatedToWorker` relates the apparent type with
         // `reportStructuralErrors` off for a primitive source.
+        // `unknown` is not structured and no simple arm relates it to
+        // anything but `unknown`/`any`: nothing reports below (§77).
+        if source_flags.contains(TypeFlags::UNKNOWN)
+            && !target_flags.intersects(TypeFlags::INTERSECTION)
+        {
+            return Some(());
+        }
         if source_flags.intersects(TypeFlags::PRIMITIVE)
             && !source_flags.intersects(TypeFlags::INSTANTIABLE)
             && !target_flags.intersects(TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
@@ -6125,8 +6132,12 @@ impl Checker<'_, '_> {
         // extra `propertiesRelatedTo` over the intersection as one object
         // (`relater.go:2770`) is what failed.
         if let TypeData::Intersection { types, .. } = self.type_of(target).data.clone()
-            && source_flags
-                .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::PRIMITIVE)
+            && source_flags.intersects(
+                TypeFlags::OBJECT
+                    | TypeFlags::INTERSECTION
+                    | TypeFlags::PRIMITIVE
+                    | TypeFlags::UNKNOWN,
+            )
             && !source_flags.intersects(TypeFlags::INSTANTIABLE)
             && !(source_flags.contains(TypeFlags::INTERSECTION)
                 && self.intersection_has_instantiable(source))
@@ -6496,8 +6507,18 @@ impl Checker<'_, '_> {
     ) -> Option<String> {
         let has_rest = signature.parameters.last().is_some_and(|parameter| parameter.rest);
         let fixed = signature.parameters.len() - usize::from(has_rest);
+        // A binding-pattern parameter's symbol is named `__<index>` by the
+        // binder (its position in the written list, `this` included); the
+        // port's parameter keeps the pattern's printed text.
+        let symbol_name = |position: usize, name: &str| {
+            if name.starts_with('{') || name.starts_with('[') {
+                format!("__{}", position + usize::from(signature.this_parameter.is_some()))
+            } else {
+                name.to_owned()
+            }
+        };
         if index < fixed {
-            return Some(signature.parameters[index].name.clone());
+            return Some(symbol_name(index, &signature.parameters[index].name));
         }
         let rest = signature.parameters.get(fixed)?;
         let rest_type = self.parameter_type(rest);
@@ -6506,7 +6527,7 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        Some(rest.name.clone())
+        Some(symbol_name(fixed, &rest.name))
     }
 
     /// `relateVariances` for two references to one class or interface

@@ -2210,3 +2210,38 @@ Routed from r7-calls (TS2684 silenced in non-strict mode).
   kept its head. Both the TS2322-family and TS2345 sites now report the
   missing-property message alone in that case. `unionTypeCallSignatures6`
   is EXACT.
+
+## 77. A binding-pattern parameter whose contextual type is `unknown`
+
+Routed from r7-calls (arrow arguments with binding-pattern parameters).
+Repro: `fallbackToBindingPatternForTypeInference`
+(`trans(({a}) => a)` against `trans<T>(f: (x: T) => string)`).
+
+- **The forcing constraint.** `assignParameterType` (`checker.go:10404–10425`)
+  assigns the contextual type and then, when that type is `unknown`,
+  replaces it with `getTypeFromBindingPattern(name, false, false)`. When
+  inference finds no candidate for `T`, the arrow's parameter therefore
+  has the type `{ a: any; }`, not `unknown`. The relation back against
+  `(x: unknown) => string` fails (`unknown → { a: any; }`), which gives
+  TS2345. The port kept `unknown`, so the arrow related and nothing was
+  reported.
+- **Where it went.** The fallback is the
+  `binding_pattern_fallback_for_unknown` helper (implicit_any.rs). It reuses
+  `binding_pattern_implied_type` (binding_patterns.rs), the port's
+  `getTypeFromBindingPattern`. It has one call at each of the two sites
+  where the port applies a contextual parameter type: symbols.rs
+  (`get_contextually_typed_parameter_type` → `add_optionality_for_declaration`)
+  and signatures.rs (the `Parameter::new` contextual arm). Those are
+  one-line hooks outside this lane's files, in the same shape as the granted
+  useMemo hook. Any other contextual type passes through unchanged, and so
+  does a pattern the port cannot type.
+- **The chain.** `parameter_name_at_position` now prints the binder's
+  symbol name, `__<index>` (with `this` counted), for a binding-pattern
+  parameter instead of the pattern text. The explain walk takes an
+  `unknown` source as a leaf (no simple arm relates it below the pair), so
+  `Type 'unknown' is not assignable to type '{ a: any; }'.` is the last line.
+- **How it would be wrong.** The fallback could fire where tsgo's does not,
+  for example where the port computes `unknown` but tsgo would have produced
+  an inference candidate. That would show up as new TS2345s on
+  `destructuring`/`binding` cases. The quick oracles over those filters are
+  the check.
