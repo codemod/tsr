@@ -1646,3 +1646,25 @@ method signature by its name, and other report sites read it. So the fix
 is local to TS7010's report in `implicit_any.rs`, not a change to
 `error_span`. Whether `error_span` should drop `MethodSignature` for every
 caller is a question for its owner; it is proposed rather than changed.
+
+## 45. Heads that keep the missing-property message; TS2786's elaboration
+
+- **`isConversionOrInterfaceImplementationMessage`** (`relater.go:4934`).
+  `reportRelationError` suppresses its head when the message below is
+  the pair's missing-property message, except under six heads: the two
+  `Class … incorrectly implements …` heads, TS2352's conversion head, and
+  the three `Its … type '{0}' is not a valid JSX element.` heads.
+  `missing_property_chain` takes the caller's head and keeps it for those
+  six. TS2420/TS2720 in `heritage_conformance.rs` still report the bare
+  head ("That reporter does not make the exception"). That file's owner
+  can now route them through `report_relation_failure`; this commit
+  proposes that and leaves their file unchanged.
+- **TS2786's chain** (`checkJsxReturnAssignableToAppropriateBound`,
+  `jsx.go:169`). The bound check relates the tag's return or instance
+  type under `Its return type…` (function), `Its instance type…` (class)
+  or `Its element type…` (both), and wraps `diags[0]` in TS2786. The port
+  reported a bare TS2786. It now calls `report_relation_failure` with the
+  kind's head and moves the one diagnostic it produces under TS2786. The
+  chain's file goes through `attach_chain_file`, and `new_chain` copies
+  the child's related information up. When the reporter declines, or
+  produces anything but one diagnostic, the bare TS2786 stands as before.

@@ -2134,7 +2134,11 @@ impl<'a> Checker<'a, '_> {
         display_target: TypeId,
         target: TypeId,
         properties: &[String],
+        head: Option<&'static tsr_diagnostics::Message>,
     ) -> MissingPropertyHead {
+        // `isConversionOrInterfaceImplementationMessage` (`relater.go:4934`):
+        // these heads are never suppressed (r7-reports §45).
+        let keeps_head = head.is_some_and(is_conversion_or_interface_implementation_message);
         let mut chain_source = source;
         if self.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
             let crate::constraints::ConstraintOfType::Constraint(constraint) =
@@ -2146,11 +2150,12 @@ impl<'a> Checker<'a, '_> {
         }
         let chain_source = self.single_base_normalized(chain_source);
         let chain_target = self.single_base_normalized(target);
-        if chain_source == source && chain_target == display_target {
+        if !keeps_head && chain_source == source && chain_target == display_target {
             return MissingPropertyHead::Suppressed;
         }
         let displayed_source = self.assignability_source_for_error_display(source, display_target);
-        if self.type_to_string(displayed_source) == self.type_to_string(chain_source)
+        if !keeps_head
+            && self.type_to_string(displayed_source) == self.type_to_string(chain_source)
             && self.type_to_string(display_target) == self.type_to_string(chain_target)
         {
             return MissingPropertyHead::Suppressed;
@@ -2412,9 +2417,14 @@ impl<'a> Checker<'a, '_> {
                 .missing_required_property(source, normalized)
                 .or_else(|| self.unmatched_property_report(source, normalized))
         {
-            let MissingPropertyHead::Kept(chain) =
-                self.missing_property_chain(span, source, chain_target, normalized, &properties)
-            else {
+            let MissingPropertyHead::Kept(chain) = self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                None,
+            ) else {
                 self.report_missing_properties(file, span, source, normalized, &properties);
                 return true;
             };
@@ -2683,7 +2693,14 @@ impl<'a> Checker<'a, '_> {
             && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
-            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
+            match self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                head,
+            ) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
@@ -2722,7 +2739,14 @@ impl<'a> Checker<'a, '_> {
             && missing_property_report
             && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
-            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
+            match self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                head,
+            ) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
@@ -2878,7 +2902,12 @@ impl<'a> Checker<'a, '_> {
     /// `NewDiagnosticChain` gives every chain level the error node's file
     /// (`createDiagnosticChainFromErrorChain`); a chain child built here
     /// without one takes the head's (r7-reports §36).
-    fn attach_chain_file(&self, at: NodeId, span: tsr_core::Span, diagnostic: &mut Diagnostic) {
+    pub(crate) fn attach_chain_file(
+        &self,
+        at: NodeId,
+        span: tsr_core::Span,
+        diagnostic: &mut Diagnostic,
+    ) {
         if diagnostic.message_chain().is_empty() {
             return;
         }
@@ -5478,6 +5507,21 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 /// lists them. Deleting the code would make the refusal unrevisitable, which is
 /// the one thing `docs/conventions.md` forbids about a refusal.
 const REPORT_MISSING_REQUIRED_PROPERTY: bool = true;
+
+/// `isConversionOrInterfaceImplementationMessage` (`relater.go:4934`): a
+/// head `reportRelationError` keeps over the missing-property message below.
+fn is_conversion_or_interface_implementation_message(message: &tsr_diagnostics::Message) -> bool {
+    [
+        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1,
+        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS,
+        &messages::CONVERSION_OF_TYPE_0_TO_TYPE_1_MAY_BE_A_MISTAKE_BECAUSE_NEITHER_TYPE_SUFFICIENTLY_OVERLAPS_WITH_THE_OTHER_IF_THIS_WAS_INTENTIONAL_CONVERT_THE_EXPRESSION_TO_UNKNOWN_FIRST,
+        &messages::ITS_INSTANCE_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+        &messages::ITS_RETURN_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+        &messages::ITS_ELEMENT_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+    ]
+    .iter()
+    .any(|candidate| candidate.code() == message.code())
+}
 
 /// One `ErrorChain` entry (`relater.go`): a message and its arguments, as
 /// `reportError` pushes them.
