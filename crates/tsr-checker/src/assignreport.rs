@@ -7551,7 +7551,9 @@ impl Checker<'_, '_> {
                     depth,
                 ),
                 None if !target_predicate.asserts => {
-                    let signature = self.signature_to_string(source);
+                    // `signatureToString` without `WriteArrowStyleSignature`:
+                    // `(): void`, not `() => void` (r7-reports §86).
+                    let signature = signature_colon_form(&self.signature_to_string(source));
                     stack.push(ChainEntry {
                         message: &messages::SIGNATURE_0_MUST_BE_A_TYPE_PREDICATE,
                         args: vec![signature],

@@ -2483,3 +2483,13 @@ could be instantiated with an arbitrary type which could be unrelated to
 - **Measured.** Quick oracles against base24 (`num`, `onPrimitive`,
   `ndexed`, `keyof`, `onstrain`) gained the two cases above and lost
   nothing.
+
+## 86. `Signature '…' must be a type predicate.` prints the colon form
+
+`compareSignaturesRelated` reports TS1224 with `c.signatureToString(source)`,
+and without `WriteArrowStyleSignature` that prints `(): void`. The retrace
+printed the arrow form, `() => void`, as the type printer writes a signature
+inside a type. It now goes through `signature_colon_form`, as TS2658's `provides
+no match for the signature` already did. `typePredicateInherit` and
+`implementArrayInterface` are EXACT; quick oracles over `redicate` and
+`mplementArray` show 0 lost.
