@@ -2,7 +2,7 @@
 //! (`grammarchecks.go:1251`) reads the statement's `NodeFlagsAwaitContext`,
 //! so a class static block (an await context) is silent and an `async`
 //! function's own body is too. Expectations were checked against a native
-//! `tsgo` built from the pinned submodule (r7-grammar lane note §53).
+//! `tsgo` built from the pinned submodule (r7-grammar lane note §56).
 
 use tsr_ast::NodeId;
 use tsr_checker::Checker;

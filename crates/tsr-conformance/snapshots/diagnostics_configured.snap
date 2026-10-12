@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1024/1091 (93.86%)
-Failed         : 67
+Passed         : 1026/1091 (94.04%)
+Failed         : 65
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -31,10 +31,6 @@ compiler/ambientWithStatements(alwaysstrict=true)
   2 missing (first TS1104 at ambientWithStatements.ts(3,5))
 compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
   1 missing (first TS2322 at argumentsBindsToFunctionScopeArgumentList.ts(3,5))
-compiler/bigintAmbientMinimal(target=es2015)
-  1 missing (first TS2737 at /main.ts(5,17))
-compiler/bigintWithoutLib(target=es2015)
-  13 missing (first TS2737 at bigintWithoutLib.ts(7,30))
 compiler/complicatedPrivacy(target=es2015)
   1 missing (first TS2694 at complicatedPrivacy.ts(73,55))
 compiler/declarationEmitUnknownImport(target=es2015)

@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 9006/9538 (94.42%)
-Assertion lines: 476221/478853 (99.45%)  — a gradient, not a pass rate
-Failed         : 532
+Passed         : 9011/9538 (94.47%)
+Assertion lines: 476259/478853 (99.46%)  — a gradient, not a pass rate
+Failed         : 527
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 532 failures:
+First 100 of 527 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -43,8 +43,6 @@ compiler/awaitedType
   awaitedType.ts: >T6 : any — expected >T6 : never
 compiler/awaitedTypeNoLib
   awaitedTypeNoLib.ts: >result : Thenable<NotPromise<TResult>> — expected >result : Thenable<NotPromise<TResult>> | NotPromise<TResult>
-compiler/awaitedTypeStrictNull
-  awaitedTypeStrictNull.ts: >[        aaa,        bbb,    ] = await Promise.all([        MaybePromise(1),        MaybePromise('2'),        MaybePromise(true),    ]) : (string | number | boolean)[] — expected >[        aaa,        bbb,    ] = await Promise.all([        MaybePromise(1),        MaybePromise('2'),        MaybePromise(true),    ]) : [number, string, boolean]
 compiler/badInferenceLowerPriorityThanGoodInference
   badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
 compiler/baseConstraintOfDecorator
@@ -161,8 +159,6 @@ compiler/controlFlowPrivateClassField
   controlFlowPrivateClassField.ts: >#test : any — expected >#test : number
 compiler/controlFlowWithIncompleteTypes
   controlFlowWithIncompleteTypes.ts: >x : string | number | boolean — expected >x : string | number
-compiler/correctOrderOfPromiseMethod
-  correctOrderOfPromiseMethod.ts: >resultB : A[] — expected >resultB : B[]
 compiler/correlatedUnions
   correlatedUnions.ts: >clickEvent : error — expected >clickEvent : { readonly name: "click"; readonly once?: boolean; readonly callback: (ev: PointerEvent) => void; }
 compiler/crashInYieldStarInAsyncFunction
@@ -213,3 +209,7 @@ compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
   reexport.ts: >test : { fn: <T extends { x: Map<T['x']>; }>(sliceIndex: T) => AllArg<T["x"]>; } — expected >test : { fn: <T extends { x: T["x"] extends infer T_1 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_1]: T_1[K]; } : never; }>(sliceIndex: T) => T["x"] extends infer T_2 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_2]: Parameters<T_2[K]>; } : never; }
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
   declarationEmitMappedTypePreservesTypeParameterConstraint.ts: >objectOutputType : flatten<addQuestionMarks<baseObjectOutputType<Shape>, requiredKeys<baseObjectOutputType<Shape>>>> — expected >objectOutputType : addQuestionMarks<baseObjectOutputType<Shape>, requiredKeys<baseObjectOutputType<Shape>>> extends infer T ? { [k in keyof T]: T[k]; } : never
+compiler/declarationEmitNestedGenerics
+  declarationEmitNestedGenerics.ts: >g : <T>(x: T) => any — expected >g : <T>(x: T) => T extends (infer T_1)[] ? T_1 : T
+compiler/declarationEmitNoInvalidCommentReuse1
+  a.ts: >object : any — expected >object : { foo: import("./id.js").Id<{}>; }

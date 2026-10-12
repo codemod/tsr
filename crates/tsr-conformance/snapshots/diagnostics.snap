@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 5081/5502 (92.35%)
-Failed         : 421
+Passed         : 5085/5502 (92.42%)
+Failed         : 417
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,13 +11,11 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 421 failures:
+First 100 of 417 failures:
 compiler/abstractPropertyInConstructor
   10 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   1 missing (first TS2339 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,18))
-compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
-  1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
 compiler/anyMappedTypesError
   1 missing (first TS7039 at anyMappedTypesError.ts(1,12))
 compiler/argumentsObjectCreatesRestForJs
@@ -47,11 +45,11 @@ compiler/augmentExportEquals5
 compiler/awaitCallExpressionInSyncFunction
   1 unexpected (first TS2304 at awaitCallExpressionInSyncFunction.ts(2,16)), 1 missing
 compiler/awaitedType
-  2 unexpected (first TS2322 at awaitedType.ts(39,9)), 2 missing
+  2 missing (first TS2589 at awaitedType.ts(22,12))
 compiler/awaitedTypeNoLib
   1 missing (first TS2345 at awaitedTypeNoLib.ts(18,27))
 compiler/awaitedTypeStrictNull
-  2 unexpected (first TS2322 at awaitedTypeStrictNull.ts(39,9)), 2 missing
+  2 missing (first TS2589 at awaitedTypeStrictNull.ts(22,12))
 compiler/baseConstraintOfDecorator
   1 unexpected (first TS2322 at baseConstraintOfDecorator.ts(12,5)), 2 missing
 compiler/baseExpressionTypeParameters
@@ -72,8 +70,6 @@ compiler/cannotIndexGenericWritingError
   2 missing (first TS2862 at cannotIndexGenericWritingError.ts(4,5))
 compiler/checkJsxNotSetError
   2 missing (first TS17004 at /bar.jsx(2,11))
-compiler/checkerInitializationCrash
-  1 unexpected (first TS2300 at /node_modules/@fullcalendar/react/index.d.ts(4,5)), 1 missing
 compiler/circularBaseTypes
   4 missing (first TS2310 at circularBaseTypes.ts(4,11))
 compiler/circularConstraintYieldsAppropriateError
@@ -126,8 +122,6 @@ compiler/controlFlowArrayErrors
   8 missing (first TS7034 at controlFlowArrayErrors.ts(4,9))
 compiler/controlFlowFunctionLikeCircular1
   2 unexpected (first TS2456 at controlFlowFunctionLikeCircular_8.ts(5,10)), 11 missing
-compiler/correctOrderOfPromiseMethod
-  1 unexpected (first TS2322 at correctOrderOfPromiseMethod.ts(20,11)), 0 missing
 compiler/crashInEmitTokenWithComment
   2 missing (first TS2345 at crashInEmitTokenWithComment.ts(5,4))
 compiler/declarationEmitExpandoPropertyPrivateName
@@ -212,3 +206,9 @@ compiler/functionExpressionInWithBlock
   1 unexpected (first TS2683 at functionExpressionInWithBlock.ts(4,10)), 0 missing
 compiler/genericCallAtYieldExpressionInGenericCall1
   1 missing (first TS2488 at genericCallAtYieldExpressionInGenericCall1.ts(26,25))
+compiler/genericCombinators2
+  1 missing (first TS2345 at genericCombinators2.ts(15,43))
+compiler/genericDefaults
+  1 unexpected (first TS2415 at genericDefaults.ts(464,15)), 0 missing
+compiler/genericDefaultsErrors
+  2 missing (first TS2344 at genericDefaultsErrors.ts(6,39))

@@ -6073,7 +6073,9 @@ impl<'a> Checker<'a, '_> {
             // conditional). Every other refusal keeps the gap: a decided
             // check whose branch this port cannot evaluate, and native's
             // own errorType at the instantiation guard (r6-declared2 §1).
-            if !self.conditional_alias_check_is_deferred(symbol, &arguments) {
+            if !self.conditional_alias_check_is_deferred(symbol, &arguments)
+                && !self.conditional_alias_outcome_is_open(symbol, &arguments)
+            {
                 return error;
             }
         }
@@ -10621,6 +10623,96 @@ impl<'a> Checker<'a, '_> {
             && (deferred(self, check) || extends.is_some_and(|extends| deferred(self, extends)))
     }
 
+    /// Whether getConditionalType (checker.go:24339) leaves the conditional
+    /// body of `symbol` under `arguments` open although neither operand is
+    /// deferred: the permissive instantiations relate (so the false branch is
+    /// not definite, `:24377`) and the restrictive ones definitely do not (so
+    /// neither is the true branch, `:24415`). Native then falls through to
+    /// the deferred `ConditionalType` carrying the reference's alias, exactly
+    /// as for a generic check: `type A<T> = { x: T } extends { x: 0 } ? 1 :
+    /// 0` makes `A<T>` a conditional whatever `T` is (deferredConditionalTypes;
+    /// r7-declared §51). A body with infer parameters, an `any` check, an
+    /// `any`/`unknown` extends type, or any undecided relation answers
+    /// `false`, so the caller keeps its gap. Reads only; no table.
+    pub(crate) fn conditional_alias_outcome_is_open(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> bool {
+        use crate::relater::{Relation, Ternary};
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
+            return false;
+        }
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else { return false };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        let Some(TypeNode::ConditionalTypeNode(conditional)) =
+            alias.r#type.and_then(Self::skip_type_parentheses)
+        else {
+            return false;
+        };
+        let (Some(check_node), Some(extends_node)) =
+            (conditional.check_type, conditional.extends_type)
+        else {
+            return false;
+        };
+        let has_infer_parameters =
+            conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+                locals.values().any(|&symbol| {
+                    self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                })
+            });
+        if has_infer_parameters {
+            return false;
+        }
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return false;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let Some(parameter) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                return false;
+            };
+            frame.insert(parameter, argument);
+        }
+        let check_tuples = Self::conditional_check_tuples(conditional);
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let check = self.get_type_from_type_node(check_node);
+        let extends = self.get_type_from_type_node(extends_node);
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        if self.is_error(check)
+            || self.is_error(extends)
+            || self.store.get(check).flags.contains(TypeFlags::ANY)
+            || self.store.get(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+            || self.is_deferred_type(check, check_tuples)
+            || self.is_deferred_type(extends, check_tuples)
+            || !self.conditional_mentions_type_parameters(check, extends)
+        {
+            return false;
+        }
+        let error = self.intrinsics.error;
+        let permissive_check = self.permissive_extends_instantiation(check).unwrap_or(check);
+        let permissive = self.permissive_extends_instantiation(extends).unwrap_or(extends);
+        if permissive == error || permissive_check == error {
+            return false;
+        }
+        if self.relate_ternary(permissive_check, permissive, Relation::Assignable)
+            != Ternary::Related
+        {
+            return false;
+        }
+        let restrictive_check = self.restrictive_extends_instantiation(check);
+        let restrictive = self.restrictive_extends_instantiation(extends);
+        restrictive != error
+            && restrictive_check != error
+            && self.relate_ternary(restrictive_check, restrictive, Relation::Assignable)
+                == Ternary::NotRelated
+    }
+
     /// getConditionalType's `checkTuples` (checker.go:24310): the check and
     /// extends nodes are simple tuple types (`isSimpleTupleType`: no
     /// optional, rest or named member) of the same length.
@@ -11539,6 +11631,13 @@ impl<'a> Checker<'a, '_> {
     /// parameter's identity; owner: `instantiation_expressions.restrictive_type_parameters`;
     /// written once on first use, never invalidated.
     fn restrictive_type_parameter(&mut self, parameter: TypeId, name: &str) -> TypeId {
+        // `constraint == nil && getConstraintDeclaration(t) == nil`: a
+        // parameter with no constraint to drop is its own restrictive form
+        // (checker.go:24512), so relating it decides exactly as relating the
+        // parameter does (r7-declared §51).
+        if self.declares_no_constraint(parameter) {
+            return parameter;
+        }
         if let Some(&clone) =
             self.instantiation_expressions.restrictive_type_parameters.get(&parameter)
         {
@@ -11547,6 +11646,24 @@ impl<'a> Checker<'a, '_> {
         let clone = self.store.new_named(TypeFlags::TYPE_PARAMETER, name.to_string(), None);
         self.instantiation_expressions.restrictive_type_parameters.insert(parameter, clone);
         clone
+    }
+
+    /// getRestrictiveTypeParameter's identity test (checker.go:24512): no
+    /// constraint is known for `parameter` and every declaration of its
+    /// symbol is a type parameter declaration without a constraint node. A
+    /// parameter this port cannot trace to its declarations answers `false`
+    /// and keeps its clone.
+    fn declares_no_constraint(&mut self, parameter: TypeId) -> bool {
+        if self.type_parameter_constraint(parameter).is_some() {
+            return false;
+        }
+        let Some(&symbol) = self.type_parameter_symbols.get(&parameter) else { return false };
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        !declarations.is_empty()
+            && declarations.iter().all(|&declaration| {
+                matches!(self.node_map.get(declaration),
+                    Some(Node::TypeParameterDeclaration(declared)) if declared.constraint.is_none())
+            })
     }
 
     /// The registered type parameters `extends` mentions, in registry order:
