@@ -56,6 +56,40 @@ impl From<SymbolId> for ResolutionTarget {
     }
 }
 
+/// Which written list of its owner a [`WrittenList`] describes: the parser's
+/// `ListKind`, mirrored because this crate does not depend on the parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WrittenListKind {
+    /// `<T, U>` on a declaration or signature.
+    TypeParameters,
+    /// `<A, B>` on a call, `new`, tagged template, heritage or type reference,
+    /// import or query type, or JSX tag.
+    TypeArguments,
+    /// `(a, b)` of a function-like declaration or signature, `[k: K]` of an
+    /// index signature.
+    Parameters,
+}
+
+/// What native's `NodeList` knows about a written list that this AST's slices
+/// do not: that an empty `<>` was written, and where its trailing comma is
+/// (`NodeList.HasTrailingComma`). The parser records it only for those two
+/// shapes (`tsr_parser::ListFact`, docs/parity/notes/r7-parser.md §10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WrittenList {
+    /// The node whose list this is.
+    pub owner: NodeId,
+    /// Which of its lists.
+    pub kind: WrittenListKind,
+    /// Start of the opening `<`, `(` or `[`: native's `list.Pos() - 1`.
+    pub open: u32,
+    /// Start of the closing token: native's `SkipTrivia(list.End())`.
+    pub close: u32,
+    /// The list has no elements.
+    pub empty: bool,
+    /// Start of the trailing comma: native's `list.End() - 1`.
+    pub trailing_comma: Option<u32>,
+}
+
 /// How the checker reaches another file.
 ///
 /// Upstream's checker does not take a concrete `Program`. It takes an
@@ -122,6 +156,14 @@ pub trait ModuleHost {
     /// Unsupported/legacy hosts decline; absence does not certify clean syntax.
     fn source_text(&self, _file: NodeId, _nodes: &NodeTable) -> Option<&str> {
         None
+    }
+
+    /// The written lists of `file` that are empty or end in a comma
+    /// ([`WrittenList`]), sorted by owner. Witnessed against `nodes` as
+    /// [`ModuleHost::source_text`] is. Hosts without parse results answer
+    /// none, which reads as "no such list".
+    fn written_lists(&self, _file: NodeId, _nodes: &NodeTable) -> &[WrittenList] {
+        &[]
     }
 
     /// The parse diagnostics of `file`: native's `sourceFile.Diagnostics()`,

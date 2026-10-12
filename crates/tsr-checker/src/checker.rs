@@ -733,6 +733,9 @@ pub struct Checker<'a, 'n> {
     /// §2, and the sites lifted since are listed there and in
     /// `docs/parity/notes/r7-flow.md` §2.
     pub(crate) file_has_parse_errors: bool,
+    /// The written lists of the file being checked ([`crate::resolution::WrittenList`]),
+    /// fetched once per file by `check_source_file`.
+    pub(crate) file_written_lists: &'n [crate::resolution::WrittenList],
     /// Whether [`Checker::report_merge_conflicts`] has already run.
     ///
     /// The binder's cross-file merge conflicts belong to the *program*, not to
@@ -1645,6 +1648,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_override: false,
             no_implicit_returns: false,
             file_has_parse_errors: false,
+            file_written_lists: &[],
             merge_conflicts_reported: false,
             assignability_probe: Vec::new(),
             allow_unreachable_code: false,

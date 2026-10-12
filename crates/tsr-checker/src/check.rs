@@ -149,6 +149,8 @@ impl Checker<'_, '_> {
         // each diagnostic carries its own declaration's file. §159.
         self.report_merge_conflicts();
         self.file_has_parse_errors = context.has_parse_errors;
+        self.file_written_lists =
+            self.module_host.map_or(&[], |host| host.written_lists(file, self.nodes));
         self.file_is_ambient = context.ambient;
         self.file_is_js = self.in_js_file(file);
         self.reset_unused_state();
@@ -977,6 +979,7 @@ impl Checker<'_, '_> {
         self.check_dynamic_import_specifier(typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
+        self.check_grammar_type_arguments(node, typed);
         self.check_grammar_parameter_list(node);
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {
@@ -7420,6 +7423,23 @@ impl Checker<'_, '_> {
     fn check_constructor_type_parameters(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
         let (Some(first), Some(last)) = (node.type_parameters.first(), node.type_parameters.last())
         else {
+            // An empty `<>`: the list's `Pos() == End()`, right after the
+            // `<`, so the report is zero-width there.
+            let Some(id) = node.node_id else { return };
+            let Some(list) = self
+                .written_list(id, crate::resolution::WrittenListKind::TypeParameters)
+                .filter(|list| list.empty)
+            else {
+                return;
+            };
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::TYPE_PARAMETERS_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                    tsr_core::Span::at(list.open + 1),
+                ),
+            );
             return;
         };
         let (Some(start), Some(end)) = (first.node_id, last.node_id) else { return };
@@ -8932,6 +8952,12 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
+        // `checkGrammarFunctionLikeDeclaration`'s `||` chain (`:762`) and
+        // `checkGrammarClassLikeDeclaration`'s (`:769`): an empty type
+        // parameter list (TS1098) comes before the parameter list.
+        if self.check_grammar_type_parameter_list(owner) {
+            return;
+        }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
         // A JS function's `@param [x]` / `{T=}` is a reparsed `?` upstream
@@ -8950,6 +8976,16 @@ impl Checker<'_, '_> {
                 Some(slot.tag?.node_id)
             });
             if let Some(rest) = declaration.dot_dot_dot_token {
+                // `checkGrammarForDisallowedTrailingComma(parameters, …)`
+                // (`grammarchecks.go:697`) for a last rest parameter outside
+                // an ambient context, reported without returning.
+                if index == count - 1 && !self.has_ambient_flag(parameter) {
+                    self.report_written_list_trailing_comma(
+                        owner,
+                        crate::resolution::WrittenListKind::Parameters,
+                        &messages::A_REST_PARAMETER_OR_BINDING_PATTERN_MAY_NOT_HAVE_A_TRAILING_COMMA,
+                    );
+                }
                 let (at, message) = if index != count - 1 {
                     (rest.node_id, &messages::A_REST_PARAMETER_MUST_BE_LAST_IN_A_PARAMETER_LIST)
                 } else if let Some(question) = question {
