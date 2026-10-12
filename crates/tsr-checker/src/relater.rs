@@ -5474,7 +5474,13 @@ impl Relater<'_, '_, '_> {
                 && self.checker.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER)
                 && match constraint_keys {
                     None => constraint.is_none() && !self.declares_written_constraint(operand),
-                    Some(result) => result == RelationResult::NotRelated,
+                    // Native requires `TernaryTrue` from the constraint's
+                    // keys: a circular `Maybe` (`S extends { [K in keyof S]:
+                    // string }`, whose keys are `keyof S` again) is not a
+                    // proof either (r7-reports §109).
+                    Some(result) => {
+                        matches!(result, RelationResult::NotRelated | RelationResult::Maybe)
+                    }
                 }
             {
                 return RelationResult::NotRelated;
