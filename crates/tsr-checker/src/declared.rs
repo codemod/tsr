@@ -7264,6 +7264,14 @@ impl<'a> Checker<'a, '_> {
         if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
             && self.alias_rooted_reference_declines(node, resolved)
         {
+            // The declined reference keeps its unresolved mint, spelled as
+            // native prints the reference: a shorter written list shows its
+            // filled defaults (fillMissingTypeArguments, `React.ComponentClass<P,
+            // any>`), the written list going to the reuse channel
+            // (r7-declared §43).
+            if let Some(spelled) = self.declined_reference_with_defaults(node, resolved) {
+                return spelled;
+            }
             return self.unresolved_type_reference(node);
         }
         // QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE: an argument-less reference
@@ -7475,6 +7483,41 @@ impl<'a> Checker<'a, '_> {
             return minted;
         }
         self.unresolved_type_reference(node)
+    }
+
+    /// [`Self::unresolved_type_reference`]'s mint for a declined alias-rooted
+    /// reference whose written list is shorter than `resolved`'s parameters
+    /// and whose missing parameters have defaults
+    /// ([`Self::qualified_reference_missing_defaults`]): the text prints every
+    /// argument, the written spelling goes to `qualified_written_text`.
+    fn declined_reference_with_defaults(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        resolved: SymbolId,
+    ) -> Option<TypeId> {
+        let written = node.type_arguments.len();
+        if written == 0 || written >= self.local_type_parameters_of(resolved).len() {
+            return None;
+        }
+        let defaults = self.qualified_reference_missing_defaults(resolved, written)?;
+        let base = Self::entity_name_text(node.type_name)?;
+        let mut printed = Vec::with_capacity(written + defaults.len());
+        for &argument in node.type_arguments {
+            let argument = self.get_type_from_type_node(argument);
+            if self.is_gap(argument) {
+                return None;
+            }
+            printed.push(self.type_to_string(argument));
+        }
+        let written_text = format!("{base}<{}>", printed.join(", "));
+        printed.extend(defaults.iter().map(|&default| self.type_to_string(default)));
+        let text = format!("{base}<{}>", printed.join(", "));
+        if let Some(id) = node.node_id {
+            self.qualified_written_text.entry(id).or_insert(written_text);
+        }
+        let minted = self.store.new_named(TypeFlags::ANY, text, None);
+        self.unresolved_types.insert(minted);
+        Some(minted)
     }
 
     /// The defaults of `resolved`'s type parameters from position `written`
