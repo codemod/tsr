@@ -2974,8 +2974,14 @@ impl<'a> Checker<'a, '_> {
             if let Some(Node::GetAccessorDeclaration(node)) = self.node_map.get(declaration) {
                 (
                     Body::Block(node.body.and_then(|body| body.node_id())?),
-                    node.modifiers,
-                    node.asterisk_token.is_some(),
+                    // `ast.GetFunctionFlags` (`ast/functionflags.go:13`) reads
+                    // `*` and `async` for function declarations and
+                    // expressions, methods and arrows only. An accessor's
+                    // (invalid, reported) `async` or `*` leaves its flags
+                    // normal, so `async get foo() {}` infers `void`
+                    // (`asyncGetter_es6`, r7-shared.md §32).
+                    &node.modifiers[..0],
+                    false,
                     // `mayReturnNever` (`checker.go:20312`) covers a function
                     // expression, an arrow and an object-literal method. An
                     // accessor is none of them, so a getter whose body never

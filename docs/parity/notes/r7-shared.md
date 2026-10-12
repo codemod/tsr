@@ -987,3 +987,26 @@ any }` where native prints `any & { p: any }`).
 return before reading it (printing, return aggregation, relation, predicate
 inference), and the printer stops parenthesising the cycle placeholder.
 Until both hold, the item stays open; it is 1 case and 12 lines.
+
+## 32. Two accessor reads: a merged plain property is ignored, and an accessor's `async`/`*` is no function flag
+
+- **ACCESSORS-MERGED-PROPERTY** (`propertyAndAccessorWithSameName`, 6
+  lines). `getTypeOfAccessors` (checker.go:18511) takes a
+  `PropertyDeclaration` only when `IsAutoAccessorPropertyDeclaration` holds.
+  A plain `x: number` merged with `get x() { return 1 }` (the TS2300 pair) is
+  ignored, and the type is the getter's. `get_type_of_accessors_worker`
+  treated every non-accessor declaration as the unported auto-accessor arm
+  and answered the gap. Now a plain property declaration is skipped; an
+  `accessor x` keeps the decline.
+- **ASYNC-ACCESSOR-FUNCTION-FLAGS** (`asyncGetter_es6`). `ast.GetFunctionFlags`
+  (ast/functionflags.go:13) reads `*` and `async` for function declarations
+  and expressions, methods and arrows only, so an invalid `async get foo() {}`
+  (reported by the grammar) has normal flags and infers `void`.
+  `get_return_type_from_body` passed the getter's own modifiers and asterisk,
+  which took the async arm and declined. It now passes neither for a getter.
+
+Tried and reverted: ACCESSOR-CIRCULAR-ANY (`recursiveGetterAccess`, `this.testProp`
+inside its own getter). Answering native's `errorType` from the re-entered
+`get_type_of_accessors` frame is right at that function (the lookup sees
+`native_error`), but the expression still prints the gap. A later step on
+the property-access road turns it back, and that road is not this file's.

@@ -414,6 +414,17 @@ impl<'a> Checker<'a, '_> {
             match self.node_map.get(declaration) {
                 Some(Node::GetAccessorDeclaration(_)) => getter = Some(declaration),
                 Some(Node::SetAccessorDeclaration(_)) => setter = Some(declaration),
+                // `getTypeOfAccessors` reads a `PropertyDeclaration` only when it
+                // is an auto-accessor (`IsAutoAccessorPropertyDeclaration`,
+                // `checker.go:18517`); a plain property merged with accessors
+                // of the same name (TS2300's territory) is ignored, so `x:
+                // number; get x() { return 1 }` is the getter's `number`
+                // (`propertyAndAccessorWithSameName`, r7-shared.md §32).
+                Some(Node::PropertyDeclaration(property))
+                    if !tsr_ast::has_syntactic_modifier(
+                        property.modifiers,
+                        SyntaxKind::AccessorKeyword,
+                    ) => {}
                 // An auto-accessor property (`accessor x = 1`) is upstream's
                 // case 3/5 and needs `getWidenedTypeForVariableLikeDeclaration`
                 // over a declaration this arm does not otherwise handle. Noted
