@@ -1721,16 +1721,23 @@ impl Checker<'_, '_> {
                 incomplete: false,
             });
         }
-        if self.store.get(state.declared_type).flags.contains(TypeFlags::UNION) {
-            let declared = state.declared_type;
-            if let Some(assigned) = self.get_initial_or_assigned_type(node) {
-                return Some(FlowType {
-                    t: self.get_assignment_reduced_type(declared, assigned),
-                    incomplete: false,
-                });
-            }
+        // `flow.go:243-246`: in a compound-like assignment (`x = x + 1`) the
+        // declared type reads at its literal's base, so `let x = c` with `c:
+        // ""` is `string` after `x = x + "b"`.
+        let declared = if self.is_in_compound_like_assignment(node) {
+            self.get_base_type_of_literal_type(state.declared_type)
+        } else {
+            state.declared_type
+        };
+        if self.store.get(declared).flags.contains(TypeFlags::UNION)
+            && let Some(assigned) = self.get_initial_or_assigned_type(node)
+        {
+            return Some(FlowType {
+                t: self.get_assignment_reduced_type(declared, assigned),
+                incomplete: false,
+            });
         }
-        Some(FlowType { t: state.declared_type, incomplete: false })
+        Some(FlowType { t: declared, incomplete: false })
     }
 
     /// Whether ANY assignment in the declaration's control-flow container

@@ -1148,3 +1148,18 @@ Measured on `4c94490e` unfiltered: types and diagnostics verdicts unchanged,
 0 lost; jsTyping 114 → **111**, new_false 0, lost_true 0 (`checker.ts`
 38800, 45144 and 48616 gone); exact oracle 9679 → 9679, 0 lost; Ir gi
 0.9999, dm 1.0001.
+
+## §42 A compound-like assignment reads the declared type at its literal's base
+
+`getTypeAtFlowAssignment` (`flow.go:243-246`) takes the declared type at its
+literal's base when the assignment is compound-like (`x = x + 1`, a binary
+right operand reading the target, `isInCompoundLikeAssignment`) before the
+union reduction or the declared-type answer: `let foo = empty` (`empty: ""`)
+is `string` after `foo = foo + "bar"`. The port answered the declared `""`
+(`literalWideningWithCompoundLikeAssignments`, eleven lines). The assignment
+arm now applies the same base read, through the existing
+`is_in_compound_like_assignment` (the identifier road's twin, expressions.rs).
+
+Measured on `f65819c4` unfiltered: types **+11**, diagnostics unchanged, 0
+lost; exact oracle 9679 → 9680, 0 lost; jsTyping 111 → 111, new_false 0, lost_true
+0; Ir gi 1.0000, dm 1.0001.
