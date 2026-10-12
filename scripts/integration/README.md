@@ -13,6 +13,7 @@ elsewhere.
 | `covdiff.sh <prev> <curr>` | per-suite coverage diff; flags any suite whose passes drop or failures rise |
 | `heads.sh` | lane branches with commits not on main, and whether each merges cleanly |
 | `autoloop.sh` | the continuous loop: pick lanes with new clean commits, `gate.sh`, and on an all-green gate refresh snapshots, append the record (`record.py`) and push to main; any failed leg writes `/tmp/integ/AUTOLOOP_BLOCKED` and the loop waits for the integration owner. State: `/tmp/integ/autoloop.state` = `<batch> <freeze-dir> <oracle-report> <coverage-file>`. Run it as an orb service (`amp orb service start autoloop --command /tmp/integ/autoloop.sh`) |
+| `autoloop.exclude` | lane names (one per line) the loop skips while a refused commit is being fixed |
 | `record.py` | the batch record for `docs/parity/round7.md` from a gate log, the oracle report and both coverage runs |
 
 The gate's legs and thresholds: zero previously RIGHT legacy keys lost or missing; zero EXACT
