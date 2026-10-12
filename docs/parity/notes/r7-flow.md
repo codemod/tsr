@@ -1660,3 +1660,30 @@ type here and stays declined.
 Measured (§62 with §63) on `dc2eefea`: diagnostics **+1** case
 (`typeGuardConstructorClassAndNumber`), 0 lost; exact oracle +1, 0 lost;
 jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §64 `silentNeverType`'s consumers land; more decided `instanceof` arms
+
+Under the integration thread's consumer-hunk grant (same native root cause,
+small and atomic), §21's routed `r7-flow-silent-never-callers.diff` is now
+applied in this lane's commit: `members.rs`' property access treats
+`silentNeverType` as any-like (`checkPropertyAccessExpressionOrQualifiedName`,
+`checker.go:11314-11321`) and `calls.rs` resolves a call on it to
+`silentNeverSignature` (`resolveCallExpression`, `checker.go:8512`). With the
+consumers in place, §49's count for a condition that makes `silentNeverType`
+is dropped: `controlFlowWithIncompleteTypes` converges to native's `string`
+and reports nothing.
+
+`narrowTypeByInstanceof`'s own early returns are decided no-ops (§62): an
+`any` instance type (`getNarrowedType` keeps every constituent, the false
+branch keeps `t`), `any` against the global `Object`/`Function` instance, the
+false branch against a non-object or empty instance, and the false branch of
+an `any`/`unknown`/`object` reference against a class. An `error` instance
+stays a decline. `typeGuardsWithInstanceOfBy*`'s `obj11 instanceof F` (a
+construct signature returning `any`) now reports on `string | F`.
+
+Measured on `ee9b2307`: diagnostics **+1** case, 0 lost; exact oracle +3, 0
+lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir gi 0.9999, dm
+1.0003. Files outside the lane, under the consumer-hunk grant:
+`members.rs` (the property access's `silentNeverType` arm) and `calls.rs`
+(`resolve_call_expression`'s `silentNeverSignature` arm), with
+`tests/r7_flow_silent_never.rs`.
