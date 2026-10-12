@@ -1159,3 +1159,20 @@ the test alone did not recover it). The duplicate-declaration report, which
 runs only on a conflict and had grown with §35, now lives out of line in a
 `#[cold]` `report_declaration_conflict`. With that, generic-imports is
 −0.01% against the commit before.
+
+## 40. A binder conflict prints each declaration's name as written
+
+`declareSymbolEx`'s TS2300/TS2451 take `b.getDisplayName(node)` for the new
+declaration and `b.getDisplayName(declaration)` for each earlier one.
+`getDisplayName` (binder.go:357) is `DeclarationNameToString(name)`, the
+name's source text, which is `(Missing)` for a zero-width name; without a
+name node it falls back to the declared name. This binder printed the
+symbol's cooked name for every declaration, so a recovered missing name
+printed `''` where native prints `'(Missing)'` (`reservedWords2`,
+`reachabilityChecksNoCrash1`). The report now reads each declaration's name
+node text, except for an `export =` / `export default` assignment, whose
+`Name()` is nil natively and so prints `export=` / `default`
+(`multipleExportAssignments`; the binder indexes its expression only for
+the error span). The class and interface property duplicates that print the
+first declaration's spelling (`'0b11'`, `'"1"'`) are the checker's
+`checkObjectTypeForDuplicateDeclarations` path (check.rs), not this one.

@@ -4948,7 +4948,8 @@ impl<'a, 'n> Binder<'a, 'n> {
         let diagnostic_at = |binder: &mut Self, at: NodeId| {
             let span = binder.declaration_name_span(at);
             if message_needs_name {
-                Diagnostic::with_args(message, span, [name.to_string()])
+                let display = binder.display_name(at, name);
+                Diagnostic::with_args(message, span, [display])
             } else {
                 Diagnostic::new(message, span)
             }
@@ -4989,6 +4990,36 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.diagnostics.push(diagnostic);
         }
         self.diagnostics.push(head);
+    }
+
+    /// `getDisplayName` (binder.go:357): the declaration's name as written
+    /// (`DeclarationNameToString`: `["a"]`, `"1"`, `0b11`), `(Missing)` for a
+    /// missing one, else the declared name (r7-shared.md §40).
+    fn display_name(&mut self, declaration: NodeId, name: &str) -> String {
+        for &(id, name_node) in &self.name_nodes[self.name_indexed..] {
+            self.name_index.insert(id, name_node);
+        }
+        self.name_indexed = self.name_nodes.len();
+        // `node.Name()` is nil for an `export =` / `export default`
+        // assignment (its indexed node is the expression, kept for the error
+        // span), so it prints its declared name, `export=` / `default`
+        // (`multipleExportAssignments`).
+        if self.nodes.kind(declaration) != SyntaxKind::ExportAssignment
+            && let Some(&name_node) = self.name_index.get(&declaration)
+        {
+            let span = self.nodes.span(name_node);
+            let text = self
+                .source
+                .get(span.start as usize..span.end as usize)
+                .map(str::trim)
+                .unwrap_or_default();
+            return if text.is_empty() { "(Missing)".to_string() } else { text.to_string() };
+        }
+        if name.is_empty() || name == INTERNAL_MISSING {
+            "(Missing)".to_string()
+        } else {
+            name.to_string()
+        }
     }
 
     /// `createDiagnosticForNode` for a related location in this file: the
