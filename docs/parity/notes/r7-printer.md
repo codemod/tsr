@@ -2177,3 +2177,23 @@ callable re-entry, the certified and deferred object roads) ask
 `elided_information_placeholder`, which answers `...` for a message unless
 `noErrorTruncation` is set. The checker now reads that option
 (`no_error_truncation`). No cache or table.
+
+## 66. Findings routed after the message work (not printer changes)
+
+- **The exact oracle's producer runs no declaration-emit tracker.**
+  `full_oracle.rs` runs `GetDeclarationDiagnostics` only for
+  `isolatedDeclarations`. It never runs
+  `tsr_dts::accessibility::declaration_walk_diagnostics`, which the legacy
+  diagnostics suite runs (`diagnostics_suite.rs`). On the report at
+  `19336afe2`, 32 non-exact cases differ only by missing TS2883, TS4023,
+  TS4094, TS4109, TS4025, TS2527 and similar. TS2883 accounts for 14 of them
+  (`nodeModulesExportsSourceTs` ×4, `nodeModulesExportsBlocksSpecifierResolution`
+  ×4, …). The printer side (`track_unsafe_import`, `unsafe_import_reports`)
+  already fills the tracker. Changing the producer changes the oracle's
+  identity, so it is the integrator's decision.
+- **A JS `const x = require("m")` is an alias natively**
+  (`isVariableDeclarationInitializedToRequire` → `SymbolFlagsAlias`), so
+  `trySymbolTable` names a module member through it
+  (`moduleExportsTypeNoExcessPropertyCheckFromContainedLiteral` wants
+  `tseslint.Config`). The port binds a variable. That is a binder change,
+  routed.
