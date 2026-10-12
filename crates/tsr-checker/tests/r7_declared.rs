@@ -490,3 +490,14 @@ fn a_generic_key_reads_an_intersection_with_object() {
          }\n";
     assert_eq!(type_of_last_initializer(source), "(T & object)[keyof T]");
 }
+
+/// §54: a homomorphic mapping over a late-bound symbol member keeps that
+/// member, and the symbol reads it (tsgo: `{ str: 1; [sym]: 1; }`, `1`).
+#[test]
+fn a_homomorphic_mapping_keeps_a_symbol_keyed_member() {
+    let source = "const sym = Symbol();\n\
+         type O = { str: any; [sym]: any };\n\
+         declare const r: { [K in keyof O]: 1 };\n\
+         const x = r[sym];\n";
+    assert_eq!(type_of_last_initializer(source), "1");
+}

@@ -943,6 +943,14 @@ impl Checker<'_, '_> {
             return None;
         }
         let apparent = self.apparent_type(object_type);
+        // A mapped member keyed by the symbol takes native's escaped name
+        // (`crate::unique_symbol_keys`): one table read, as upstream's
+        // (r7-declared §54).
+        if let Some(escaped) = self.unique_symbol_property_name(index_type)
+            && let Some(member) = self.get_type_of_property_of_type(apparent, &escaped)
+        {
+            return Some(member);
+        }
         let names = self.get_property_names_of_type(apparent)?;
         for name in names.iter().filter(|name| name.starts_with('[')) {
             let Some(property) = self.get_property_of_type(apparent, name) else { continue };

@@ -1721,3 +1721,58 @@ default arm reads the literal keys of the apparent type, and `object`'s
 apparent type is the empty object type. No state.
 
 **Measured** with §52; see §52.
+
+## 54. A mapped type keeps and reads its unique-symbol keys
+
+**Forcing constraint.** keyRemappingKeyofResult: over `const sym =
+Symbol("")` and `type O2 = { str: any, [sym]: any }`, native's
+`{ [K in keyof O2]: 1 }` is `{ str: 1; [sym]: 1; }`, `keyof { [K in keyof
+O2 as K]: 1 }` is `keyof O2`, `{ [K in "a" | typeof sym]: 1 }` prints
+`{ a: 1; [sym]: 1; }`, and reading `[sym]` from any of them is `1`. TSR
+dropped the `[sym]` member of the homomorphic mapping, answered `"str"` for
+the `keyof`, ordered `[sym]` first, and read `error` through the symbol.
+Three causes, all in this lane's files:
+
+1. The homomorphic key walk (`mapped_member_keys`) listed the modifiers
+   type's names with `property_names_of`, which reads binder members; a
+   late-bound member is bound late and is not among them.
+   forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType reads every
+   property (checker.go:22731).
+2. getIndexTypeForMappedType (checker.go:26918) ends by answering the
+   constraint itself when the mapped keys are its own constituents, which
+   keeps the constraint's `keyof O2` origin; `mapped_index_type` always
+   built a fresh union.
+3. A unique-symbol key names its member with native's escaped name
+   (`crate::unique_symbol_keys`, spelled `__@name@id` here). Native's prefix
+   is `"\xFE"`, so compareSymbols sorts such a name after every printable
+   one; `__@` sorted first. And `unique_symbol_property_type`
+   (indexed.rs) only scanned written `[…]` members, so the escaped name was
+   never looked up.
+
+**Port.** (1) the late-bound names of `get_property_names_of_type` that
+the binder walk missed are appended; their keys come from
+`literal_type_of_property` (the computed name's type), and §47 orders the
+members. (2) `mapped_index_type` answers `info.constraint` when the result
+union's constituents are the constraint union's. (3) §47's sort key puts a
+`__@` name after the other unlinked names, and `unique_symbol_property_type`
+first reads the escaped name (`unique_symbol_property_name`), as native's
+one-table read does. No state.
+
+**Alternatives.** Renaming every symbol-keyed member to one convention
+(written `[s]` against native's escaped name) is `r6-accessible.md` §4's
+open question and crosses `objects.rs`; the read in (3) bridges the two
+conventions at the one site that needs both.
+
+**Not reached:** `type Remapped = { [K in keyof Orig as {} extends
+Record<K, any> ? never : K]: any }` still keys `"str"` only. The
+`[sym]` key's name type evaluates `{} extends Record<typeof sym, any>` as
+true: `{}` relates to any `Record`/`Pick` instance whose keys include a
+unique symbol (`const x: Record<typeof sym | "a", number> = e` with `e: {}`
+reports nothing, while `Record<"a", number>` reports TS2741). That
+relation is the relater's (routed).
+
+**Measured** (unfiltered against §52–§53 on `6559089e`): types 0 / 0,
+diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 1.0000, dm 1.0002, exact oracle
+0 / 0. No corpus row reaches the three causes alone (keyRemappingKeyofResult
+needs the routed relation); kept for the prints above, which match native,
+and as §56's base.
