@@ -1712,3 +1712,30 @@ caller is a question for its owner; it is proposed rather than changed.
   is never read, so the N×M signature arm now runs:
   `assignmentCompatWithOverloads`' `g = f4` reads `Type 'string' is not
   assignable to type 'number'.`
+
+## 48. Member relations inside the walk that is being explained
+
+The retrace asks `relate_ternary` about each member pair. That is a
+fresh walk, and the pairs native is still comparing are on its maybe
+stack (`recursiveTypeRelatedTo`, `relater.go:3089`). `Uint8Array →
+Int8Array` fails on `[Symbol.toStringTag]`. Its `copyWithin(): this`
+members return `Uint8Array` and `Int8Array`, which is the outer pair
+again, so native answers `Maybe` there and keeps looking. A fresh walk
+finds the outer pair already published as failed, so `copyWithin` fails
+and the retrace declined.
+
+`relate_ternary_assuming` seeds a verdict-only walk with the pairs being
+explained (`ChainStack::assumed`, pushed by `explain_pair` and the head),
+in the walk's maybe keys and its source/target stacks. Two departures
+from an ordinary walk make the seeding observable:
+
+- a seeded key answers `Maybe` **before** the completed results are read,
+  because the published failure of the outer pair is exactly what the
+  assumption stands in for;
+- a completed *failure* is not reused, since it may have been decided
+  without the assumptions. Completed successes are still reused.
+
+Nothing a seeded walk proves through an assumption is published. Its
+stacks are never empty, so a `Maybe` frame retains its keys, and the
+walk is dropped with them. A failure it publishes holds without the
+assumptions too, as in any walk.

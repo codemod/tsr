@@ -5539,6 +5539,9 @@ struct ChainStack {
     /// `IntersectionStateTarget`: explaining one constituent of a target
     /// intersection, where nested pairs skip the common-property check.
     intersection_target: bool,
+    /// The pairs being explained, outermost first, with their intersection
+    /// state: the walk's maybe stack when a member relation is asked.
+    assumed: Vec<(TypeId, TypeId, bool)>,
 }
 
 impl std::ops::Deref for ChainStack {
@@ -5620,7 +5623,9 @@ impl Checker<'_, '_> {
         target: TypeId,
     ) -> Option<Diagnostic> {
         let mut stack = ChainStack::default();
+        stack.assumed.push((source, target, false));
         self.explain_relation(&mut stack, source, target, 0)?;
+        stack.assumed.pop();
         self.chain_error_results(&mut stack, source, target);
         let related = std::mem::take(&mut stack.related);
         let entries: Vec<ChainEntry> = stack
@@ -5770,7 +5775,10 @@ impl Checker<'_, '_> {
             stack.push(ChainEntry { message, args });
             return Some(());
         }
-        self.explain_relation(stack, source, target, depth + 1)?;
+        stack.assumed.push((source, target, stack.intersection_target));
+        let explained = self.explain_relation(stack, source, target, depth + 1);
+        stack.assumed.pop();
+        explained?;
         self.chain_error_results(stack, source, target);
         self.chain_report_relation_error(stack, source, target)?;
         let hint = self.type_parameter_constraint_hint(source, target)?;
@@ -5902,7 +5910,9 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> crate::relater::Ternary {
-        if stack.intersection_target {
+        if !stack.assumed.is_empty() {
+            self.relate_ternary_assuming(source, target, &stack.assumed, stack.intersection_target)
+        } else if stack.intersection_target {
             self.relate_ternary_in_intersection_target(
                 source,
                 target,

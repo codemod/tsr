@@ -467,6 +467,11 @@ struct Relater<'c, 'a, 'n> {
     /// (`relater.go:3232`), so it is part of [`RelationKey`] as in native
     /// `getRelationKey`. `IntersectionStateSource` is not represented.
     intersection_target: bool,
+    /// A walk seeded with an enclosing walk's maybe keys
+    /// ([`Checker::relate_ternary_assuming`]): those keys answer `Maybe`
+    /// before the completed results are read, and a completed failure is
+    /// not reused, since it was decided without the assumptions.
+    assumption_walk: bool,
     /// Optional direct diagnostic consumer. No storage allocation on verdict-only walks.
     diagnostic_pair: Option<(TypeId, TypeId)>,
     /// Native `relationCount` (relater.go:369): how many more completed
@@ -923,6 +928,44 @@ impl Checker<'_, '_> {
     ) -> Ternary {
         let mut relater = Relater::new(self, relation, None);
         relater.intersection_target = true;
+        let answer = relater.is_related_to(source, target).public_answer();
+        if relater.overflow { Ternary::Unknown } else { answer }
+    }
+
+    /// [`Checker::relate_ternary`] inside an enclosing walk: each `assumed`
+    /// pair is on the walk's maybe stack (and its source/target stacks), as
+    /// the pairs `checkTypeRelatedToEx` is still comparing are when a nested
+    /// member relation reaches them again (`recursiveTypeRelatedTo`'s
+    /// `maybeKeys`, `relater.go:3089`). A result that depends on an
+    /// assumption stays `Maybe` and is never published: the stacks are
+    /// never empty, and the walk is dropped with its retained keys. For the
+    /// report retrace (r7-reports §48).
+    pub(crate) fn relate_ternary_assuming(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        assumed: &[(TypeId, TypeId, bool)],
+        intersection_target: bool,
+    ) -> Ternary {
+        let mut relater = Relater::new(self, Relation::Assignable, None);
+        for &(assumed_source, assumed_target, state) in assumed {
+            for (s, t) in [
+                (assumed_source, assumed_target),
+                (
+                    relater.checker.get_regular_type_of_literal_type(assumed_source),
+                    relater.checker.get_regular_type_of_literal_type(assumed_target),
+                ),
+            ] {
+                let key = (s, t, state);
+                if relater.maybe_keys_set.insert(key) {
+                    relater.maybe_keys.push(key);
+                }
+            }
+            relater.source_stack.push(assumed_source);
+            relater.target_stack.push(assumed_target);
+        }
+        relater.intersection_target = intersection_target;
+        relater.assumption_walk = true;
         let answer = relater.is_related_to(source, target).public_answer();
         if relater.overflow { Ternary::Unknown } else { answer }
     }
@@ -1428,6 +1471,7 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
             local_results: framed.then(FxHashMap::default),
             maybe_keys: Vec::new(),
             maybe_keys_set: FxHashSet::default(),
+            assumption_walk: false,
             depth: 0,
             source_stack: Vec::new(),
             target_stack: Vec::new(),
@@ -4594,7 +4638,12 @@ impl Relater<'_, '_, '_> {
             return RelationResult::NotRelated;
         }
         let key = (source, target, self.intersection_target);
-        if let Some((cached, reliability)) = self.cached_result(key) {
+        if self.assumption_walk && self.maybe_keys_set.contains(&key) {
+            return RelationResult::Maybe;
+        }
+        if let Some((cached, reliability)) = self.cached_result(key)
+            && !(self.assumption_walk && cached == CachedRelation::Failed)
+        {
             // Native re-runs a cached failure when it elaborates errors
             // (`relater.go:3069`). This port elaborates only the direct pair's
             // signature arity, so only that pair is re-run.
