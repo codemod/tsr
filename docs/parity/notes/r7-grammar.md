@@ -1036,3 +1036,40 @@ declined report keeps the bare head.
 *Falsifier.* A TS18033 whose type text or chain differs from the relater's
 TS2322 for the same pair. That would be the relater's divergence, not this
 call's.
+
+## §55 TS18027, TS2398, TS2500, and TS2416's member name as written
+
+Four small arms of declaration checks. Each had no emitter or printed the
+wrong text. All were checked against `target/tsgo-pinned`
+(`tests/declaration_collisions_grammar.rs`).
+
+- **TS18027** (`recordPotentialCollisionWithWeakMapSetInGeneratedCode` /
+  `checkWeakMapSetCollision`, `checker.go:10539`): at ES2021 or below, a
+  declaration named `WeakMap`/`WeakSet` whose enclosing block-scope container
+  holds a class element named with a private identifier. Native marks every
+  enclosing container from `checkPropertyDeclaration`/method/accessor
+  (`setNodeLinksForPrivateIdentifierScope`) and defers the test. As with
+  TS2818's `Reflect` (`check_reflect_collision`), the deferred mark is read
+  off the tree. The container is marked exactly when such an element lies
+  strictly inside it. `checkCollisionsForDeclarationName` records this
+  collision just before the `Reflect` one, so `check_reflect_collision` calls
+  it first. `errorSkippedOnNoEmit`, so a `--noEmit` run is silent. Converted:
+  `privateNameWeakMapCollision`.
+- **TS2398** (`checkParameter`, `checker.go:2674`): a parameter property
+  named `constructor` in a constructor, a `c.error` at the name. It runs from
+  grammar.rs's per-node `check_parser_lane_statement` hook. Its TS2369
+  sibling stays in check.rs. Converted: `parameterPropertyInConstructor3`.
+- **TS2500** (`checkClassLikeDeclaration`'s implements loop,
+  `checker.go:4369`): an implements entry that is not an entity name
+  expression, or is an optional chain (`implements A?.B`). It is reported
+  before any of heritage_conformance.rs's declines, as native reports it
+  before the relation. Converted: `classExtendingOptionalChain`.
+- **TS2416's `{0}`** is `symbolToString(declaredProp)`, whose
+  `getNameOfSymbolAsWritten` is `DeclarationNameToString(name)`
+  (`nodebuilderimpl.go:1002`). A string-literal or numeric-literal member
+  name prints as written (`'2.0'` with its quotes). `issue_member_specific_error`
+  printed the cooked text. Converted: `subtypingWithObjectMembers`.
+
+*Falsifier.* A TS18027 where native's marks differ from the subtree read,
+i.e. a private-named element that native never checks (an unchecked
+region). That would show as an extra TS18027.

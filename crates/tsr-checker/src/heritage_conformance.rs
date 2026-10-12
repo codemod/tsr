@@ -134,6 +134,28 @@ impl Checker<'_, '_> {
         if entries.is_empty() {
             return;
         }
+        // `if !ast.IsEntityNameExpression(expr) || ast.IsOptionalChain(expr)`
+        // (`checker.go:4369`): TS2500 at the expression, a `c.error` that
+        // precedes the entry's relation and every decline below
+        // (r7-grammar §55).
+        for entry in &entries {
+            let Some(expression) = entry.expression else { continue };
+            let Some(at) = expression.node_id() else { continue };
+            if is_entity_name_expression(expression)
+                && !self.nodes.flags(at).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN)
+            {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_CLASS_CAN_ONLY_IMPLEMENT_AN_IDENTIFIER_SLASHQUALIFIED_NAME_WITH_OPTIONAL_TYPE_ARGUMENTS,
+                    span,
+                ),
+            );
+        }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         // A class merged with an interface assembles its member table from
@@ -244,8 +266,16 @@ impl Checker<'_, '_> {
             let Some(name_node) = self.declaration_name_of(member) else { continue };
             let (name, printed) = match self.node_map.get(name_node) {
                 Some(Node::Identifier(name)) => (name.text.to_string(), None),
-                Some(Node::StringLiteral(name)) => (name.text.to_string(), None),
-                Some(Node::NumericLiteral(name)) => (name.text.to_string(), None),
+                // `symbolToString(declaredProp)` prints the name as written
+                // (`getNameOfSymbolAsWritten`'s `DeclarationNameToString`,
+                // `nodebuilderimpl.go:1002`): `'2.0'` keeps its quotes and
+                // `0b11` its spelling (r7-grammar §55).
+                Some(Node::StringLiteral(literal)) => {
+                    (literal.text.to_string(), self.declaration_name_source_text(name_node))
+                }
+                Some(Node::NumericLiteral(literal)) => {
+                    (literal.text.to_string(), self.declaration_name_source_text(name_node))
+                }
                 Some(Node::PrivateIdentifier(name)) => (name.text.to_string(), None),
                 Some(Node::ComputedPropertyName(_)) => {
                     let Some(name) = late_bound.iter().find_map(|(name, declaration)| {
