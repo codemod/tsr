@@ -7363,6 +7363,10 @@ impl Checker<'_, '_> {
                 tsr_ast::PropertyName::NumericLiteral(literal) => {
                     self.declaration_name_source_text(literal.node_id?)
                 }
+                // A computed name prints as its written `[c0]`.
+                tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                    self.declaration_name_source_text(computed.node_id?)
+                }
                 _ => None,
             }
         });

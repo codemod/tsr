@@ -3008,3 +3008,12 @@ Routed from r7-calls (`recursiveTypeRelations`).
   Two instantiations of the same alias are left to alias variance.
 - **Measured.** Quick oracles over `uple`, `nfer`, `ecursive` and `lias`: 0
   lost.
+
+## 112. Computed property names print as written in the chain
+
+`declarationNameToString` prints a computed name as its source text,
+`[c0]`, and the chain's `Types of property '[c0]' are incompatible.` uses
+it. `chain_property_symbol_display` printed the late-bound key instead
+(`1`). It now reads the computed name's source text, as §110 does for
+numeric names (`dynamicNamesErrors`' TS2322 chains match; its TS2717 is
+another lane's). Quick oracles over `ynamic` and `omputed`: 0 lost.
