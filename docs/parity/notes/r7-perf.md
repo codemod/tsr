@@ -839,6 +839,62 @@ differently by order (lazy returns, indexed-access constraints). Its other
 gates passed: CLI-message audit 0 of 36,308, and the corpus compare was
 not reached.
 
+## §36 Function, method and class literal members defer their site render (proposed)
+
+This section is on `box/r7-perf-proposed-anon`, one commit on main
+`cac2f4c8` in r7-contextual's `objects.rs`. It is proposed, not landed
+from this lane. It is placed after §17 because it revisits §15.1's rule.
+
+**Forcing measurement.** In jsTyping's single-threaded profile, 4.2% of
+samples are in `type_to_string_at_worker`. 1.9% of that comes from
+`check_object_literal_members` rendering function-typed members at the
+literal's site through `signature_to_string_at`, for example the big
+method-valued object literals in `checker.ts`. §15.1 kept every
+anonymous object type (function, method, class, module, namespace) on
+the eager site render for two reasons:
+
+1. A module or namespace object's site-free print is its baked
+   placeholder, the stripped file path. In the literal's own display it
+   changed one CLI message (`aliasUsageInOrExpression`).
+2. Deferring a callable member changed 15 jsTyping lines, through the
+   order in which lazy returns completed.
+
+**Re-measured on main `cac2f4c8`.** Reason 2 no longer holds. With
+function, method and class values deferred, jsTyping's output is
+identical to the base in both checker modes. Reason 1 is about value
+objects only, so the rule now keeps module, namespace and enum value
+objects eager (`holds_value_object`), along with instantiable types
+(§17).
+
+**Gates** against a freeze of `cac2f4c8`:
+
+- Both unfiltered dumps are byte-identical once the `ms=`/`mib=`
+  columns are cut. `compare` reports 0 gained, 0 lost and 0 missing.
+- jsTyping leg against tsgo-pinned: default mode 111 against 111 lines,
+  `--singleThreaded` 109 against 109, both identical, so new_false 0
+  and lost_true 0. CLI output is `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,609 → 10,609
+  exact, 0 lost, 0 missing.
+- Callgrind Ir (measured on the §31 chain with an environment switch):
+  generic-imports +0.01%, domain-model −0.001%.
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,848 passed, 0 failed.
+
+**Speed.** On top of the §31/§33 chain, jsTyping `--singleThreaded`
+user CPU (3 interleaved runs each, environment switch in one build)
+went from 7.92 / 9.01 / 9.47 s to 7.31 / 8.20 / 8.56 s, a median of
+**−9%**. On main alone (37–40 s, dominated by §19's re-check loops) the
+difference is within the run-to-run spread: 36.8 / 37.6 / 39.2 s
+against 37.2 / 37.7 / 40.1 s. So the change is worth having once the
+chain lands, not before.
+
+**How we would know it was wrong.** A CLI message that composes a
+function-typed member's display from a site-free print where native
+qualifies it differently. The exact oracle compares full message text
+on its exact cases, so a change there would show as a loss. Or an
+order dependence that comes back on a later main, which the jsTyping
+leg would show as moved lines.
+
 ## §18 The in-memory file system's realpath keeps the real entry's spelling
 
 **Routed by the integrator** from r7-printer on 2026-10-11: under
