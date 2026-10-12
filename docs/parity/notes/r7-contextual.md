@@ -1258,3 +1258,18 @@ compensated for the missing `undefined`. Adding the source side alone is
 worse: two false TS2430s (lines 205, 252). Not landed. It needs the relater's
 compareSignaturesRelated parameter reads (relater.rs) moved to the same
 optional-parameter contract in the same change.
+
+## 45. A string- or numeric-named object literal accessor is a member
+
+`checkObjectLiteral` names an accessor's member after its property name, so a
+string or numeric literal name is an ordinary member: `{ get 0() { … }, set
+0(x: number) { … } }` is `{ 0: number; }`, and a lone getter is `readonly`.
+The §415/§417 arms handled identifier names only and answered `error` for
+the rest (emitCompoundExponentiationAssignmentWithIndexingOnLHS3 20 → 0 and
+objectLiteralGettersAndSetters 14 → 6 non-RIGHT lines on the verdict dump; no
+loss across 11,273 accessor/getter/setter/object-literal verdict lines). Both
+arms now spell a literal name through `written_property_name`, the property
+road's spelling. They find the sibling of the pair by the binder's merged
+accessor symbol instead of the written spelling, so `0` and `"0"` pair as the
+binder pairs them. tsgo's d.ts emit agrees on the five probes (`get 0`, the
+`0` pair, `get "s"`, a sibling data member, an identifier pair).
