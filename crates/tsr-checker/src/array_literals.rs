@@ -676,8 +676,12 @@ impl Checker<'_, '_> {
         // tuple context through `[]`. This port's stateless argument road
         // fixes the variable to unknown first, so the written type is read
         // here. Written type arguments still use their instantiated context.
+        // Not under a resolved instance (§1/§31 publish one with its type
+        // parameters cleared): a re-read under the resolved signature sees the
+        // instantiated parameter only, as the writer's read does natively.
         if self.nodes.parent(id).and_then(|parent| self.node_map.get(parent)).is_some_and(
-            |node| matches!(node, tsr_ast::Node::CallExpression(call) if call.type_arguments.is_empty()),
+            |node| matches!(node, tsr_ast::Node::CallExpression(call) if call.type_arguments.is_empty()
+                && !call.node_id.and_then(|call| self.call_inference_signatures.get(&call)).is_some_and(|signature| signature.type_parameters.is_empty())),
         ) {
             let saved = self.contextual_prefers_uninstantiated;
             self.contextual_prefers_uninstantiated = true;
