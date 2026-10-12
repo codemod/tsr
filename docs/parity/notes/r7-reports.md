@@ -2451,3 +2451,15 @@ could be instantiated with an arbitrary type which could be unrelated to
   first.
 - **Measured.** Quick oracles over `appedType`, `onditional`, `keyof`,
   `ndexedAccess` and `eneric`: 0 lost against the previous build.
+
+## 84. (Held: unions.rs) Indexed accesses sort by object and index
+
+Held on `box/r7-reports-held` until `unions.rs` is granted or routed.
+`CompareTypes` (`utilities.go:544`) orders two indexed accesses by object
+type, then by index type. `getTypeNameSymbol` has no symbol for either, so
+the name step leaves them equal. The port compared their printed text
+(`T[number]` before `T[string]`) and then fell back to type ids. With the
+arm, §78's distribution prints as native does: `T[string] | T[number] |
+T[symbol]`. Measured with and without the commit on the same tree: quick
+oracles over `keyof`, `ndexed`, `appedType`, `onditional` and `nion` gained
+`indexedAccessConstraints` and lost nothing.
