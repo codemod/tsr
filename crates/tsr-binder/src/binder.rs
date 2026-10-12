@@ -3428,18 +3428,20 @@ impl<'a, 'n> Binder<'a, 'n> {
         // module's exports, where the exports arm of name resolution declines
         // an ambient alias — so `I` never resolved inside its own module
         // (`docs/parity/notes/names-modules.md` §1).
+        //
+        // The alias arm is container-independent, as upstream's is: an
+        // import in a namespace or an ambient module (a module augmentation
+        // included) is a local even in an export context, and an
+        // import-equals is an export only with its own `export`. The arms
+        // used to apply to a source-file container only, so `declare module
+        // "m" { import { I } from "n"; export function f(): I }` filed `I` in
+        // `"m"`'s exports, where it did not resolve from `f` (TS2552) and an
+        // importer of `"m"` saw it as exported (`moduleAugmentationImportsAndExports3`,
+        // `docs/parity/notes/r7-shared.md` §30).
         let exported = match node {
             Node::ExportSpecifier(_) => true,
-            Node::ImportEqualsDeclaration(_)
-                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
-            {
-                self.has_export_modifier(node)
-            }
-            Node::ImportClause(_) | Node::ImportSpecifier(_) | Node::NamespaceImport(_)
-                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
-            {
-                false
-            }
+            Node::ImportEqualsDeclaration(_) => self.has_export_modifier(node),
+            Node::ImportClause(_) | Node::ImportSpecifier(_) | Node::NamespaceImport(_) => false,
             _ => self.export_context || self.has_export_modifier(node),
         };
         match self.nodes.kind(self.container) {

@@ -1193,3 +1193,44 @@ Every loss is the printer's default-type-argument omission named in §3
 (re-routed by the integrator from r7-printer to r7-declared). The commit
 stays on `box/r7-shared-held`. §3 is the record; this entry only
 supersedes its batch-2 numbers.
+
+## 30. An import in a namespace or ambient module is a local (declareModuleMember's alias arm)
+
+`declareModuleMember` (binder.go:373-381) decides an alias before the
+export-context test. An `ExportSpecifier`, or an `ImportEqualsDeclaration`
+with its own `export`, goes into the container's exports; every other alias
+goes into its locals, whatever the container. This binder's
+`is_exported_from_container` applied those two arms only to a source-file
+container. In a namespace or an ambient module (a module augmentation is
+one) an import clause, specifier or namespace import fell through to `export
+context || export modifier`. In an ambient module without explicit exports
+that put the import in the module's exports:
+
+- `declare module "m" { import { I } from "n"; export function f(): I }`
+  could not resolve `I` from `f`, because the exports arm of name resolution
+  declines an ambient alias (TS2552 where native has none);
+- `import { I } from "m"` saw `I` as exported (no TS2459);
+- inside an augmentation, `import { B } from "./f2"` was not a local, so an
+  unresolvable `B` reported TS2304 at every use, where native's alias
+  resolves to unknown silently (`moduleAugmentationImportsAndExports2/3`).
+
+An `import X = N.Y` without `export` in an ambient namespace or module is
+likewise now a local (native's rule), not an implicit export. The change is
+the arm's guard only; the exported-alias path (exports only, no shadow
+local) was already native's.
+
+Not ported here: TS2667, *"Imports are not permitted in module
+augmentations"*, a checker grammar diagnostic (`checkModuleAugmentationElement`)
+outside this lane's files.
+
+**Held (2026-10-12, batch 46 base).** Measured on the chain: types +22 / −9,
+diagnostics +2 cases. All 9 losses are in `ramdaToolsNoInfinite2`. Its
+`declare module` blocks import `List`, `Exclude` and others from sibling
+ambient modules, and those imports now resolve to the module-local
+declarations (`List` = `ReadonlyArray<any>`) rather than failing. That
+exposes a conditional-type gap outside this lane: `type Prepend<L extends
+any[], A> = ((head: A, ...args: L) => any) extends ((...args: infer U) =>
+any) ? U : L` is deferred in this port (`Prepend<L, A>`), where native
+evaluates it to `[head: A, ...args: L]` (an `infer` from a parameter list
+with a type-parameter rest). Routed; this stays on `box/r7-shared-held`
+until it lands.
