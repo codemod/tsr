@@ -1716,3 +1716,17 @@ Checked with the CLI against `target/tsgo-pinned`: `es6ExportEquals`,
 `importDeclWithExportModifierAndExportAssignment`, `incompatibleExports1`,
 `jsExportAssignmentNonMutableLocation`, `moduleExportAssignment`,
 `exportAssignmentWithExports`, `exportEqualsDefaultProperty`.
+
+## §74 TS1361/TS1362 carry `'{0}' was imported here.` / `exported here.`
+
+`resolveNameHelper`'s type-only arm (`checker.go:1860`) reports TS1361/TS1362
+through `addTypeOnlyDeclarationRelatedInfo` (`:2168`). That adds `'{0}' was
+imported here.` at the type-only declaration, or `exported here.` when the
+declaration is an export specifier, export declaration or namespace export.
+check.rs's `report_type_only_alias_used_as_value` built the head alone. It
+now attaches the related diagnostic, with its file (§34), at the declaration
+isolated_alias.rs's `type_only_alias_declaration_node` answers. That is
+`getTypeOnlyAliasDeclaration`'s node, which this change makes `pub(crate)`
+(a one-word hunk in that file). Checked with `--pretty true` against
+`target/tsgo-pinned`: `chained`, `enums`. These are the `TS1376 in TS1361` and
+`TS1377 in TS1362` buckets (about 23 cases).

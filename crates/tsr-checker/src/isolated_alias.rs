@@ -1480,7 +1480,7 @@ impl Checker<'_, '_> {
     /// copy happens only when the target is a pure alias,
     /// `ast.IsNonLocalAlias(target, Value|Type|Namespace)` (`:16280`): an alias
     /// merged with a local meaning keeps the chain behind it out of the link.
-    fn type_only_alias_declaration_node(&mut self, symbol: SymbolId) -> Option<NodeId> {
+    pub(crate) fn type_only_alias_declaration_node(&mut self, symbol: SymbolId) -> Option<NodeId> {
         let mut current = self.binder.merged_symbol(symbol);
         if !self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
             return None;

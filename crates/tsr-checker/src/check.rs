@@ -4665,7 +4665,31 @@ impl Checker<'_, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        let mut diagnostic = Diagnostic::with_args(message, span, [text.to_string()]);
+        // `addTypeOnlyDeclarationRelatedInfo` (`checker.go:2168`): `'{0}' was
+        // imported here.` / `exported here.` at the type-only declaration,
+        // with its file (r7-grammar §74).
+        if let Some(declaration) = self.type_only_alias_declaration_node(symbol) {
+            let is_export = matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ExportSpecifier
+                    | SyntaxKind::ExportDeclaration
+                    | SyntaxKind::NamespaceExport
+            );
+            let related = if is_export {
+                &messages::_0_WAS_EXPORTED_HERE
+            } else {
+                &messages::_0_WAS_IMPORTED_HERE
+            };
+            let related_span = self.error_span(declaration);
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                declaration,
+                related,
+                related_span,
+                vec![text.to_string()],
+            )));
+        }
+        self.report(file, diagnostic);
     }
 
     /// `IsValidTypeOnlyAliasUseSite` (`ast/utilities.go:3124`) — §121's debt,
