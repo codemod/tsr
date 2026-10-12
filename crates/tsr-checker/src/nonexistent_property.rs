@@ -692,7 +692,7 @@ impl Checker<'_, '_> {
                 &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_HAS_CONFLICTING_TYPES_IN_SOME_CONSTITUENTS
             };
             let unreduced = self.type_to_string(containing);
-            Some(Diagnostic::with_args(message, span, [unreduced, property]))
+            Some(self.related_diagnostic_at(name_id, message, span, vec![unreduced, property]))
         } else {
             union_miss
         };
@@ -772,11 +772,15 @@ impl Checker<'_, '_> {
                 return None;
             }
             if self.apparent_type_lacks(apparent, name)? {
+                // `NewDiagnosticChainForNode(nil, propNode, …)`: the child
+                // carries the file (§56).
                 let printed = self.type_to_string(constituent);
-                return Some(Diagnostic::with_args(
+                let span = self.error_span(name_id);
+                return Some(self.related_diagnostic_at(
+                    name_id,
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
-                    self.error_span(name_id),
-                    [name.to_string(), printed],
+                    span,
+                    vec![name.to_string(), printed],
                 ));
             }
         }

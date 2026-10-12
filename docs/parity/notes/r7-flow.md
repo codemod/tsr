@@ -1535,3 +1535,19 @@ whether to add it; only the promise arm does.
 Measured (§54 with §55) on `45fdd504`: legacy verdicts unchanged (related
 rows are not compared there); exact oracle 10889 → 10896 (+7), 0 lost;
 jsTyping gap 25 → 25, new_false 0, lost_true 0; Ir gi 0.9998, dm 0.9999.
+
+## §56 Correction to §51: the union and never-intersection children carry their file too
+
+§51 said the union constituent miss and `elaborateNeverIntersection` children
+are built with `chainDiagnosticMessages` and stay file-less. That was wrong
+for the pinned port: `reportNonexistentProperty` (`checker.go:11547`) and
+`elaborateNeverIntersection` (`:21872`) both build them with
+`NewDiagnosticChainForNode(chain, propNode, …)`, which has a file and the
+name's location; the oracle's C rows for `unionPropertyExistence` and
+`typeGuardsWithInstanceOfBy*` differed only there. Both now use
+`related_diagnostic_at` at the name.
+
+Measured on `b9edd1a7`: legacy verdicts unchanged; exact oracle 10925 →
+10925 (the chain rows now match in `unionPropertyExistence` and
+`typeGuardsWithInstanceOfBy*`, which keep other differences), 0 lost; jsTyping
+gap 22 → 22, new_false 0, lost_true 0; Ir gi 0.9999, dm 1.0000.
