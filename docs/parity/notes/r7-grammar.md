@@ -1475,3 +1475,22 @@ Checked with the CLI against `target/tsgo-pinned`:
 a TS2749 gap). `strictModeReservedWordInClassDeclaration`'s
 `implements public.private.B` is a property-access heritage name, which
 check.rs does not resolve through this reporter.
+## §64 TS2417 with the relater's elaboration (needs check.rs grant)
+
+`checkClassLikeDeclaration` reports the static side (`checker.go:4337`) with
+`checkTypeAssignableTo(staticType, getTypeWithoutSignatures(staticBaseType),
+name, Class_static_side_0_incorrectly_extends_base_class_static_side_1)`.
+That is the relater's report under the head, with its chain. check.rs's
+`check_static_side_assignability` decides the failure member by member (its
+own approximation, unchanged here) and then reported the bare head. It now
+reports through `report_relation_failure` with the head, as
+heritage_conformance.rs's TS2415/TS2430/TS2420 do (§41, §57). A declined
+report keeps the bare head. Checked with the CLI against
+`target/tsgo-pinned`: nine of the thirteen TS2417 cases of the exact oracle
+now match (`derivedClassOverridesPrivates`,
+`derivedClassWithPrivateStaticShadowingPublicStatic`,
+`inheritanceStatic*Overriding*`, `inheritanceStaticMembersIncompatible`,
+`inheritedModuleMembersForClodule`, `overridingPrivateStaticMembers`).
+`clodulesDerivedClasses` keeps a relater chain difference (`typeof
+Path.Utils` names). `classExtendsNull2` keeps a missing TS2417, which the
+approximation declines (`extends null`).

@@ -2004,9 +2004,22 @@ impl Checker<'_, '_> {
         }
         let static_type = self.get_type_of_symbol(symbol);
         let base_static_type = self.get_type_of_symbol(base_symbol);
+        let span = self.error_span(name_id);
+        // `checkTypeAssignableTo(staticType, …, name, TS2417)`: the relater's
+        // report under the head, with its elaboration chain (r7-grammar §64).
+        // A declined report keeps the bare head.
+        if self.report_relation_failure(
+            name_id,
+            span,
+            None,
+            static_type,
+            base_static_type,
+            Some(&messages::CLASS_STATIC_SIDE_0_INCORRECTLY_EXTENDS_BASE_CLASS_STATIC_SIDE_1),
+        ) {
+            return;
+        }
         let printed = [self.type_to_string(static_type), self.type_to_string(base_static_type)];
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
-        let span = self.error_span(name_id);
         self.report(
             file,
             Diagnostic::with_args(
