@@ -407,7 +407,7 @@ impl<'a> Parser<'a> {
 
         match name {
             "implements" => {
-                let class_name = self.parse_expression_with_type_arguments_for_augments();
+                let class_name = Some(self.parse_expression_with_type_arguments_for_augments());
                 let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
                 let node = JSDocImplementsTag::new(tag_name, class_name, comment);
                 tsr_ast::JSDocTag::JSDocImplementsTag(self.finish_jsdoc_node(
@@ -417,7 +417,7 @@ impl<'a> Parser<'a> {
                 ))
             }
             "augments" | "extends" => {
-                let class_name = self.parse_expression_with_type_arguments_for_augments();
+                let class_name = Some(self.parse_expression_with_type_arguments_for_augments());
                 let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
                 let node = JSDocAugmentsTag::new(tag_name, class_name, comment);
                 tsr_ast::JSDocTag::JSDocAugmentsTag(self.finish_jsdoc_node(
@@ -1463,7 +1463,7 @@ impl<'a> Parser<'a> {
     /// `@augments {Base}` / `@implements {I}`.
     fn parse_expression_with_type_arguments_for_augments(
         &mut self,
-    ) -> Option<&'a tsr_ast::ExpressionWithTypeArguments<'a>> {
+    ) -> &'a tsr_ast::ExpressionWithTypeArguments<'a> {
         // `usedBrace := p.parseOptional(OpenBrace)` scans on under the ordinary
         // rules, which skip the space in `@extends { A }`; so is it skipped here.
         let used_brace = self.eat_jsdoc(SyntaxKind::OpenBraceToken);
@@ -1471,7 +1471,7 @@ impl<'a> Parser<'a> {
             self.skip_whitespace();
         }
         let start = self.pos();
-        let expression = Some(self.parse_property_access_entity_name_expression()?);
+        let expression = Some(self.parse_property_access_entity_name_expression());
         // `parseTypeArguments` with leading asterisks skipped, handed to the
         // ordinary type grammar the way `parse_jsdoc_type_expression` does.
         let type_arguments: &'a [tsr_ast::TypeNode<'a>] =
@@ -1495,20 +1495,17 @@ impl<'a> Parser<'a> {
             self.skip_whitespace();
             self.expect_jsdoc(SyntaxKind::CloseBraceToken);
         }
-        Some(node)
+        node
     }
 
     /// A dotted name as an expression: `a.b.c`.
-    fn parse_property_access_entity_name_expression(&mut self) -> Option<Expression<'a>> {
+    fn parse_property_access_entity_name_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         // `parsePropertyAccessEntityNameExpression` (`jsdoc.go:971`): the head
-        // name is required, so a bare `@implements` reports `Identifier
-        // expected` — but the missing name is not handed on, as no consumer
-        // here distinguishes a missing name from an absent one.
-        if !self.at_jsdoc_identifier() {
-            self.error_at_current(&messages::IDENTIFIER_EXPECTED);
-            return None;
-        }
+        // name is required, so a bare `@augments` reports `Identifier
+        // expected` and keeps a missing name, whose empty text
+        // `checkGrammarClassDeclarationHeritageClauses` compares with the
+        // `extends` clause's (TS8023).
         let mut expression = Expression::Identifier(self.parse_jsdoc_identifier_name());
         while self.at_jsdoc(SyntaxKind::DotToken) {
             self.next_jsdoc_token();
@@ -1524,7 +1521,7 @@ impl<'a> Parser<'a> {
                 start,
             ));
         }
-        Some(expression)
+        expression
     }
 
     // ---- types and links -------------------------------------------------
