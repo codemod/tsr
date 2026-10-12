@@ -1269,3 +1269,107 @@ this entry), EXACT oracle against main `bdd9ce108` + §29:
   `inlineJsxFactoryLocalTypeGlobalFallback` lose their 6 naming diffs, so
   13 lines remain. Both cases still differ for other reasons (a missing
   TS2609, related information).
+
+## 31. The printer writes JSDoc nullable and non-nullable types
+
+**Forcing constraint.** The printer round-trip suite on main `02301e3bc`
+had 5 UNSUP cases: `parseInvalidNullableTypes`,
+`parseInvalidNonNullableTypes`, `decoratorMetadata-jsdoc`,
+`namedTupleMembersErrors` and `restTupleElements1`. tsr-printer had no arm
+for `JSDocNullableType` / `JSDocNonNullableType`; these are also the type
+arguments of instantiation expressions such as `foo<?string?>`.
+
+**The port.** tsr-printer's type dispatch ports `emitJSDocAllType`,
+`emitJSDocNonNullableType`, `emitJSDocNullableType`, `emitJSDocOptionalType`
+and `emitJSDocVariadicType` (`printer.go:2422-2452`). Native writes the
+nullable and non-nullable forms as prefixes whichever side the source used,
+so `number?` prints `?number`. The reparse yields the same node kind, so
+the tree round-trips.
+
+**Measured.** Round-trip: passed 11805 → 11810, failed 4 → 4, unsupported
+5 → 0, no other case moved.
+
+## 32. A `keyof` origin names its operand at the site
+
+**Forcing constraint.** Ten lines in intlNumberFormatES2020/ES2023,
+es2018IntlAPIs and formatToPartsFractionalSecond: native prints
+`keyof Intl.NumberFormatOptionsStyleRegistry`, the port
+`keyof NumberFormatOptionsStyleRegistry`.
+
+**Cause.** `getLiteralTypeFromProperties` gives a resolved key union the
+origin `newIndexType(t)`, and the node builder prints that origin's Index
+arm (`nodebuilderimpl.go:3472`) by writing `t` at the print site. The port
+baked `keyof <operand printed at creation>`. r7-declared §16
+(`cd49eafb4`) now records the operand beside the text
+(`instantiation_expressions.keyof_origin_operands`) for this arm.
+
+**The port.** `type_to_string_at_worker` prints such a union as
+`keyof <operand at the site>`, parenthesizing an operand that binds looser
+than a type operator (`keyof (A | B)`). It fires only where the baked text
+is exactly `keyof <operand's site-free print>`, so an origin text the arm
+does not own stays as it was. No cache or table of its own; the map is
+r7-declared's.
+
+## 33. An instantiated object image prints its members at the site
+
+**Forcing constraint.** `typeParametersAvailableInNestedScope3`, 3 lines:
+native prints
+`c: <T_1>(v: T_1) => { a: <T_2>(a: T_2) => T_2; b: () => T_1; }`; the port
+printed the inner `a` as `<T_1>(a: T_1) => T_1`.
+
+**Cause.** `enterNewScope` clones `typeParameterNamesByText` into each
+nested scope, so once `c`'s `T` is renamed `T_1` (shadowed by `foo`'s `T`),
+the inner `a<T>` sees `T` and `T_1` taken. In the port, the rename
+instantiates `c`'s signature (`rename_type_parameters_for_site`), and its
+return object becomes an instantiation of the literal's image
+(`instantiate_anonymous_properties`). The certified member renderer
+(`certified_object_literal_text_at`) accepted only the fresh image and its
+widening transfers, so the instantiation printed its baked text, where the
+inner `a` was named outside the render. Instrumenting the rename showed no
+call with `c`'s `T_1` in the render scope.
+
+**The port.** The certified renderer follows `instantiated_object_mappers`
+from an instantiation to its source image. It uses the source's member plan
+with the instantiation's own slot types, so each member is serialized at
+the site inside the render's names. Two slot paths keep the plan's display
+verbatim:
+- a literal or intrinsic slot is re-printed when instantiation changed its
+  type;
+- a method or accessor override slot declines the whole print when its
+  type moved.
+
+No new table: the mapper record is `instantiate_anonymous_properties`'s.
+
+## 34. An instantiated type parameter named like its own value parameter is renamed
+
+**Forcing constraint.** `inferredReturnTypeIncorrectReuse1`, 4 lines:
+`t.pipe` of `pipe<fn extends (In: t) => unknown>(fn: fn)` on `Type<string>`
+prints `<fn_1 extends (In: string) => unknown>(fn: fn_1) => …` natively.
+The port printed `fn`.
+
+**Cause, from instrumented native.** A temporary print in a copy of tsgo's
+`typeParameterShadowsOtherTypeParameterInScope` and `typeParameterToName`
+(the pinned tree untouched) showed the following. A type parameter and a
+value parameter of one declaration with the same name merge into one binder
+symbol (flags `FunctionScopedVariable | TypeParameter`). `enterNewScope`
+puts the signature's parameters into a fake scope ahead of its type
+parameters.
+- For the declared signature, `resolveName("fn", Type)` finds that merged
+  symbol, which is the type parameter's own symbol, so nothing is renamed.
+- For an instantiated signature, the parameter is the merged symbol's
+  instantiated transient copy (flags `0x2040001`, still `TypeParameter`).
+  It is not the clone's symbol, so the clone is shadowed and named `fn_1`.
+
+Controls, all native: `f<fn>(fn: fn)` stays `fn` (declared), and an
+instantiated `m<fn …>(x: fn)` stays `fn` (no same-named parameter).
+
+**The port.** `rename_type_parameters_for_site` treats a type parameter as
+shadowed when its type is not its symbol's declared type (a clone) and the
+signature has a value parameter of the same name. The name is allocated by
+`allocate_type_parameter_name_excluding` with that name taken, matching
+native's loop, which skips the shadowed text. No cache or table.
+
+**Measured together** (§33 + §34) against main `02301e3bc` + §31/§32:
+see the gate record in the integration report.
+`inferenceContextualReturnTypeUnion3` (2 lines) still differs: there the
+port's multi-signature print names a declaration `T` but its uses `T_1`.

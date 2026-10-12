@@ -979,3 +979,151 @@ Measured on `e2e5c9d1` unfiltered: diagnostics **+1**
 message text only, which the legacy suite does not read), types unchanged,
 0 lost; exact oracle 9671 → 9674 (all three), 0 lost; jsTyping 122 → 122,
 new_false 0, lost_true 0; Ir gi 0.9998, dm 1.0000.
+
+## §35 TS18046 for an `unknown` property or element access receiver
+
+`checkPropertyAccessExpression` and `checkElementAccess` pass the receiver
+through `checkNonNullExpression`, whose `unknown` arm (`checker.go:7413`,
+under `strictNullChecks`) reports TS18046 "'e' is of type 'unknown'" at an
+entity-name receiver shorter than 100 characters (TS2571 otherwise) and
+answers `errorType`; a chain link passes `getOptionalExpressionType` of the
+receiver, which leaves `unknown` alone. The port had the callee half
+(`calls.rs`' `check_non_null_callee`) only, so `catch (e) { e.toUpperCase() }`
+under `useUnknownInCatchVariables` was silent. `report_unknown_receiver`
+(nonexistent_property.rs) is the receiver half; after it reports, the access
+asks nothing else, as the error type would.
+
+Certified receivers only: an identifier whose `unknown` is its declaration's
+(a catch-clause variable, or a declaration with a written type). Uncertified,
+the arm measured diagnostics +4 against **3 lost** (`badInferenceLowerPriorityThanGoodInference`,
+`inferFromGenericFunctionReturnTypes2`, `typeArgumentInferenceWithClassExpression3`):
+each receiver was `unknown` only in this port, an inferred type argument
+(`const result = canYouInferThis(() => ({ … }))`) or a contextually typed
+parameter (`s => s.length`) native types concretely. Those wait on inference
+(r7-contextual, r7-calls).
+
+Measured (certified) on `57d327e6` unfiltered: diagnostics **+4**
+(`catchClauseWithTypeAnnotation`, `controlFlowAliasingCatchVariables(useunknownincatchvariables=true)`,
+`es2016IntlAPIs`, `privateNameAndAny`), types unchanged, 0 lost; exact oracle
+9674 → 9676, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi
+1.0000, dm 1.0005 (the receiver's cached type read on every access; the
+optional-chain type only for an `unknown` receiver). `useUnknownInCatchVariables01` keeps its
+`e++` TS18046 (the arithmetic operand's `checkNonNullType`, not this arm).
+
+## §36 One reporter for a non-literal key's TS7053/TS7015, with native's chain
+
+Two boxes ported `getPropertyTypeForIndexType`'s no-index-signature arm
+(`checker.go:27129-27184`) for a non-literal key on the same day:
+`report_implicit_any_element_access` (`index_access_reports.rs`, every valid
+non-literal key kind, no message chain) and `check_computed_index_implicit_any`
+(`nonexistent_property.rs`, plain `string`/`number` keys, chained). Where both
+certified the miss the access was reported twice, once without the chain
+(`noImplicitAnyForIn`'s `x[i][j]` and `k1[k]`). Native reports once:
+`Element implicitly has an 'any' type because expression of type '{full key}'
+can't be used to index type '{object}'`, chained to "No index signature with a
+parameter of type '{failing key}' was found on type '{object}'" for a plain
+`string`/`number` failing key and to nothing for the other kinds this arm
+admits.
+
+`report_implicit_any_element_access` is the one reporter now, with that chain
+(the failing key is the first constituent no index info applies to);
+`check_computed_index_implicit_any` and its two certificate helpers are
+removed. The legacy suites saw no position or code move (the removed
+reporter certified nothing the other did not).
+
+Also here, without a measurable gain: `class_static_side_lacks` reads a TS
+class expression's static side as a declaration's (`typeOfThisInStaticMembers12/13`'s
+`static [this.c]` now reports; their instance-side `[this.c]` stays declined,
+the class's own computed names leaving its member table uncertified).
+
+Measured (§36 with the class-expression change) on `08c242f7` unfiltered:
+types and diagnostics verdicts unchanged, 0 lost; exact oracle 9676 → 9676,
+0 lost (`noImplicitAnyForIn` now differs only in the chain row's file, §19);
+jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 0.9998, dm 0.9990 (one
+reporter instead of two).
+
+## §37 TS2454's block-scoped fast path requires a statement list
+
+`uninitialized_variable_reads_declared` (check.rs, the TS2454 condition of
+`checkIdentifier`'s flow arm) skips the walk for a read of an initialised
+block-scoped declaration after it "in its own block" (`flow.md` §13, a
+measured ~5% on `domain-model`). It tested only that the statement's parent
+was not a `case`/`default` clause, so a declaration that is an `if`'s bare
+body (`if (1 > 0) const e = 3; console.log(e);`, TS1156) was taken as assigned
+on every path. Native walks: the else path never runs the declaration, and
+reports TS2454 (`disallowedBlockScopedInPresenceOfParseErrors1`, four
+reads). The fast path now requires the statement's parent to be a statement
+list (`Block`, `ModuleBlock`, `SourceFile`), where statements run in order;
+everything else walks.
+
+Measured on `97cc68fc` unfiltered: diagnostics **+1**
+(`disallowedBlockScopedInPresenceOfParseErrors1`), types unchanged, 0 lost;
+exact oracle 9676 → 9677, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0;
+Ir gi 1.0001, dm 1.0001.
+
+## §38 `GetErrorRangeForNode` for an unnamed declaration and an arrow function (routed: `check.rs`)
+
+`GetErrorRangeForNode` (`scanner.go:2588`) reports a name-reporting kind with
+no name (`errorNode == nil`, `:2644`: an anonymous function expression, a
+class expression, a default-exported function or class) at the construct's
+first token, and an arrow function through `getErrorRangeForArrowFunction`
+(`:2542`: a block body spanning lines reports through the end of its first
+line). The port's `error_span` fell to the whole node's span for both, so
+TS2872 on `function () { … } || undefined` covered the function where native
+covers `function` (`generatedContextualTyping`, four rows).
+`r7-flow-error-span-unnamed.diff` adds both arms to `error_span` (a shared
+helper, not this lane's). Measured on `6efc0ae6` unfiltered: legacy verdicts
+unchanged (start positions do not move); exact oracle 9677 → 9682
+(`assignLambdaToNominalSubtypeOfFunction`, `commaOperatorLeftSideUnused`,
+`exportDefaultInterfaceAndTwoFunctions`, `generatedContextualTyping`,
+`parserUnaryExpression2`), 0 lost; jsTyping 122 → 122, new_false 0,
+lost_true 0; Ir gi 1.0000, dm 1.0002. Approximation: the arrow's "first line" is the line of the body's
+`{` (native: of the body's full start, the end of `=>`); they differ only when
+`{` starts a new line.
+
+## §39 `getAssignedType`'s destructuring arms
+
+`getTypeAtFlowAssignment` narrows a union-typed reference assigned inside a
+destructuring target by `getAssignedType(node)` (`flow.go:2288`), which
+recurses through the target: an array literal element takes
+`getTypeOfDestructuredArrayElement` of its literal's assigned type (a
+tuple-like source's element, else the iterated element), a spread the array
+of the iterated element, a property assignment `getTypeOfDestructuredProperty`
+(the property, else an applicable index signature's value), a shorthand that
+with its default, and a destructuring default (`[x = d]`, `{ p: x = d }`)
+`getTypeWithDefault(getAssignedType(binary), d)` (`getAssignedTypeOfBinaryExpression`,
+`:2314`). The port answered `None` (the declared type) for every
+destructuring arm and read a default's `x = d` as the plain assignment `x =
+d`: `[k = "", v = false] of map` narrowed `v: boolean` to `false`
+(`for-of45`), and `[x] = [true]` left `x` at its declared union
+(`assignmentTypeNarrowing`, `controlFlowAssignmentPatternOrder`).
+
+`assigned_type` (flow.rs) is `getAssignedType` with those arms
+(`type_of_destructured_array_element`, `type_of_destructured_property`,
+`type_with_default`, `is_destructuring_assignment_target`); an arm this port
+cannot decide (an unresolvable element or property) still answers `None`, the
+declared type. No cache: the recursion is bounded by the target's nesting and
+runs at an assignment flow node, as native's.
+
+Measured on `6efc0ae6` unfiltered: types **+19** (`controlFlowAssignmentPatternOrder`
+12, `assignmentTypeNarrowing` 6, `for-of45` 1), diagnostics **+1**
+(`controlFlowAssignmentPatternOrder`), 0 lost; jsTyping 122 → **117**
+unique lines, new_false 0, lost_true 0 (five false TS2322/TS2365 lines in
+`program.ts`, `semver.ts` and `esDecorators.ts` gone); exact oracle 9677 → 9679, 0
+lost; Ir gi 1.0000, dm
+1.0000.
+
+## §40 `GetRootDeclaration` in `isParameterOrMutableLocalVariable`
+
+`GetRootDeclaration` climbs a binding element to its pattern's owner (`for
+IsBindingElement(node) { node = node.Parent.Parent }`), so `let { oldProgram
+} = options` is a mutable local whose closure reads past its last assignment
+narrow (`isPastLastAssignment`). The port's loop climbed through parents of
+the listed kinds and stopped on the pattern for a `VariableDeclaration`
+owner (only a `Parameter` owner was in its list), so every destructured `let`
+was "not a mutable local". It now climbs as native does.
+
+Measured on `5aed9899` unfiltered: types and diagnostics verdicts unchanged,
+0 lost; exact oracle 9679 → 9679, 0 lost; jsTyping 117 → **114** unique
+lines, new_false 0, lost_true 0 (`program.ts`' three false TS18048 on the
+destructured `oldProgram` read in callbacks gone); Ir gi 0.9999, dm 1.0000.

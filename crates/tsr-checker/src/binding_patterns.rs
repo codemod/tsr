@@ -431,6 +431,12 @@ fn binding_default_is_context_independent(expression: Expression<'_>) -> bool {
         Expression::YieldExpression(node) => node.expression.is_none_or(binding_default_is_context_independent),
         Expression::ArrayLiteralExpression(node) => node.elements.iter().copied().all(binding_default_is_context_independent),
         Expression::ObjectLiteralExpression(node) => node.properties.iter().all(|property| matches!(property, tsr_ast::ObjectLiteralElementLike::PropertyAssignment(property) if property.initializer.is_some_and(binding_default_is_context_independent))),
+        // getContextualType gives an assertion operand the asserted type
+        // (`checker.go:29368`), not the
+        // outer context, and the assertion's own type is the asserted type.
+        // Only `as const` forwards the outer context to its operand.
+        Expression::AsExpression(node) => node.r#type.is_some_and(|ty| !crate::assertions::is_const_type_reference(ty)),
+        Expression::TypeAssertion(node) => node.r#type.is_some_and(|ty| !crate::assertions::is_const_type_reference(ty)),
         _ => false,
     }
 }

@@ -1832,7 +1832,9 @@ impl<'a> Checker<'a, '_> {
             return;
         };
         let source = self.check_expression_at_node(value);
+        let before = self.diagnostics.len();
         self.report_assignability_failure(at, value, source, member);
+        self.add_expected_type_related_info(before, at, Some(value), target, name);
     }
 
     /// `getApplicableIndexInfoForName(target, name)`'s value type.
@@ -1904,7 +1906,9 @@ impl<'a> Checker<'a, '_> {
         };
         let source = self.check_expression_at_node(last);
         for (at, value) in occurrences {
+            let before = self.diagnostics.len();
             self.report_assignability_failure(at, value, source, member);
+            self.add_expected_type_related_info(before, at, Some(value), target, name);
         }
     }
 
@@ -2086,7 +2090,27 @@ impl<'a> Checker<'a, '_> {
                 vec![source_text, target_text, properties.join(", ")],
             )
         };
-        Diagnostic::with_args(message, span, args)
+        let mut diagnostic = Diagnostic::with_args(message, span, args);
+        // `reportUnmatchedProperty`: `'p' is declared here.` at the missing
+        // property's first declaration (r7-reports §38).
+        if let [name] = properties
+            && let Some(property) = self
+                .get_property_of_type(target, name)
+                .or_else(|| self.generic_heritage_property_symbol(target, name, &mut Vec::new()))
+            && let Some(&declaration) = self.binder.symbols().get(property).declarations.first()
+        {
+            let declared_span = self.error_span(declaration);
+            let related = self.related_diagnostic_at(
+                declaration,
+                &messages::_0_IS_DECLARED_HERE,
+                declared_span,
+                vec![name.clone()],
+            );
+            if related.file().is_some() {
+                diagnostic.set_related_information(std::sync::Arc::new(vec![related]));
+            }
+        }
+        diagnostic
     }
 
     /// `reportRelationError`'s missing-property suppression (`relater.go:4816`)
@@ -2110,7 +2134,11 @@ impl<'a> Checker<'a, '_> {
         display_target: TypeId,
         target: TypeId,
         properties: &[String],
+        head: Option<&'static tsr_diagnostics::Message>,
     ) -> MissingPropertyHead {
+        // `isConversionOrInterfaceImplementationMessage` (`relater.go:4934`):
+        // these heads are never suppressed (r7-reports §45).
+        let keeps_head = head.is_some_and(is_conversion_or_interface_implementation_message);
         let mut chain_source = source;
         if self.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
             let crate::constraints::ConstraintOfType::Constraint(constraint) =
@@ -2122,11 +2150,12 @@ impl<'a> Checker<'a, '_> {
         }
         let chain_source = self.single_base_normalized(chain_source);
         let chain_target = self.single_base_normalized(target);
-        if chain_source == source && chain_target == display_target {
+        if !keeps_head && chain_source == source && chain_target == display_target {
             return MissingPropertyHead::Suppressed;
         }
         let displayed_source = self.assignability_source_for_error_display(source, display_target);
-        if self.type_to_string(displayed_source) == self.type_to_string(chain_source)
+        if !keeps_head
+            && self.type_to_string(displayed_source) == self.type_to_string(chain_source)
             && self.type_to_string(display_target) == self.type_to_string(chain_target)
         {
             return MissingPropertyHead::Suppressed;
@@ -2388,16 +2417,27 @@ impl<'a> Checker<'a, '_> {
                 .missing_required_property(source, normalized)
                 .or_else(|| self.unmatched_property_report(source, normalized))
         {
-            let MissingPropertyHead::Kept(chain) =
-                self.missing_property_chain(span, source, chain_target, normalized, &properties)
-            else {
+            let MissingPropertyHead::Kept(chain) = self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                None,
+            ) else {
                 self.report_missing_properties(file, span, source, normalized, &properties);
                 return true;
             };
-            self.report_argument_head(file, span, source, display_target, None, chain);
+            self.report_argument_head(at, file, span, source, display_target, None, chain);
             return true;
         }
-        self.report_argument_head(file, span, source, display_target, signature_error, None);
+        // checkTypeRelatedToEx's error chain under the head (r7-reports §42).
+        let chain = if not_related && signature_error.is_none() {
+            self.relation_failure_chain(at, span, source, normalized)
+        } else {
+            None
+        };
+        self.report_argument_head(at, file, span, source, display_target, signature_error, chain);
         true
     }
 
@@ -2430,8 +2470,10 @@ impl<'a> Checker<'a, '_> {
     /// `reportRelationError`'s TS2345 head (`relater.go:4751`) for
     /// [`Checker::report_argument_failure`], with the signature elaboration or
     /// the missing-property message kept under it.
+    #[allow(clippy::too_many_arguments)]
     fn report_argument_head(
         &mut self,
+        at: NodeId,
         file: NodeId,
         span: tsr_core::Span,
         source: TypeId,
@@ -2455,7 +2497,8 @@ impl<'a> Checker<'a, '_> {
             diagnostic.add_message_chain(Some(signature_error));
         }
         diagnostic.add_message_chain(chain);
-        self.report(file, diagnostic);
+        self.attach_chain_file(at, span, &mut diagnostic);
+        self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
 
     /// Report the assignability failure at `span`, choosing the code the way
@@ -2650,7 +2693,14 @@ impl<'a> Checker<'a, '_> {
             && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
-            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
+            match self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                head,
+            ) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
@@ -2689,7 +2739,14 @@ impl<'a> Checker<'a, '_> {
             && missing_property_report
             && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
-            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
+            match self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                head,
+            ) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
@@ -2710,7 +2767,8 @@ impl<'a> Checker<'a, '_> {
         }
         // checkTypeRelatedToEx's error chain under the head, retraced where
         // every step is decided (r7-reports §36).
-        let chain = if not_related && signature_error.is_none() {
+        let explained = not_related && signature_error.is_none();
+        let chain = if explained {
             self.relation_failure_chain(at, span, source, normalized)
         } else {
             None
@@ -2726,6 +2784,36 @@ impl<'a> Checker<'a, '_> {
             chain,
         );
         true
+    }
+
+    /// Report `diagnostic` as the relation's head, with the head pair's
+    /// `This type parameter might need…` hint appended: its own
+    /// `reportErrorResults` runs last, so the hint follows every inner
+    /// level's related information (r7-reports §39).
+    fn report_relation_head_diagnostic(
+        &mut self,
+        file: NodeId,
+        source: TypeId,
+        target: TypeId,
+        mut diagnostic: Diagnostic,
+    ) {
+        // Every chain level carries the walk's related information
+        // (`createDiagnosticChainFromErrorChain`), the head's hint included.
+        #[allow(clippy::items_after_statements)]
+        fn append(diagnostic: &mut Diagnostic, hint: &Diagnostic) {
+            let mut list = diagnostic.related_information().to_vec();
+            list.push(hint.clone());
+            diagnostic.set_related_information(std::sync::Arc::new(list));
+            let mut children = diagnostic.message_chain().to_vec();
+            for child in &mut children {
+                append(child, hint);
+            }
+            diagnostic.set_message_chain(children);
+        }
+        if let Some(Some(hint)) = self.type_parameter_constraint_hint(source, target) {
+            append(&mut diagnostic, &hint);
+        }
+        self.report(file, diagnostic);
     }
 
     /// `reportRelationError`'s head (`relater.go:4751`) for
@@ -2797,7 +2885,7 @@ impl<'a> Checker<'a, '_> {
             }
             diagnostic.add_message_chain(chain);
             self.attach_chain_file(at, span, &mut diagnostic);
-            self.report(file, diagnostic);
+            self.report_relation_head_diagnostic(file, source, target, diagnostic);
             return;
         }
         let mut diagnostic =
@@ -2808,13 +2896,18 @@ impl<'a> Checker<'a, '_> {
         }
         diagnostic.add_message_chain(chain);
         self.attach_chain_file(at, span, &mut diagnostic);
-        self.report(file, diagnostic);
+        self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
 
     /// `NewDiagnosticChain` gives every chain level the error node's file
     /// (`createDiagnosticChainFromErrorChain`); a chain child built here
     /// without one takes the head's (r7-reports §36).
-    fn attach_chain_file(&self, at: NodeId, span: tsr_core::Span, diagnostic: &mut Diagnostic) {
+    pub(crate) fn attach_chain_file(
+        &self,
+        at: NodeId,
+        span: tsr_core::Span,
+        diagnostic: &mut Diagnostic,
+    ) {
         if diagnostic.message_chain().is_empty() {
             return;
         }
@@ -2839,7 +2932,16 @@ impl<'a> Checker<'a, '_> {
             copy.set_message_chain(children);
             copy
         }
-        let children = diagnostic.message_chain().iter().map(|child| deep(child, &file)).collect();
+        let children: Vec<Diagnostic> =
+            diagnostic.message_chain().iter().map(|child| deep(child, &file)).collect();
+        // `NewDiagnosticChain` copies the child's related information up.
+        if diagnostic.related_information().is_empty()
+            && let Some(first) = children.first()
+            && !first.related_information().is_empty()
+        {
+            let related = std::sync::Arc::new(first.related_information().to_vec());
+            diagnostic.set_related_information(related);
+        }
         diagnostic.set_message_chain(children);
     }
 
@@ -3377,9 +3479,9 @@ impl<'a> Checker<'a, '_> {
     /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
     /// `kind` signature of the source returns a type (not `any`/`never`)
     /// related to the target, the failure is reported at the expression
-    /// itself — upstream adds "Did you mean to call this expression?" as
-    /// related information, which the suite does not compare. A pair the
-    /// relation does not reject falls through to the remaining arms.
+    /// itself, with "Did you mean to call this expression?" (or `new`) as
+    /// related information on its first diagnostic. A pair the relation
+    /// does not reject falls through to the remaining arms.
     fn elaborate_did_you_mean_to_call_or_construct(
         &mut self,
         node: NodeId,
@@ -3408,7 +3510,26 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let span = self.error_span(node);
-        self.report_relation_failure(node, span, None, source, target, head)
+        let before = self.diagnostics.len();
+        if !self.report_relation_failure(node, span, None, source, target, head) {
+            return false;
+        }
+        // `diags[0]` gains the hint at the expression (r7-reports §43).
+        if self.diagnostics.len() > before {
+            let message = if kind == crate::signatures::SignatureKind::Construct {
+                &messages::DID_YOU_MEAN_TO_USE_NEW_WITH_THIS_EXPRESSION
+            } else {
+                &messages::DID_YOU_MEAN_TO_CALL_THIS_EXPRESSION
+            };
+            let hint = self.related_diagnostic_at(node, message, span, Vec::new());
+            if hint.file().is_some() {
+                let diagnostic = &mut self.diagnostics[before].1;
+                let mut list = diagnostic.related_information().to_vec();
+                list.push(hint);
+                diagnostic.set_related_information(std::sync::Arc::new(list));
+            }
+        }
+        true
     }
 
     /// `getBestMatchingType` (`relater.go:879`) for an object-literal source
@@ -3545,8 +3666,60 @@ impl<'a> Checker<'a, '_> {
         if self.diagnostics.len() != before {
             return true;
         }
+        // `specificSource` (`relater.go:565`): the expression's own type
+        // against the member's as contextual type; the member's type again
+        // when that one relates.
+        let source = match next.and_then(|next| self.elaboration_specific_source(next, source)) {
+            Some(specific)
+                if specific != source
+                    && self.relate_ternary(
+                        specific,
+                        target,
+                        crate::relater::Relation::Assignable,
+                    ) == crate::relater::Ternary::NotRelated =>
+            {
+                specific
+            }
+            _ => source,
+        };
         let span = self.error_span(prop);
         self.report_relation_failure(prop, span, Some(source_node), source, target, head)
+    }
+
+    /// `checkExpressionForMutableLocationWithContextualType(next, contextual)`
+    /// for a literal-typed expression: kept (regular) in a const context,
+    /// under an assertion, or when `isLiteralOfContextualType` holds, else
+    /// widened. `None` for any other expression, whose type the caller's
+    /// member type already is (r7-reports §41).
+    fn elaboration_specific_source(&mut self, next: NodeId, contextual: TypeId) -> Option<TypeId> {
+        let literalish = TypeFlags::STRING_LITERAL
+            | TypeFlags::NUMBER_LITERAL
+            | TypeFlags::BIG_INT_LITERAL
+            | TypeFlags::BOOLEAN_LITERAL
+            | TypeFlags::UNIQUE_ES_SYMBOL;
+        let checked = self.check_expression_at_node(next);
+        if !self.maybe_type_of_kind(checked, literalish) {
+            return None;
+        }
+        let mut inner = next;
+        while let Some(Node::ParenthesizedExpression(parenthesized)) = self.node_map.get(inner) {
+            inner = parenthesized.expression.and_then(|expression| expression.node_id())?;
+        }
+        let assertion = matches!(
+            self.nodes.kind(inner),
+            SyntaxKind::AsExpression | SyntaxKind::TypeAssertionExpression
+        );
+        if assertion {
+            return Some(checked);
+        }
+        if self.is_const_context(next)
+            || self.is_literal_of_contextual_type(checked, contextual) == Some(true)
+        {
+            return Some(self.get_regular_type_of_literal_type(checked));
+        }
+        let widened = self.get_widened_literal_type_with_unions(checked);
+        let widened = self.get_widened_unique_es_symbol_type(widened);
+        Some(self.get_regular_type_of_literal_type(widened))
     }
 
     /// Whether a computed property name's expression is a string or numeric
@@ -3684,6 +3857,7 @@ impl<'a> Checker<'a, '_> {
             let Some(source_property_type) = source_property_type else {
                 continue;
             };
+            let before = self.diagnostics.len();
             reported |= self.elaborate_element_with(
                 name_id,
                 next,
@@ -3691,8 +3865,111 @@ impl<'a> Checker<'a, '_> {
                 target_property_type,
                 head,
             );
+            self.add_expected_type_related_info(before, name_id, next, target, &name);
         }
         Some(reported)
+    }
+
+    /// `elaborateElement`'s related information (`relater.go:575`): when its
+    /// report landed on the member itself (not an inner elaboration), `The
+    /// expected type comes from property 'p' which is declared here on type
+    /// 'T'` at the target member's declaration, unless that is in a default
+    /// library (r7-reports §38).
+    pub(crate) fn add_expected_type_related_info(
+        &mut self,
+        before: usize,
+        prop: NodeId,
+        next: Option<NodeId>,
+        target: TypeId,
+        name: &str,
+    ) {
+        if self.diagnostics.len() != before + 1 {
+            return;
+        }
+        if !self.is_member_relation_report(before, prop, next) {
+            return;
+        }
+        let related = if let Some(property) = self.get_property_of_type(target, name) {
+            let Some(&declaration) = self.binder.symbols().get(property).declarations.first()
+            else {
+                return;
+            };
+            if self.in_default_library(declaration) {
+                return;
+            }
+            let declared_span = self.error_span(declaration);
+            let target_text = self.type_to_string(target);
+            self.related_diagnostic_at(
+                declaration,
+                &messages::THE_EXPECTED_TYPE_COMES_FROM_PROPERTY_0_WHICH_IS_DECLARED_HERE_ON_TYPE_1,
+                declared_span,
+                vec![name.to_owned(), target_text],
+            )
+        } else {
+            let key = self.property_name_key_type(name);
+            let Some(declaration) =
+                self.get_applicable_index_info(target, key).and_then(|info| info.declaration)
+            else {
+                return;
+            };
+            if self.in_default_library(declaration) {
+                return;
+            }
+            let declared_span = self.error_span(declaration);
+            self.related_diagnostic_at(
+                declaration,
+                &messages::THE_EXPECTED_TYPE_COMES_FROM_THIS_INDEX_SIGNATURE,
+                declared_span,
+                Vec::new(),
+            )
+        };
+        if related.file().is_none() {
+            return;
+        }
+        let diagnostic = &mut self.diagnostics[before].1;
+        let mut list = diagnostic.related_information().to_vec();
+        list.push(related);
+        diagnostic.set_related_information(std::sync::Arc::new(list));
+    }
+
+    /// Is the diagnostic at `index` the one `elaborateElement`'s own
+    /// `checkTypeRelatedToEx(…, prop, …)` produced, rather than an inner
+    /// elaboration's? It is either at the member itself (the relation
+    /// error, whatever related information it already carries), or the
+    /// excess-property error that relation moved to a direct member of the
+    /// value literal (TS2353 / TS2561, r7-reports §39).
+    fn is_member_relation_report(&self, index: usize, prop: NodeId, next: Option<NodeId>) -> bool {
+        let diagnostic = &self.diagnostics[index].1;
+        if diagnostic.span == self.error_span(prop) {
+            return true;
+        }
+        let excess = [
+            &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1,
+            &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_BUT_0_DOES_NOT_EXIST_IN_TYPE_1_DID_YOU_MEAN_TO_WRITE_2,
+        ];
+        if !excess.iter().any(|message| message.code() == diagnostic.message.code()) {
+            return false;
+        }
+        let Some(Node::ObjectLiteralExpression(literal)) =
+            next.and_then(|value| self.node_map.get(value))
+        else {
+            return false;
+        };
+        literal.properties.iter().any(|property| {
+            let name = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.name.node_id()
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    shorthand.name.node_id()
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
+                    method.name.node_id()
+                }
+                _ => None,
+            };
+            name.is_some_and(|name| self.error_span(name) == diagnostic.span)
+        })
     }
 
     /// `getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`) for a
@@ -4354,6 +4631,20 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        let Some((message, args)) = self.weak_type_message(source, target) else { return false };
+        self.report(file, Diagnostic::with_args(message, span, args));
+        true
+    }
+
+    /// `isRelatedTo`'s common-property report (`relater.go:2731`) for a pair
+    /// that fails the check: TS2559, or TS2560 when the source's first call
+    /// or construct signature returns something related to the target.
+    /// `None` where that return relation is undecided.
+    fn weak_type_message(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>)> {
         let mut callable = false;
         for kind in
             [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
@@ -4371,7 +4662,7 @@ impl<'a> Checker<'a, '_> {
                     break;
                 }
                 crate::relater::Ternary::NotRelated => {}
-                crate::relater::Ternary::Unknown => return false,
+                crate::relater::Ternary::Unknown => return None,
             }
         }
         let source_text = self.type_to_string(source);
@@ -4381,8 +4672,7 @@ impl<'a> Checker<'a, '_> {
         } else {
             &messages::TYPE_0_HAS_NO_PROPERTIES_IN_COMMON_WITH_TYPE_1
         };
-        self.report(file, Diagnostic::with_args(message, span, [source_text, target_text]));
-        true
+        Some((message, vec![source_text, target_text]))
     }
 
     /// `isRelatedToEx`'s nullable-stripping step (`relater.go:2640`): a
@@ -5083,7 +5373,101 @@ impl<'a> Checker<'a, '_> {
             returns.push(target_return);
         }
         let target_return = self.get_union_type(&returns);
-        self.elaborate_element(body, Some(body), source_return, target_return)
+        if self.relate_ternary(source_return, target_return, crate::relater::Relation::Assignable)
+            != crate::relater::Ternary::NotRelated
+        {
+            return false;
+        }
+        // `elaborateError(returnExpression, …)` first: an inner elaboration
+        // carries none of the related information below.
+        if self.elaborate_error(body, source_return, target_return, None) {
+            return true;
+        }
+        let before = self.diagnostics.len();
+        if !self.elaborate_element(body, Some(body), source_return, target_return) {
+            return false;
+        }
+        if self.diagnostics.len() == before + 1 {
+            let async_arrow = has_async(arrow.modifiers);
+            self.add_arrow_return_related_info(
+                before,
+                node,
+                async_arrow,
+                source_return,
+                target,
+                target_return,
+            );
+        }
+        true
+    }
+
+    /// `elaborateArrowFunction`'s related information (`relater.go:667`):
+    /// `The expected type comes from the return type of this signature` at
+    /// the target's first declaration, then `Did you mean to mark this
+    /// function as 'async'?` at the arrow when a non-async arrow's return,
+    /// promised, would have been assignable (r7-reports §39).
+    fn add_arrow_return_related_info(
+        &mut self,
+        index: usize,
+        arrow: NodeId,
+        async_arrow: bool,
+        source_return: TypeId,
+        target: TypeId,
+        target_return: TypeId,
+    ) {
+        // Appended after what the relation already attached (`AddRelatedInfo`).
+        let mut list = Vec::new();
+        // `target.symbol`: an anonymous type's own symbol, or the declared
+        // type's; a union or intersection has none.
+        let symbol = match &self.type_of(target).data {
+            crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            crate::types::TypeData::Named { members, .. } => *members,
+            _ => None,
+        };
+        if let Some(&declaration) =
+            symbol.and_then(|symbol| self.binder.symbols().get(symbol).declarations.first())
+        {
+            let span = self.error_span(declaration);
+            let related = self.related_diagnostic_at(
+                declaration,
+                &messages::THE_EXPECTED_TYPE_COMES_FROM_THE_RETURN_TYPE_OF_THIS_SIGNATURE,
+                span,
+                Vec::new(),
+            );
+            if related.file().is_some() {
+                list.push(related);
+            }
+        }
+        // `createPromiseType(sourceReturn)` is `Promise<Awaited<T>>`; for a
+        // type with no `then` and nothing generic, `Awaited<T>` is `T`. A
+        // generic return would need the `Awaited` alias, so the hint declines.
+        if !async_arrow
+            && self.get_type_of_property_of_type(source_return, "then").is_none()
+            && !self.is_generic_type(source_return)
+            && let Some(promise) = self.global_type_symbol_with_arity("Promise", 1)
+        {
+            let promised = self.create_type_reference(promise, vec![source_return]);
+            if self.relate_ternary(promised, target_return, crate::relater::Relation::Assignable)
+                != crate::relater::Ternary::NotRelated
+            {
+                let span = self.error_span(arrow);
+                let related = self.related_diagnostic_at(
+                    arrow,
+                    &messages::DID_YOU_MEAN_TO_MARK_THIS_FUNCTION_AS_ASYNC,
+                    span,
+                    Vec::new(),
+                );
+                if related.file().is_some() {
+                    list.push(related);
+                }
+            }
+        }
+        if !list.is_empty() {
+            let diagnostic = &mut self.diagnostics[index].1;
+            let mut related = diagnostic.related_information().to_vec();
+            related.extend(list);
+            diagnostic.set_related_information(std::sync::Arc::new(related));
+        }
     }
 }
 
@@ -5124,12 +5508,50 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 /// the one thing `docs/conventions.md` forbids about a refusal.
 const REPORT_MISSING_REQUIRED_PROPERTY: bool = true;
 
+/// `isConversionOrInterfaceImplementationMessage` (`relater.go:4934`): a
+/// head `reportRelationError` keeps over the missing-property message below.
+fn is_conversion_or_interface_implementation_message(message: &tsr_diagnostics::Message) -> bool {
+    [
+        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1,
+        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS,
+        &messages::CONVERSION_OF_TYPE_0_TO_TYPE_1_MAY_BE_A_MISTAKE_BECAUSE_NEITHER_TYPE_SUFFICIENTLY_OVERLAPS_WITH_THE_OTHER_IF_THIS_WAS_INTENTIONAL_CONVERT_THE_EXPRESSION_TO_UNKNOWN_FIRST,
+        &messages::ITS_INSTANCE_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+        &messages::ITS_RETURN_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+        &messages::ITS_ELEMENT_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+    ]
+    .iter()
+    .any(|candidate| candidate.code() == message.code())
+}
+
 /// One `ErrorChain` entry (`relater.go`): a message and its arguments, as
 /// `reportError` pushes them.
 #[derive(Clone)]
 struct ChainEntry {
     message: &'static tsr_diagnostics::Message,
     args: Vec<String>,
+}
+
+/// `errorChain` and `relatedInfo` as one retrace accumulates them.
+#[derive(Default)]
+struct ChainStack {
+    entries: Vec<ChainEntry>,
+    related: Vec<Diagnostic>,
+    /// `IntersectionStateTarget`: explaining one constituent of a target
+    /// intersection, where nested pairs skip the common-property check.
+    intersection_target: bool,
+}
+
+impl std::ops::Deref for ChainStack {
+    type Target = Vec<ChainEntry>;
+    fn deref(&self) -> &Vec<ChainEntry> {
+        &self.entries
+    }
+}
+
+impl std::ops::DerefMut for ChainStack {
+    fn deref_mut(&mut self) -> &mut Vec<ChainEntry> {
+        &mut self.entries
+    }
 }
 
 /// The four return-type markers `compareSignaturesRelated` reports only to
@@ -5197,10 +5619,15 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<Diagnostic> {
-        let mut stack: Vec<ChainEntry> = Vec::new();
+        let mut stack = ChainStack::default();
         self.explain_relation(&mut stack, source, target, 0)?;
-        let entries: Vec<ChainEntry> =
-            stack.into_iter().rev().filter(|entry| !is_return_marker(entry.message)).collect();
+        let related = std::mem::take(&mut stack.related);
+        let entries: Vec<ChainEntry> = stack
+            .entries
+            .into_iter()
+            .rev()
+            .filter(|entry| !is_return_marker(entry.message))
+            .collect();
         if entries.is_empty() {
             return None;
         }
@@ -5210,11 +5637,15 @@ impl Checker<'_, '_> {
             .related_diagnostic_at(at, entries[0].message, span, Vec::new())
             .file()
             .map(|file| std::sync::Arc::new(file.clone()));
+        let related = std::sync::Arc::new(related);
         let mut chain: Option<Diagnostic> = None;
         for entry in entries.into_iter().rev() {
             let mut diagnostic = Diagnostic::with_args(entry.message, span, entry.args);
             if let Some(file) = &file {
                 diagnostic.set_file(file.clone());
+            }
+            if !related.is_empty() {
+                diagnostic.set_related_information(related.clone());
             }
             diagnostic.add_message_chain(chain);
             chain = Some(diagnostic);
@@ -5227,7 +5658,7 @@ impl Checker<'_, '_> {
     /// not this port's to choose (a type-parameter target's explanations).
     fn chain_report_relation_error(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
     ) -> Option<()> {
@@ -5324,14 +5755,81 @@ impl Checker<'_, '_> {
     /// arm's chain, then `reportErrorResults`' relation error for the pair.
     fn explain_pair(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         depth: usize,
     ) -> Option<()> {
         let target = self.chain_normalized_target(source, target);
+        // The common-property check fails the pair before any structural
+        // comparison, with its own message and no relation error
+        // (`relater.go:2731`).
+        if !stack.intersection_target && self.fails_common_property_check(source, target) {
+            let (message, args) = self.weak_type_message(source, target)?;
+            stack.push(ChainEntry { message, args });
+            return Some(());
+        }
         self.explain_relation(stack, source, target, depth + 1)?;
-        self.chain_report_relation_error(stack, source, target)
+        self.chain_report_relation_error(stack, source, target)?;
+        let hint = self.type_parameter_constraint_hint(source, target)?;
+        stack.related.extend(hint);
+        Some(())
+    }
+
+    /// `reportErrorResults`' last arm (`relater.go:4741`): an unconstrained,
+    /// declared type-parameter source gets TS2208 (*This type parameter might
+    /// need an extends T constraint*) at its declaration when `T`, as its
+    /// constraint, would not be circular. `Some(None)` where no hint applies;
+    /// `None` where the circularity question is not decided here (an
+    /// instantiable target other than a type parameter).
+    #[allow(clippy::option_option)]
+    fn type_parameter_constraint_hint(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Option<Diagnostic>> {
+        if !self.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || self.this_types.values().any(|&this| this == source)
+            || self.this_type_nodes.values().any(|&this| this == source)
+        {
+            return Some(None);
+        }
+        let Some(&symbol) = self.type_parameter_symbols.get(&source) else { return Some(None) };
+        let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first() else {
+            return Some(None);
+        };
+        if self.type_parameter_constraint(source).is_some() {
+            return Some(None);
+        }
+        // `hasNonCircularBaseConstraint` of a clone constrained to the target
+        // (with the source replaced by the clone): circular when the target
+        // is a union or intersection with the source as a constituent.
+        // A type-parameter target is the clone's constraint as written; its
+        // own constraint chain does not reach the clone.
+        let target_type = self.type_of(target);
+        if target_type.flags.intersects(TypeFlags::INSTANTIABLE)
+            && !target_type.flags.contains(TypeFlags::TYPE_PARAMETER)
+        {
+            return None;
+        }
+        let circular = match &target_type.data {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                types.contains(&source)
+            }
+            _ => false,
+        };
+        if circular {
+            return Some(None);
+        }
+        let target_text = self.type_to_string(target);
+        let span = self.error_span(declaration);
+        let related = self.related_diagnostic_at(
+            declaration,
+            &messages::THIS_TYPE_PARAMETER_MIGHT_NEED_AN_EXTENDS_0_CONSTRAINT,
+            span,
+            vec![target_text],
+        );
+        Some(related.file().is_some().then_some(related))
     }
 
     /// `isRelatedTo`'s nullable stripping (`relater.go`): a definitely
@@ -5345,15 +5843,28 @@ impl Checker<'_, '_> {
         }
     }
 
-    fn chain_relate(&mut self, source: TypeId, target: TypeId) -> crate::relater::Ternary {
-        self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+    fn chain_relate(
+        &mut self,
+        stack: &ChainStack,
+        source: TypeId,
+        target: TypeId,
+    ) -> crate::relater::Ternary {
+        if stack.intersection_target {
+            self.relate_ternary_in_intersection_target(
+                source,
+                target,
+                crate::relater::Relation::Assignable,
+            )
+        } else {
+            self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+        }
     }
 
     /// The failing arm of `structuredTypeRelatedTo` for a decided failure,
     /// without the pair's own relation error.
     fn explain_relation(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         depth: usize,
@@ -5373,7 +5884,7 @@ impl Checker<'_, '_> {
                 return Some(());
             }
             for part in types {
-                match self.chain_relate(part, target) {
+                match self.chain_relate(stack, part, target) {
                     Ternary::Related => {}
                     Ternary::NotRelated => return self.explain_pair(stack, part, target, depth),
                     Ternary::Unknown => return None,
@@ -5402,12 +5913,40 @@ impl Checker<'_, '_> {
         {
             let regular = self.get_regular_type_of_object_literal(source);
             return match self.chain_best_matching_type(regular, target)? {
-                Some(best) => match self.chain_relate(regular, best) {
+                Some(best) => match self.chain_relate(stack, regular, best) {
                     Ternary::NotRelated => self.explain_pair(stack, regular, best, depth),
                     _ => None,
                 },
                 None => Some(()),
             };
+        }
+        // An intersection target (`typeRelatedToEachType`, reporting): the
+        // first constituent that fails. When every one relates, `isRelatedTo`'s
+        // extra `propertiesRelatedTo` over the intersection as one object
+        // (`relater.go:2770`) is what failed.
+        if let TypeData::Intersection { types, .. } = self.type_of(target).data.clone()
+            && source_flags.intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE)
+            && !(source_flags.contains(TypeFlags::INTERSECTION)
+                && self.intersection_has_instantiable(source))
+            && !self.intersection_has_instantiable(target)
+        {
+            let previous = std::mem::replace(&mut stack.intersection_target, true);
+            for part in types {
+                let explained = match self.chain_relate(stack, source, part) {
+                    Ternary::Related => continue,
+                    Ternary::NotRelated => self.explain_pair(stack, source, part, depth),
+                    Ternary::Unknown => None,
+                };
+                stack.intersection_target = previous;
+                return explained;
+            }
+            stack.intersection_target = previous;
+            // Under `IntersectionStateTarget` the whole-object pass is skipped.
+            if previous {
+                return None;
+            }
+            return self.explain_object_relation(stack, source, target, depth, true);
         }
         // An intersection source failed every constituent silently; the
         // structural pass over its combined members reports.
@@ -5416,7 +5955,32 @@ impl Checker<'_, '_> {
             && !target_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
             && !self.intersection_has_instantiable(source)
         {
-            return self.explain_object_relation(stack, source, target, depth);
+            return self.explain_object_relation(stack, source, target, depth, false);
+        }
+        // A type-parameter source (`structuredTypeRelatedToWorker`,
+        // `relater.go:3665`) relates its constraint, reporting only when that
+        // constraint is not `unknown` and the target is not a type parameter
+        // too. A polymorphic `this` relates `getTypeWithThisArgument` of its
+        // constraint, which this arm does not build.
+        if source_flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !target_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            && !self.this_types.values().any(|&this| this == source)
+            && !self.this_type_nodes.values().any(|&this| this == source)
+        {
+            let constraint = self.type_parameter_constraint(source);
+            return match constraint {
+                None => Some(()),
+                Some(constraint)
+                    if constraint == self.intrinsics.unknown
+                        || target_flags.contains(TypeFlags::TYPE_PARAMETER) =>
+                {
+                    Some(())
+                }
+                Some(constraint) => match self.chain_relate(stack, constraint, target) {
+                    Ternary::NotRelated => self.explain_pair(stack, constraint, target, depth),
+                    _ => None,
+                },
+            };
         }
         if source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
             || target_flags
@@ -5437,7 +6001,7 @@ impl Checker<'_, '_> {
             }
             let source_element = self.type_reference_targets.get(&source)?.1.first().copied()?;
             let target_element = self.type_reference_targets.get(&target)?.1.first().copied()?;
-            return match self.chain_relate(source_element, target_element) {
+            return match self.chain_relate(stack, source_element, target_element) {
                 Ternary::NotRelated => {
                     self.explain_pair(stack, source_element, target_element, depth)
                 }
@@ -5453,17 +6017,83 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        self.explain_object_relation(stack, source, target, depth)
+        if let Some(explained) = self.explain_reference_variances(stack, source, target, depth) {
+            return explained;
+        }
+        self.explain_object_relation(stack, source, target, depth, false)
+    }
+
+    /// `relateVariances` for two references to one class or interface
+    /// (`relater.go:3266`, `typeArgumentsRelatedTo` at `:3903`): the first
+    /// type argument that fails under its variance is the explanation.
+    /// `None` where the structural comparison decides instead: a variance
+    /// with `Unmeasurable`/`Unreliable` flags, a covariant `void` target
+    /// argument, or an invariant parameter (whose errors upstream resets to
+    /// show the structural reason). `Some(None)` declines.
+    #[allow(clippy::option_option)]
+    fn explain_reference_variances(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<Option<()>> {
+        use crate::relater::Ternary;
+        use crate::variances::Variance;
+        let (source_symbol, source_arguments) = self.type_reference_targets.get(&source)?.clone();
+        let (target_symbol, target_arguments) = self.type_reference_targets.get(&target)?.clone();
+        let symbol = self.binder.merged_symbol(source_symbol);
+        if symbol != self.binder.merged_symbol(target_symbol)
+            || source_arguments.len() != target_arguments.len()
+            || self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        let Some(variances) = self.inference_variances(symbol) else { return Some(None) };
+        if variances.len() != source_arguments.len() {
+            return Some(None);
+        }
+        let reliability = self.variance_reliability(symbol, variances.len());
+        let covariant_void =
+            target_arguments.iter().zip(&variances).any(|(&argument, variance)| {
+                *variance == Variance::Covariant
+                    && self.type_of(argument).flags.intersects(TypeFlags::VOID)
+            });
+        if reliability.iter().any(|flags| !flags.is_empty())
+            || covariant_void
+            || variances.contains(&Variance::Invariant)
+        {
+            return None;
+        }
+        for ((&s, &t), variance) in source_arguments.iter().zip(&target_arguments).zip(&variances) {
+            let (from, to) = match variance {
+                Variance::Independent | Variance::Invariant => continue,
+                Variance::Covariant => (s, t),
+                Variance::Contravariant => (t, s),
+                Variance::Bivariant => match self.chain_relate(stack, t, s) {
+                    Ternary::Related => continue,
+                    Ternary::Unknown => return Some(None),
+                    Ternary::NotRelated => (s, t),
+                },
+            };
+            match self.chain_relate(stack, from, to) {
+                Ternary::Related => {}
+                Ternary::Unknown => return Some(None),
+                Ternary::NotRelated => return Some(self.explain_pair(stack, from, to, depth)),
+            }
+        }
+        Some(None)
     }
 
     /// `propertiesRelatedTo`, then `signaturesRelatedTo(Call)`, for two plain
     /// object types.
     fn explain_object_relation(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         depth: usize,
+        properties_only: bool,
     ) -> Option<()> {
         use crate::relater::Ternary;
         use crate::signatures::SignatureKind;
@@ -5481,6 +6111,7 @@ impl Checker<'_, '_> {
                     target,
                     &properties,
                 );
+                stack.related.extend(diagnostic.related_information().iter().cloned());
                 stack.push(ChainEntry { message: diagnostic.message, args: diagnostic.args });
                 return Some(());
             }
@@ -5495,7 +6126,7 @@ impl Checker<'_, '_> {
                 Some(false) => {}
                 None => return None,
             }
-            match self.chain_relate(source_member, target_member) {
+            match self.chain_relate(stack, source_member, target_member) {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
@@ -5508,6 +6139,9 @@ impl Checker<'_, '_> {
                     return Some(());
                 }
             }
+        }
+        if properties_only {
+            return None;
         }
         // `signaturesRelatedTo(Call)`, then `(Construct)`.
         for kind in [SignatureKind::Call, SignatureKind::Construct] {
@@ -5531,7 +6165,10 @@ impl Checker<'_, '_> {
                         (source_signature.clone(), target_signature.clone());
                     self.explain_signature(stack, &source_signature, &target_signature, depth)
                 }
-                _ => None,
+                (sources, targets) => {
+                    let (sources, targets) = (sources.to_vec(), targets.to_vec());
+                    self.explain_signature_sets(stack, source, target, &sources, &targets, depth)
+                }
             };
         }
         // `indexSignaturesRelatedTo`: a target index signature the source
@@ -5553,6 +6190,78 @@ impl Checker<'_, '_> {
             return Some(());
         }
         None
+    }
+
+    /// `signaturesRelatedTo`' N×M arm (`relater.go:4495`): the first target
+    /// signature no source signature matches, both erased. Only the first
+    /// source's failure elaborates, and with other sources present no
+    /// `provides no match` follows. Pairwise instantiations of one
+    /// anonymous type or reference target (the arm before it) decline.
+    fn explain_signature_sets(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        sources: &[crate::signatures::Signature],
+        targets: &[crate::signatures::Signature],
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        let same_anonymous = matches!(
+            (&self.type_of(source).data, &self.type_of(target).data),
+            (TypeData::Anonymous { symbol: a, .. }, TypeData::Anonymous { symbol: b, .. }) if a == b
+        );
+        let same_reference = match (
+            self.type_reference_targets.get(&source),
+            self.type_reference_targets.get(&target),
+        ) {
+            (Some((a, _)), Some((b, _))) => a == b,
+            _ => false,
+        };
+        if same_anonymous || same_reference {
+            return None;
+        }
+        let first = self.chain_erased_signature(sources.first()?)?;
+        for target_signature in targets {
+            let erased_target = self.chain_erased_signature(target_signature)?;
+            let mut matched = false;
+            for source_signature in sources {
+                let erased_source = self.chain_erased_signature(source_signature)?;
+                match self.compare_signature_ternary(&erased_source, &erased_target)? {
+                    Ternary::Related => {
+                        matched = true;
+                        break;
+                    }
+                    Ternary::NotRelated => {}
+                    Ternary::Unknown => return None,
+                }
+            }
+            if !matched {
+                return self.explain_signature(stack, &first, &erased_target, depth);
+            }
+        }
+        None
+    }
+
+    /// `getErasedSignature`: the signature's own type parameters as `any`.
+    fn chain_erased_signature(
+        &mut self,
+        signature: &crate::signatures::Signature,
+    ) -> Option<crate::signatures::Signature> {
+        if signature.type_parameters.is_empty() {
+            return Some(signature.clone());
+        }
+        let parameters = self.type_parameter_types(signature)?;
+        let any = self.intrinsics.any;
+        let map: Vec<(TypeId, TypeId)> =
+            parameters.iter().map(|&parameter| (parameter, any)).collect();
+        let names: Vec<String> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut erased =
+            self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
+        erased.type_parameters.clear();
+        Some(erased)
     }
 
     /// `isObjectTypeWithInferableIndex` is false: a class or interface
@@ -5577,15 +6286,13 @@ impl Checker<'_, '_> {
     /// return types.
     fn explain_signature(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
         depth: usize,
     ) -> Option<()> {
         use crate::relater::Ternary;
-        if !source.type_parameters.is_empty()
-            || !target.type_parameters.is_empty()
-            || source.this_parameter.is_some()
+        if source.this_parameter.is_some()
             || target.this_parameter.is_some()
             || source.predicate.is_some()
             || target.predicate.is_some()
@@ -5593,6 +6300,24 @@ impl Checker<'_, '_> {
         {
             return None;
         }
+        // compareSignaturesRelated (`relater.go:1462`): a generic source whose
+        // type parameters are not the target's own is instantiated in the
+        // context of the target's canonical signature, as
+        // `one_signature_related_to` does for the verdict (r7-reports §39).
+        let shared = source.type_parameters.is_empty()
+            || source.type_parameters.len() == target.type_parameters.len()
+                && match (self.type_parameter_types(source), self.type_parameter_types(target)) {
+                    (Some(source), Some(target)) => source == target,
+                    _ => false,
+                };
+        let (source, target) = if shared {
+            (source.clone(), target.clone())
+        } else {
+            let target = self.canonical_signature(target.clone())?;
+            let source = self.instantiate_signature_in_context(source.clone(), &target)?;
+            (source, target)
+        };
+        let (source, target) = (&source, &target);
         let source_count = self.signature_parameter_count(source);
         let target_count = self.signature_parameter_count(target);
         if self.signature_min_argument_count(source) > target_count {
@@ -5616,23 +6341,22 @@ impl Checker<'_, '_> {
             if source_type == target_type {
                 continue;
             }
-            // Callback parameters compare their signatures instead.
-            let source_callable = self
-                .signatures_of_type_kind(source_type, crate::signatures::SignatureKind::Call)
-                .is_none_or(|signatures| !signatures.is_empty());
-            let target_callable = self
-                .signatures_of_type_kind(target_type, crate::signatures::SignatureKind::Call)
-                .is_none_or(|signatures| !signatures.is_empty());
-            if source_callable && target_callable {
+            // Callback parameters (`getSingleCallSignature` of each
+            // non-nullable side) compare their signatures instead.
+            let source_non_nullable = self.get_non_nullable_type(source_type);
+            let target_non_nullable = self.get_non_nullable_type(target_type);
+            if self.single_call_signature(source_non_nullable).is_some()
+                && self.single_call_signature(target_non_nullable).is_some()
+            {
                 return None;
             }
             let related = if strict_variance {
-                self.chain_relate(target_type, source_type)
+                self.chain_relate(stack, target_type, source_type)
             } else {
-                match self.chain_relate(source_type, target_type) {
+                match self.chain_relate(stack, source_type, target_type) {
                     Ternary::Related => Ternary::Related,
                     Ternary::Unknown => return None,
-                    Ternary::NotRelated => self.chain_relate(target_type, source_type),
+                    Ternary::NotRelated => self.chain_relate(stack, target_type, source_type),
                 }
             };
             match related {
@@ -5655,7 +6379,7 @@ impl Checker<'_, '_> {
             return None;
         }
         let source_return = self.get_return_type_of_signature(source)?;
-        if self.chain_relate(source_return, target_return) != Ternary::NotRelated {
+        if self.chain_relate(stack, source_return, target_return) != Ternary::NotRelated {
             return None;
         }
         self.explain_pair(stack, source_return, target_return, depth)?;
@@ -5779,7 +6503,7 @@ impl Checker<'_, '_> {
     /// retraced) or an unreadable member.
     fn chain_property_privacy(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         name: &str,
@@ -5829,7 +6553,7 @@ impl Checker<'_, '_> {
 /// `reportError` (`relater.go:4831`) with its property-message
 /// reductions.
 fn chain_report(
-    stack: &mut Vec<ChainEntry>,
+    stack: &mut ChainStack,
     message: &'static tsr_diagnostics::Message,
     mut args: Vec<String>,
 ) {
@@ -5857,7 +6581,8 @@ fn chain_report(
         if let Some(arg) = returned {
             message = &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
             args[0] = arg;
-            stack.truncate(stack.len() - 2);
+            let keep = stack.len() - 2;
+            stack.truncate(keep);
         }
         if let Some(next) = message_at(stack, 1)
             && (std::ptr::eq(next, &raw const messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE)
@@ -5869,7 +6594,8 @@ fn chain_report(
             let head = property_name_arg(&args[0]);
             let tail = property_name_arg(&stack[stack.len() - 2].args[0]);
             let arg = add_to_dotted_name(&head, &tail);
-            stack.truncate(stack.len() - 2);
+            let keep = stack.len() - 2;
+            stack.truncate(keep);
             if std::ptr::eq(message, &raw const messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE) {
                 message = &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
             }

@@ -318,3 +318,14 @@ fn a_deeply_nested_expression_prints_without_overflowing() {
     let printed = parsed.with_ast(|file| tsr_printer::print(file, parsed.nodes()));
     assert!(!printed.text.is_empty());
 }
+
+/// `emitJSDocNullableType` / `emitJSDocNonNullableType` (`printer.go:2426`)
+/// always print the prefix form, whichever side the source wrote; the corpus
+/// writes them in annotations and in type arguments (`foo<?string?>`).
+#[test]
+fn a_jsdoc_nullable_type_prints_its_prefix_form() {
+    let text = printed("let a: ?string; let b: number?; let c: !boolean;");
+    for wanted in ["let a: ?string;", "let b: ?number;", "let c: !boolean;"] {
+        assert!(text.contains(wanted), "missing {wanted} in {text}");
+    }
+}

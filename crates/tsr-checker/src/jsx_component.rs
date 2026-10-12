@@ -136,6 +136,31 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(tag_id) else { return };
         let span = self.error_span(tag_id);
         let text = self.jsx_tag_text(tag_id);
+        // `checkJsxReturnAssignableToAppropriateBound` (`jsx.go:169`):
+        // `checkTypeRelatedToEx` under the kind's head, wrapped in TS2786
+        // (`NewDiagnosticChain(diags[0], …)`, r7-reports §45).
+        let head = match kind {
+            JsxReferenceKind::Function => &messages::ITS_RETURN_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+            JsxReferenceKind::Component => {
+                &messages::ITS_INSTANCE_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT
+            }
+            JsxReferenceKind::Mixed => &messages::ITS_ELEMENT_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+        };
+        let before = self.diagnostics.len();
+        let reported =
+            self.report_relation_failure(tag_id, span, None, instance, bound, Some(head));
+        if reported && self.diagnostics.len() == before + 1 {
+            let (_, child) = self.diagnostics.pop().expect("one report");
+            let mut diagnostic = Diagnostic::new_chain(
+                Some(child),
+                &messages::_0_CANNOT_BE_USED_AS_A_JSX_COMPONENT,
+                [text],
+            );
+            self.attach_chain_file(tag_id, span, &mut diagnostic);
+            self.report(file, diagnostic);
+            return;
+        }
+        self.diagnostics.truncate(before);
         self.report(
             file,
             Diagnostic::with_args(&messages::_0_CANNOT_BE_USED_AS_A_JSX_COMPONENT, span, [text]),
@@ -670,15 +695,16 @@ impl Checker<'_, '_> {
                 Some(value) => value.node_id(),
                 None => None,
             };
-            elements.push((name_id, next, source_member, target_member));
+            elements.push((name_id, next, text, source_member, target_member));
         }
         let mut reported = false;
-        for (name_id, next, source_member, target_member) in elements {
+        for (name_id, next, text, source_member, target_member) in elements {
             let before = self.diagnostics.len();
             if let Some(next) = next {
                 self.check_excess_properties(target_member, next);
             }
             if self.diagnostics.len() != before {
+                self.add_expected_type_related_info(before, name_id, next, target, &text);
                 reported = true;
                 continue;
             }
@@ -695,6 +721,8 @@ impl Checker<'_, '_> {
                     None,
                 )
             };
+            // `elaborateElement`'s expected-type origin (r7-reports §39).
+            self.add_expected_type_related_info(before, name_id, next, target, &text);
         }
         let children = self.elaborate_jsx_children(attributes, source, target)?;
         Some(reported || children)
@@ -839,7 +867,21 @@ impl Checker<'_, '_> {
             Ternary::NotRelated => {}
         }
         let child = valid[0];
-        self.report_jsx_child_failure(child, tag, &name, source_children, children_target)
+        let before = self.diagnostics.len();
+        let reported =
+            self.report_jsx_child_failure(child, tag, &name, source_children, children_target);
+        // `elaborateElement(…, "children")` adds the expected-type origin to
+        // its own report, the TS2747 factory's included (r7-reports §39).
+        if let Some(at) = child.node_id() {
+            let next = match child {
+                tsr_ast::JsxChild::JsxExpression(expression) => {
+                    expression.expression.and_then(|inner| inner.node_id())
+                }
+                _ => None,
+            };
+            self.add_expected_type_related_info(before, at, next, target, &name);
+        }
+        reported
     }
 
     /// `elaborateIterableOrArrayLikeTargetElementwise` (`jsx.go:419`) over

@@ -1150,11 +1150,9 @@ impl Checker<'_, '_> {
             // arguments), with the synthetic arguments' count.
             let effective =
                 vec![EffectiveArgument { node: expression_id, spread: false }; arguments.len()];
-            let before = self.diagnostics.len();
             // `getErrorNodeForCallNode` is the decorator itself; a surplus
             // is reported over the synthetic arguments (the expression).
-            self.report_argument_arity_error(node, node, &candidates, &effective);
-            self.chain_reports_under(before, head);
+            self.report_argument_arity_error_under(node, node, &candidates, &effective, Some(head));
             // `getCandidateForOverloadFailure`'s single candidate:
             // `pickLongestCandidateSignature`, which instantiates a generic one
             // by `inferSignatureInstantiationForOverloadFailure`.
@@ -1804,9 +1802,6 @@ impl Checker<'_, '_> {
             return None;
         }
         let candidate = self.get_signature_from_declaration(implementation)?;
-        if !candidate.type_parameters.is_empty() {
-            return None;
-        }
         let written = self.written_call_arguments(node)?;
         let effective = self.effective_written_arguments(&written)?;
         if effective.iter().any(|argument| argument.spread)
@@ -1815,7 +1810,12 @@ impl Checker<'_, '_> {
             return None;
         }
         let plain = self.plain_overload_arguments(node)?;
-        if !self.plain_candidate_applicable(node, &candidate, &plain)? {
+        let applicable = if candidate.type_parameters.is_empty() {
+            self.plain_candidate_applicable(node, &candidate, &plain)?
+        } else {
+            self.generic_implementation_applicable(node, &candidate, &plain)?
+        };
+        if !applicable {
             return None;
         }
         Some(self.related_diagnostic_at(
@@ -1824,6 +1824,46 @@ impl Checker<'_, '_> {
             self.signature_declaration_error_span(implementation),
             Vec::new(),
         ))
+    }
+
+    /// `chooseOverload`'s generic arm for a lone implementation candidate
+    /// (`checker.go:9040-9080`): `inferTypeArguments` and
+    /// `getSignatureInstantiation` through the shared inference worker
+    /// ([`Checker::check_generic_call_with`]'s out-slot), the non-array-rest
+    /// arity re-check, then `isSignatureApplicable` over the plain
+    /// arguments. Inference checks the arguments under the implementation's
+    /// parameters, so every argument subtree's published state is saved
+    /// first and put back after (native's checks there are uncached). A call
+    /// or `new` only; a tagged template's shifted positions and a non-array
+    /// rest decline.
+    fn generic_implementation_applicable(
+        &mut self,
+        node: tsr_ast::NodeId,
+        candidate: &Signature,
+        plain: &PlainOverloadArguments<'_>,
+    ) -> Option<bool> {
+        if plain.strings.is_some() || self.signature_non_array_rest_type(candidate).is_some() {
+            return None;
+        }
+        let mut saved = Vec::new();
+        for argument in &plain.arguments {
+            saved.extend(self.literal_subtree_state(argument.node_id()?));
+        }
+        let mut instantiated = None;
+        let answer = self.check_generic_call_with(
+            candidate,
+            Some(node),
+            &plain.arguments,
+            Some(&mut instantiated),
+        );
+        let applicable = match instantiated {
+            Some(instantiated) if answer != self.intrinsics.error => {
+                self.plain_candidate_applicable(node, &instantiated, plain)
+            }
+            _ => None,
+        };
+        self.restore_literal_subtree_state(saved);
+        applicable
     }
 
     /// `GetErrorRangeForNode` (`scanner.go:2588`) of a signature
@@ -2723,6 +2763,21 @@ impl Checker<'_, '_> {
         signatures: &[Signature],
         arguments: &[EffectiveArgument],
     ) {
+        self.report_argument_arity_error_under(node, error_node, signatures, arguments, None);
+    }
+
+    /// [`Checker::report_argument_arity_error`] with `getArgumentArityError`'s
+    /// `headMessage`: every arm but the spread one chains its diagnostic
+    /// under it, and the too-short arm's related information is added to
+    /// the head after the chain, so the chained child carries none.
+    fn report_argument_arity_error_under(
+        &mut self,
+        node: tsr_ast::NodeId,
+        error_node: tsr_ast::NodeId,
+        signatures: &[Signature],
+        arguments: &[EffectiveArgument],
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) {
         if let Some(spread) = arguments.iter().find(|argument| argument.spread) {
             let span = self.error_span(spread.node);
             self.report_at_node(
@@ -2777,7 +2832,8 @@ impl Checker<'_, '_> {
         } else {
             &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1
         };
-        let diagnostic = if min_count < count && count < max_count {
+        let mut related = None;
+        let mut diagnostic = if min_count < count && count < max_count {
             Diagnostic::with_args(
                 &messages::NO_OVERLOAD_EXPECTS_0_ARGUMENTS_BUT_OVERLOADS_DO_EXIST_THAT_EXPECT_EITHER_1_OR_2_ARGUMENTS,
                 self.error_span(error_node),
@@ -2788,15 +2844,8 @@ impl Checker<'_, '_> {
                 ],
             )
         } else if count < min_count {
-            let mut diagnostic = Diagnostic::with_args(
-                message,
-                self.error_span(error_node),
-                [range, count.to_string()],
-            );
-            diagnostic.add_related_information(
-                closest.and_then(|closest| self.missing_argument_related(closest, count)),
-            );
-            diagnostic
+            related = closest.and_then(|closest| self.missing_argument_related(closest, count));
+            Diagnostic::with_args(message, self.error_span(error_node), [range, count.to_string()])
         } else if max_count >= count {
             Diagnostic::with_args(message, self.error_span(error_node), [range, count.to_string()])
         } else {
@@ -2808,6 +2857,16 @@ impl Checker<'_, '_> {
                 [range, count.to_string()],
             )
         };
+        if let Some(head) = head {
+            diagnostic = Diagnostic::new_chain(Some(diagnostic), head, []);
+            if let Some(image) = self
+                .source_file_of_for_diagnostics(node)
+                .and_then(|file| self.diagnostic_file_image(file))
+            {
+                set_chain_file(&mut diagnostic, &image);
+            }
+        }
+        diagnostic.add_related_information(related);
         self.report_at_node(node, diagnostic);
     }
 

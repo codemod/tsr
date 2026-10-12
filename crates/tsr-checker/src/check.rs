@@ -7030,17 +7030,22 @@ impl Checker<'_, '_> {
                 _ => None,
             })
         };
+        // The declaration's statement must sit in a statement list (a block,
+        // module block or file): one that is an `if`'s or a loop's bare body
+        // (`if (c) const e = 3; e;`, a TS1156 grammar error) is skipped on
+        // the other path, so the read past it walks
+        // (`disallowedBlockScopedInPresenceOfParseErrors1`).
         if let Some(assigned_by) = assigned_by
             && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::BLOCK_SCOPED)
             && self.nodes.span(node).start >= assigned_by
-            && !self
+            && self
                 .nodes
                 .parent(list)
                 .and_then(|statement| self.nodes.parent(statement))
                 .is_some_and(|block| {
                     matches!(
                         self.nodes.kind(block),
-                        SyntaxKind::CaseClause | SyntaxKind::DefaultClause
+                        SyntaxKind::Block | SyntaxKind::ModuleBlock | SyntaxKind::SourceFile
                     )
                 })
         {

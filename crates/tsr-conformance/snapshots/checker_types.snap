@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8963/9538 (93.97%)
-Assertion lines: 475954/478853 (99.39%)  — a gradient, not a pass rate
-Failed         : 575
+Passed         : 8986/9538 (94.21%)
+Assertion lines: 476088/478853 (99.42%)  — a gradient, not a pass rate
+Failed         : 552
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 575 failures:
+First 100 of 552 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -93,8 +93,6 @@ compiler/commentsOnObjectLiteral2
   commentsOnObjectLiteral2.ts: >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : any — expected >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : { initialize: (name: any) => void; }
 compiler/commonJsImportClassExpression
   use.ts: >Chunk : typeof (Anonymous class) — expected >Chunk : typeof Chunk
-compiler/complexRecursiveCollections
-  immutable.ts: >Keyed : any — expected >Keyed : { <K, V>(collection: Iterable<[K, V]>): Seq.Keyed<K, V>; <V_1>(obj: { [key: string]: V_1; }): Seq.Keyed<string, V_1>; <K_1, V_1>(): Seq.Keyed<K_1, V_1>; (): Seq.Keyed<any, any>; }
 compiler/complicatedGenericRecursiveBaseClassReference
   complicatedGenericRecursiveBaseClassReference.ts: >(new S18(123)) : any — expected >(new S18(123)) : S18<unknown, unknown, unknown>
 compiler/complicatedIndexesOfIntersectionsAreInferencable
@@ -118,11 +116,11 @@ compiler/constEnums
 compiler/contextualOuterTypeParameters
   contextualOuterTypeParameters.ts: >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : error — expected >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : <T>(t: T) => void
 compiler/contextualParamTypeVsNestedReturnTypeInference2
-  contextualParamTypeVsNestedReturnTypeInference2.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
+  contextualParamTypeVsNestedReturnTypeInference2.ts: >effectGen(function* () {    return {      fn: effectFn(function* (a) {        a; // string      }),    };  }) : error — expected >effectGen(function* () {    return {      fn: effectFn(function* (a) {        a; // string      }),    };  }) : Effect<{ fn: (a: string) => Effect<void, never, never>; }, never, never>
 compiler/contextualParamTypeVsNestedReturnTypeInference3
-  contextualParamTypeVsNestedReturnTypeInference3.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
+  contextualParamTypeVsNestedReturnTypeInference3.ts: >effectGen(function* () {    return {      fn: effectFn(function* (a) {        a; // string      }),    };  }) : error — expected >effectGen(function* () {    return {      fn: effectFn(function* (a) {        a; // string      }),    };  }) : Effect<{ fn: (a: string) => Effect<void, unknown, unknown>; }, unknown, unknown>
 compiler/contextualParamTypeVsNestedReturnTypeInference4
-  contextualParamTypeVsNestedReturnTypeInference4.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
+  contextualParamTypeVsNestedReturnTypeInference4.ts: >effectGen(function* () {    return {      fn: effectFn(function* (a) {        a; // string      }),    };  }) : error — expected >effectGen(function* () {    return {      fn: effectFn(function* (a) {        a; // string      }),    };  }) : Effect<{ fn: (a: string) => Effect<void, never, never>; }, unknown, unknown>
 compiler/contextualPropertyOfGenericFilteringMappedType
   contextualPropertyOfGenericFilteringMappedType.ts: >{    foo: (value, key) => {      // implicit `any`s    },  } : any — expected >{    foo: (value, key) => {      // implicit `any`s    },  } : { foo: (value: any, key: any) => void; }
 compiler/contextualSignatureConditionalTypeInstantiationUsingDefault
@@ -213,3 +211,5 @@ compiler/declarationEmitInlinedDistributiveConditional
   test.ts: >dropPrivateProps2 : <Obj>(obj: Obj) => { [K in PublicKeys2<keyof Obj>]: Obj[K]; } — expected >dropPrivateProps2 : <Obj>(obj: Obj) => { [K in keyof Obj extends infer T ? T extends keyof Obj ? T extends `_${string}` ? never : T : never : never]: Obj[K]; }
 compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
   node_modules/@trpc/server/index.d.ts: >middleware : any — expected >middleware : <TNewParams extends Record<string, any>>(fn: import("./middleware").MiddlewareFunction<{ _config: RootConfig<{ errorShape: ErrorFormatterShape<PickFirstDefined<TOptions["errorFormatter"], ErrorFormatter<TParams["ctx"] extends object ? TParams["ctx"] : object, DefaultErrorShape>>>; }>; }, TNewParams>) => import("./middleware").MiddlewareBuilder<{ _config: RootConfig<{ errorShape: ErrorFormatterShape<PickFirstDefined<TOptions["errorFormatter"], ErrorFormatter<TParams["ctx"] extends object ? TParams["ctx"] : object, DefaultErrorShape>>>; }>; }, TNewParams>
+compiler/declarationEmitLocalClassDeclarationMixin
+  declarationEmitLocalClassDeclarationMixin.ts: >mixin : <B extends Constructor<{}>>(Base: B) => typeof PrivateMixed — expected >mixin : <B extends Constructor<{}>>(Base: B) => { new (...args: any[]): PrivateMixed; prototype: mixin.PrivateMixed; } & B

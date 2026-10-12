@@ -51,6 +51,11 @@ impl Checker<'_, '_> {
     pub(crate) fn check_nonexistent_property(&mut self, node: NodeId, _ambient: bool) {
         // The same native function's flow arm (`getFlowTypeOfAccessExpression`).
         self.check_property_used_before_assigned(node);
+        // `checkNonNullExpression` on the receiver comes first, and an
+        // `unknown` one answers `errorType` after TS18046.
+        if self.report_unknown_receiver(node) {
+            return;
+        }
         // Pinned `checkPropertyAccessExpressionOrQualifiedName` reports this
         // semantic error even with parse diagnostics. Existing receiver-image
         // completeness and unsupported-access declines still own the work.
@@ -108,7 +113,9 @@ impl Checker<'_, '_> {
                             }
                             return;
                         }
-                        self.check_computed_index_implicit_any(node, receiver, argument);
+                        // A non-literal key's TS7053/TS7015 is
+                        // `report_implicit_any_element_access`'s
+                        // (`index_access_reports.rs`, `r7-flow.md` §36).
                     }
                     return;
                 };
@@ -123,6 +130,89 @@ impl Checker<'_, '_> {
             return;
         }
         self.check_nonexistent_name(node, receiver, name_text, name_id);
+    }
+
+    /// `checkNonNullTypeWithReporter`'s `unknown` arm (`checker.go:7413`) for
+    /// a property or element access's receiver
+    /// (`checkPropertyAccessExpression`/`checkElementAccess` run
+    /// `checkNonNullExpression` on it; a chain link passes
+    /// `getOptionalExpressionType` of it, which leaves `unknown` alone): under
+    /// `strictNullChecks`, TS18046 "'{0}' is of type 'unknown'" at the
+    /// receiver for an entity name shorter than 100 characters, TS2571
+    /// otherwise. Answers whether it reported (the access is then `errorType`
+    /// and nothing else is asked of it).
+    fn report_unknown_receiver(&mut self, node: NodeId) -> bool {
+        if !self.strict_null_checks {
+            return false;
+        }
+        let (receiver, is_chain_root) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
+            _ => return false,
+        };
+        let Some(receiver) = receiver else { return false };
+        let Some(receiver_id) = receiver.node_id() else { return false };
+        // `getOptionalExpressionType` never makes `unknown` (a chain root's
+        // `getNonNullableType(unknown)` is `{}`), so only an `unknown`
+        // receiver pays for it.
+        let receiver_type = self.check_expression(receiver);
+        if !self.store.get(receiver_type).flags.intersects(crate::flags::TypeFlags::UNKNOWN) {
+            return false;
+        }
+        let non_optional =
+            self.get_optional_expression_type(receiver_type, Some(receiver_id), is_chain_root);
+        if !self.store.get(non_optional).flags.intersects(crate::flags::TypeFlags::UNKNOWN) {
+            return false;
+        }
+        // Only a written `unknown` (an annotated declaration) or a catch
+        // clause's is certified: an `unknown` this port infers — a call's
+        // type argument, a contextually typed parameter — can be a gap where
+        // native has a type (`r7-flow.md` §35).
+        if !self.unknown_receiver_is_declared(receiver_id) {
+            return false;
+        }
+        let text = self.entity_name_expression_text(receiver_id).filter(|text| text.len() < 100);
+        let span = self.error_span(receiver_id);
+        let diagnostic = match text {
+            Some(text) => Diagnostic::with_args(&messages::_0_IS_OF_TYPE_UNKNOWN, span, [text]),
+            None => Diagnostic::new(&messages::OBJECT_IS_OF_TYPE_UNKNOWN, span),
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(receiver_id) else { return true };
+        self.report(file, diagnostic);
+        true
+    }
+
+    /// Is `receiver` an identifier whose `unknown` is its declaration's: a
+    /// catch-clause variable, or a declaration with a written type?
+    fn unknown_receiver_is_declared(&mut self, receiver: NodeId) -> bool {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(receiver) else {
+            return false;
+        };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            receiver,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && self
+                .nodes
+                .parent(declaration)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        {
+            return true;
+        }
+        self.type_annotation_of(declaration).is_some()
     }
 
     /// The miss certificate and report for one property name of `node`'s
@@ -649,232 +739,6 @@ impl Checker<'_, '_> {
             .collect()
     }
 
-    /// `getPropertyTypeForIndexType`'s no-index-signature arm
-    /// (`checker.go:27129-27184`) for an element access whose index is the
-    /// plain `string` or `number` type (no property name): under
-    /// `noImplicitAny`, an object with no applicable index signature (nor a
-    /// `string` one) reports TS7015 at the argument when it has a `number`
-    /// index signature, else TS7053 at the access chained to "No index
-    /// signature with a parameter of type …". An object literal read with
-    /// such a key is the union of its property types instead (no report)
-    /// unless `checkElementAccess` widened it (assignment target or callee).
-    ///
-    /// Only receivers whose flow type is certified (as for the literal miss)
-    /// and whose apparent type is a single object with readable index infos
-    /// are asked; a union, intersection, generic, JS literal or const enum
-    /// object declines, as does a `get`/`set` member (TS7052's
-    /// `getSuggestionForNonexistentIndexSignature`). No cache: one index-info
-    /// read per checked access.
-    fn check_computed_index_implicit_any(
-        &mut self,
-        node: NodeId,
-        receiver: tsr_ast::Expression<'_>,
-        argument: tsr_ast::Expression<'_>,
-    ) {
-        use crate::flags::TypeFlags;
-        if !self.no_implicit_any {
-            return;
-        }
-        let Some(receiver_id) = receiver.node_id() else { return };
-        let Some(argument_id) = argument.node_id() else { return };
-        // checkElementAccess reads a for-in variable over an object with
-        // numeric property names as `number` (isForInVariableForNumericPropertyNames).
-        let index_type = if self.is_for_in_variable_for_numeric_property_names(argument) {
-            self.intrinsics.number
-        } else {
-            self.check_expression(argument)
-        };
-        if index_type != self.intrinsics.string && index_type != self.intrinsics.number
-            || self.is_generic_for_in_key(argument)
-        {
-            return;
-        }
-        let receiver_type = self.check_expression(receiver);
-        if self.is_error(receiver_type)
-            || !self.receiver_type_is_the_declared_one(receiver_id, receiver_type)
-        {
-            return;
-        }
-        let object = self.apparent_type(receiver_type);
-        let flags = self.store.get(object).flags;
-        if !flags.contains(TypeFlags::OBJECT)
-            || flags.intersects(
-                TypeFlags::UNION
-                    | TypeFlags::INTERSECTION
-                    | TypeFlags::TYPE_PARAMETER
-                    | TypeFlags::INDEXED_ACCESS
-                    | TypeFlags::CONDITIONAL
-                    | TypeFlags::SUBSTITUTION,
-            )
-            || self.mapped_types.contains_key(&object)
-            || self.mapped_types.contains_key(&receiver_type)
-            // A class's static side publishes no late-bound `static [k]`
-            // index signatures (`declarationEmitSimpleComputedNames1`).
-            || self.class_static_symbol(object).is_some()
-            || self.is_js_literal_type(object)
-            || self.is_const_enum_object_type(object)
-        {
-            return;
-        }
-        // The index-info table is certified only where the member walk is:
-        // late-bound computed names add index signatures this port does not
-        // publish, and tuples carry theirs outside the table.
-        if !self.index_infos_are_certified(object, 0) {
-            return;
-        }
-        let Some(infos) = self.get_index_infos_of_type(object) else { return };
-        if self.get_applicable_index_info(object, index_type).is_some()
-            || infos.iter().any(|info| info.key == self.intrinsics.string)
-        {
-            return;
-        }
-        let widened = self.assignment_target_kind(node)
-            != crate::expressions::AssignmentTargetKind::None
-            || self.is_callee_of_call_or_new(node);
-        if !widened && self.is_object_literal_type(object) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        if infos.iter().any(|info| info.key == self.intrinsics.number) {
-            let span = self.error_span(argument_id);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_INDEX_EXPRESSION_IS_NOT_OF_TYPE_NUMBER,
-                    span,
-                ),
-            );
-            return;
-        }
-        let candidates = self.property_names_of(object);
-        if candidates.iter().any(|candidate| candidate == "get" || candidate == "set") {
-            return;
-        }
-        let index_text = self.type_to_string(index_type);
-        let object_text = self.type_to_string(object);
-        let span = self.error_span(node);
-        let child = Diagnostic::with_args(
-            &messages::NO_INDEX_SIGNATURE_WITH_A_PARAMETER_OF_TYPE_0_WAS_FOUND_ON_TYPE_1,
-            span,
-            [index_text.clone(), object_text.clone()],
-        );
-        self.report(
-            file,
-            Diagnostic::new_chain(
-                Some(child),
-                &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
-                [index_text, object_text],
-            ),
-        );
-    }
-
-    /// Are `id`'s index infos all published? A late-bound computed member
-    /// name whose type is not a literal or unique symbol adds an index
-    /// signature (`lateBindIndexSignature`), which this port does not
-    /// publish; every other declared member leaves the table to the written
-    /// index signatures. Certified: the completeness walk, a captured member
-    /// image, or class/interface declarations (and their followed bases)
-    /// whose computed names are all `Symbol.x`. No cache: asked once per
-    /// reported access, after the miss.
-    fn index_infos_are_certified(&mut self, id: TypeId, depth: u32) -> bool {
-        const MAX_BASE_DEPTH: u32 = 32;
-        if self.declared_members_are_complete(id) {
-            return true;
-        }
-        if self.anonymous_properties.contains_key(&id) {
-            return !self.object_image_road_is_uncertified(id);
-        }
-        let owner = match self.store.get(id).data {
-            crate::types::TypeData::Named { members: Some(owner), .. } => owner,
-            _ => match self.type_reference_targets.get(&id) {
-                Some(&(owner, _)) => owner,
-                None => return false,
-            },
-        };
-        if depth >= MAX_BASE_DEPTH {
-            return false;
-        }
-        let declarations = self.binder.symbols().get(owner).declarations.to_vec();
-        for declaration in declarations {
-            let bound = match self.node_map.get(declaration) {
-                Some(Node::InterfaceDeclaration(interface)) => {
-                    interface.members.iter().all(|member| member_name_is_bound(*member))
-                }
-                Some(Node::ClassDeclaration(class)) => {
-                    class.members.iter().all(|member| class_member_name_is_bound(*member))
-                }
-                Some(Node::ClassExpression(class)) => {
-                    class.members.iter().all(|member| class_member_name_is_bound(*member))
-                }
-                Some(Node::VariableDeclaration(_)) => true,
-                _ => false,
-            };
-            if !bound {
-                return false;
-            }
-        }
-        let Some(bases) = self.base_symbols_of(owner) else { return false };
-        bases.into_iter().all(|base| {
-            let base = self.get_declared_type_of_symbol(base);
-            self.index_infos_are_certified(base, depth + 1)
-        })
-    }
-
-    /// Is `index` a `for (k in e)` variable whose declared type upstream is
-    /// `Extract<keyof E, string>` rather than `string`?
-    /// `getTypeForVariableLikeDeclaration`'s for-in arm takes that road when
-    /// `getIndexType(E)` is a type parameter or an index type, i.e. `E` is
-    /// generic; this port types every for-in variable `string`, so such a key
-    /// is not the plain `string` the TS7053 arm asks about.
-    fn is_generic_for_in_key(&mut self, index: tsr_ast::Expression<'_>) -> bool {
-        use crate::flags::TypeFlags;
-        let mut skipped = index;
-        while let tsr_ast::Expression::ParenthesizedExpression(parenthesized) = skipped {
-            let Some(inner) = parenthesized.expression else { return false };
-            skipped = inner;
-        }
-        let tsr_ast::Expression::Identifier(name) = skipped else { return false };
-        let Some(reference) = name.node_id else { return false };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            reference,
-            name.text,
-            SymbolFlags::VARIABLE,
-        ) else {
-            return false;
-        };
-        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
-            return false;
-        };
-        let Some(statement) =
-            self.nodes.parent(declaration).and_then(|list| self.nodes.parent(list))
-        else {
-            return false;
-        };
-        if self.nodes.kind(statement) != SyntaxKind::ForInStatement {
-            return false;
-        }
-        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(statement) else {
-            return false;
-        };
-        let Some(iterated) = statement.expression else { return false };
-        let iterated = self.check_expression(iterated);
-        let parts = match &self.store.get(iterated).data {
-            crate::types::TypeData::Union { types, .. } => types.clone(),
-            _ => vec![iterated],
-        };
-        parts.into_iter().any(|part| {
-            self.store.get(part).flags.intersects(
-                TypeFlags::TYPE_PARAMETER
-                    | TypeFlags::INTERSECTION
-                    | TypeFlags::INDEXED_ACCESS
-                    | TypeFlags::CONDITIONAL
-                    | TypeFlags::SUBSTITUTION,
-            ) || self.mapped_types.contains_key(&part)
-        })
-    }
-
     /// `containerSeemsToBeEmptyDomElement` (`checker.go:11654`): the explicit
     /// `lib` list does not name `lib.dom.d.ts`, every contained type
     /// (`everyContainedType`: each union or intersection constituent, else
@@ -1298,8 +1162,8 @@ impl Checker<'_, '_> {
     /// are not inherited). So the name is absent when the own exports miss it
     /// (the caller's `getPropertyOfType` miss, which already read both), no
     /// own index signature admits it, and the base constructor type certainly
-    /// lacks it. Declarations other than class and namespace bodies decline,
-    /// as does an error base. No cache: one lookup per base after the miss.
+    /// lacks it. Declarations other than class (declaration or TS expression)
+    /// and namespace bodies decline, as does an error base. No cache: one lookup per base after the miss.
     fn class_static_side_lacks(
         &mut self,
         apparent: TypeId,
@@ -1308,12 +1172,15 @@ impl Checker<'_, '_> {
         depth: u32,
     ) -> Option<bool> {
         let declarations = self.binder.symbols().get(class).declarations.to_vec();
-        let readable = declarations.iter().all(|&declaration| {
-            matches!(
-                self.node_map.get(declaration),
-                Some(Node::ClassDeclaration(_) | Node::ModuleDeclaration(_))
-            )
-        });
+        // A class expression's static side is its symbol's exports like a
+        // declaration's (`resolveAnonymousTypeMembers`); in JS an expando
+        // assignment can add to it, so only a TS one is read.
+        let readable =
+            declarations.iter().all(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(_) | Node::ModuleDeclaration(_)) => true,
+                Some(Node::ClassExpression(_)) => !self.in_js_file(declaration),
+                _ => false,
+            });
         if !readable || depth >= MAX_COMPOSITION_DEPTH {
             return None;
         }

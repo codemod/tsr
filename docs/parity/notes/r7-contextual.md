@@ -748,3 +748,92 @@ refusal cost only the optional flags. `function f({x = 10, y: [a, b, c, d] =
 [1, 2, 3, 4]} = { x: 10, y: [2, 4, 6, 8] })` now prints
 `{ x?: number; y?: [number, number, number, number]; }`. The certifier keeps
 its other refusals: a computed key, non-property members, and the array arm.
+
+## 23. A non-const assertion default is context-independent
+
+`binding_default_is_context_independent` gates the binding-pattern
+implied type (`getTypeFromBindingElement`, which checks the default with
+no context). A default whose type does not depend on the outer contextual
+type can be checked through the shared `node_types` memo without poisoning
+a later contextual check. `getContextualType` (`checker.go:29368`) gives an
+`as`/`<T>` operand the asserted type, and the assertion's type is that type,
+so neither depends on the outer context. Only `as const` forwards the outer
+context to its operand, so it stays refused. `let { b = "foo" as "foo" } = {
+b: "bar" }` now reads the implied `{ b?: "foo" }`: the literal `"bar"` keeps
+its literal type under the literal context, and `b : "bar" | "foo"`
+(literalTypesAndTypeAssertions). `satisfies` also takes its operand's
+context from its own type (`:29396`) but is not admitted: it has no corpus
+line and has not been measured.
+
+## 24. Array-literal subtype reduction admits instantiable constituents
+
+`checkArrayLiteral` builds its element union with `UnionReductionSubtype`
+(`checker.go:8096`). The port ran `union_with_subtype_reduction` only
+when the union held two or more object types (`object_constituent_count`),
+because `removeSubtypes` (`:25955`) tests a source only if it is
+structured or instantiable. A type-parameter constituent is such a
+candidate: `[a, b, c]` with `C extends B extends A` is `A[]` natively, and the
+port printed `(A | B | C)[]` (typeArgumentInferenceTransitiveConstraints,
+three lines). The gate (`subtype_reduction_may_apply`) now also admits any
+intersection or instantiable constituent; the reducer already ports the
+type-parameter arms (the union-constraint test included) and answers
+`None` → gap when the relation is undecidable. A lone object beside
+primitives still skips reduction, as before: primitives are no candidates
+without an empty object type. The contextual/literal gate in front of it
+(an uncontextual position or a literal-free union) is unchanged.
+
+## 25. The benign-return shortcut does not skip a literal argument's re-read
+
+`check_generic_call_worker` answers a call whose return mentions no
+type parameter (`f<T>(x: T): string`) without running inference, unless an
+argument is context-sensitive (SS135). Native always resolves the call, and
+checkApplicableSignature (`checker.go:9256`) re-checks every argument
+against the instantiated candidate. The writer then reads an array or
+object literal argument under the inferred parameter type
+(`getContextualTypeForArgumentAtIndex`, `:29772`). `all<T>(list: T[], …):
+boolean` called with `[true]` infers `T = boolean` (tsgo:
+`{ t: boolean }` for a `{ t: T }` return), and `[true]` reads as `true[]`
+under `boolean[]`. The shortcut left the uninstantiated `T[]` check's
+`boolean[]` in place (genericArgumentCallSigAssignmentCompat 0:15, 0:26).
+The shortcut now also declines when an argument passes
+`resolved_literal_argument_recheck`, the same certifier and work boundary
+§1's re-check uses. For a benign return every decline still answers
+`returned`, so the call's own type cannot change. The cost is running
+inference for such calls, which the native checker already pays.
+
+Routed, not ported: a self-mention inside a union-bodied alias body
+(`type A = "number" | "null" | A[]`) is §29's OBJECT-flagged NAME
+placeholder (`alias_placeholders`, declared.rs). `complete_alias_placeholder`
+completes it only for a type-literal body, so `A[]`'s element context is
+`string | <object A>`, which has no literal constituent, and
+`const g: A = ["number"]` widens to `string[]` (recursiveTupleTypeInference
+0:5–0:7). Owner: r7-declared.
+
+## 26. INFER-NO-CANDIDATE: inferFromObjectTypes' member walks certify an absence
+
+`source_could_supply_candidate` (§4, §7, §17, §18) certified that a source
+supplies no candidate only through `inferFromTypes`' early exits. Between two
+plain object types it answered "could", so the no-candidate arm declined
+(`error`) where native infers `unknown`: `bar<T>(param: { x?: T }): T` called
+with `{}`, and `getNumberIndexValue<T>(map: { [x: number]: T }): T` called with
+`{ a: "x" }` or a string enum object (objectLiteralContextualTyping 0:41,
+0:42, 0:45; implicitIndexSignatures 0:153, 0:154; tsgo d.ts emit agrees:
+`unknown` for all four probes). `object_members_could_supply` ports the
+member walks of `inferFromObjectTypes` (`inference.go:714-809`). The target
+must be a type literal (no reference, mapped type or alias instance, whose
+type-argument roads come first), and both property lists must be complete
+(`member_names_are_literal`). A candidate can then only come from:
+
+- a target property whose source namesake exists (`inferFromProperties`,
+  recursing on the pair). A name the global `Object` declares is assumed
+  present, since `getPropertyOfType` reads it there.
+- a signature kind both sides have (`inferFromSignatures`).
+- a target index info with any source index info, or a source property
+  applicable to its key (`inferFromIndexTypes`). A numeric-literal name
+  counts for a `number` key; any property counts for any other key.
+
+`Some(false)` needs at least one enumerated member mentioning the parameter.
+Otherwise the mention is on another road and the answer stays undecided.
+`member_names_are_literal` now also admits an enum object (`typeof E`,
+`TypeData::Anonymous` over a symbol declared only by enum declarations). A
+merged namespace would add exports that its declaration walk does not see.

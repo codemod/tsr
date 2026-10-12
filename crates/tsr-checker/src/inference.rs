@@ -1004,10 +1004,19 @@ impl<'a> Checker<'a, '_> {
         // `error`, which reproduces the shortcut's answer exactly - the
         // machinery is run for its side effects, never to change the call's
         // own type.
+        //
+        // Nor when an argument is a literal the resolved signature re-reads
+        // (checkApplicableSignature, `checker.go:9256`): `all([true])` against
+        // `all<T>(list: T[]): boolean` infers `T = boolean`, and the writer
+        // reads `[true]` under `boolean[]` as `true[]`. The shortcut would
+        // leave the uninstantiated `T[]` check's `boolean[]` in place.
         let benign = !self.mentions_type_parameter(returned, &parameters, &names);
         if benign
             && instantiated.is_none()
-            && !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+            && !arguments.iter().any(|&argument| {
+                self.is_context_sensitive_argument(&argument)
+                    || self.resolved_literal_argument_recheck(call, argument).is_some()
+            })
         {
             return returned;
         }
@@ -3433,6 +3442,11 @@ impl<'a> Checker<'a, '_> {
         if self.object_types_definitely_unrelated(object_source, target) {
             return false;
         }
+        if let Some(answer) =
+            self.object_members_could_supply(object_source, target, parameter, name, depth)
+        {
+            return answer;
+        }
         let pure_function = |checker: &mut Self, t: TypeId| {
             checker.signature_types.contains_key(&t)
                 && checker.get_property_names_of_type(t).is_some_and(|names| names.is_empty())
@@ -3475,6 +3489,114 @@ impl<'a> Checker<'a, '_> {
             );
         }
         true
+    }
+
+    /// `inferFromObjectTypes`' member walks (`inference.go:714-809`) between
+    /// two plain object types whose property lists this port can enumerate
+    /// completely, for a target that is neither a reference, a mapped type
+    /// nor an alias instance (those take the type-argument, mapped and
+    /// alias-argument roads first). A candidate can only come from:
+    /// - `inferFromProperties`: a target property whose source namesake
+    ///   exists (`getPropertyOfType`, which also reads the global `Object`
+    ///   members, so such a name is assumed present);
+    /// - `inferFromSignatures`: a target signature kind the source also has;
+    /// - `inferFromIndexTypes`: a target index info with a source index info,
+    ///   or a source property applicable to its key (a numeric-literal name
+    ///   for a `number` key; any property for any other key).
+    ///
+    /// `Some(false)` certifies that none applies while some member mentions
+    /// the parameter. `None` (undecided) when a list cannot be read or no
+    /// enumerated member mentions it (the mention lies on another road).
+    fn object_members_could_supply(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameter: TypeId,
+        name: &str,
+        depth: u8,
+    ) -> Option<bool> {
+        use crate::flags::TypeFlags;
+        use crate::signatures::SignatureKind;
+        let plain = |checker: &Self, t: TypeId| {
+            let flags = checker.store.get(t).flags;
+            flags.contains(TypeFlags::OBJECT)
+                && !flags.intersects(
+                    TypeFlags::UNION | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE,
+                )
+                && !checker.mapped_types.contains_key(&t)
+                && !checker.unresolved_types.contains(&t)
+                && !checker.tuple_element_lists.contains_key(&t)
+                && !checker.variadic_tuple_elements.contains_key(&t)
+                && !checker.type_reference_targets.contains_key(&t)
+                && !checker.alias_of.contains_key(&t)
+        };
+        if !plain(self, source)
+            || !plain(self, target)
+            || !self.member_names_are_literal(source)
+            || !self.member_names_are_literal(target)
+        {
+            return None;
+        }
+        let source_names = self.get_property_names_of_type(source)?;
+        let target_names = self.get_property_names_of_type(target)?;
+        let mut mentioned = false;
+        for property in &target_names {
+            let target_type = self.get_type_of_property_of_type(target, property)?;
+            if !self.mentions_type_parameter(target_type, &[parameter], &[name]) {
+                continue;
+            }
+            mentioned = true;
+            if !source_names.contains(property) {
+                let object = self.global_type_symbol_with_arity("Object", 0)?;
+                let object = self.get_declared_type_of_symbol(object);
+                if self.get_property_of_type(object, property).is_some() {
+                    return Some(true);
+                }
+                continue;
+            }
+            let source_type = self.get_type_of_property_of_type(source, property)?;
+            if self.source_could_supply_candidate(
+                source_type,
+                target_type,
+                parameter,
+                name,
+                depth + 1,
+            ) {
+                return Some(true);
+            }
+        }
+        for kind in [SignatureKind::Call, SignatureKind::Construct] {
+            let targets = self.signatures_of_type_kind(target, kind)?;
+            if targets.is_empty() {
+                continue;
+            }
+            mentioned = true;
+            if !self.signatures_of_type_kind(source, kind)?.is_empty() {
+                return Some(true);
+            }
+        }
+        let target_infos = self.get_index_infos_of_type(target)?;
+        let source_infos = self.get_index_infos_of_type(source)?;
+        for info in target_infos {
+            if !self.mentions_type_parameter(info.value, &[parameter], &[name]) {
+                continue;
+            }
+            mentioned = true;
+            if !source_infos.is_empty() {
+                return Some(true);
+            }
+            let applicable = if info.key == self.intrinsics.number {
+                source_names
+                    .iter()
+                    .any(|property| crate::index_signatures::is_numeric_literal_name(property))
+            } else {
+                !source_names.is_empty()
+            };
+            if applicable {
+                return Some(true);
+            }
+        }
+        mentioned.then_some(false)
     }
 
     /// `typesDefinitelyUnrelated`' object half (`inference.go:1185`): each type
@@ -3525,8 +3647,23 @@ impl<'a> Checker<'a, '_> {
     /// list it answers cannot certify an absence.
     fn member_names_are_literal(&self, t: TypeId) -> bool {
         use tsr_ast::SyntaxKind as K;
-        let TypeData::Named { members: Some(symbol), .. } = self.store.get(t).data else {
-            return false;
+        // An enum object (`typeof E`) lists its members from the enum
+        // declarations alone; a namespace merged into it adds exports this
+        // walk does not see, so only a pure enum symbol qualifies.
+        let symbol = match self.store.get(t).data {
+            TypeData::Named { members: Some(symbol), .. } => symbol,
+            TypeData::Anonymous { symbol, .. }
+                if self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .declarations
+                    .iter()
+                    .all(|&declaration| self.nodes.kind(declaration) == K::EnumDeclaration) =>
+            {
+                symbol
+            }
+            _ => return false,
         };
         let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
         !declarations.is_empty()
@@ -6786,7 +6923,20 @@ impl<'a> Checker<'a, '_> {
                     .find(|(name, _)| *name == parameter.name)
                     .is_some_and(|&(_, symbol)| symbol != own_symbol)
             });
+            // r7-printer §34: a type parameter and a same-named value
+            // parameter of one declaration merge into one binder symbol, and
+            // `enterNewScope` puts the signature's parameters in a fake scope
+            // ahead of its type parameters. For an instantiated signature that
+            // parameter is the merged symbol's instantiated copy, which still
+            // carries `TypeParameter` and is not the clone's symbol, so
+            // `typeParameterShadowsOtherTypeParameterInScope` renames the
+            // clone: `<fn_1 extends …>(fn: fn_1)`. The declared signature's
+            // parameter is the type parameter's own symbol: no rename.
+            let value_shadow = own_symbol
+                .is_some_and(|own_symbol| self.get_declared_type_of_symbol(own_symbol) != own_type)
+                && signature.parameters.iter().any(|value| value.name == parameter.name);
             let shadowed = render_shadow
+                || value_shadow
                 || own_symbol.is_some_and(|own_symbol| {
                     self.binder
                         .resolve_name(
@@ -6811,7 +6961,12 @@ impl<'a> Checker<'a, '_> {
             // holds ZERO renames at neutral sites — the byText half does not
             // exist in this corpus and regressed 763 lines when built.
             let fresh_name = shadowed.then(|| {
-                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), enclosing)
+                self.allocate_type_parameter_name_excluding(
+                    own_type,
+                    own_symbol.unwrap(),
+                    enclosing,
+                    value_shadow.then_some(parameter.name.as_str()),
+                )
             });
             if let Some(fresh_name) = fresh_name {
                 let fresh = self.store.new_named(
