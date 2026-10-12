@@ -1010,3 +1010,20 @@ inside its own getter). Answering native's `errorType` from the re-entered
 `get_type_of_accessors` frame is right at that function (the lookup sees
 `native_error`), but the expression still prints the gap. A later step on
 the property-access road turns it back, and that road is not this file's.
+
+## 33. A function merged with an interface keeps its value type (MERGED-FUNCTION-INTERFACE)
+
+`interface Tag<Id> { id: Id }` + `declare function Tag<…>(id: Id): Id` is
+one symbol (`FUNCTION | INTERFACE`). Native's `getTypeOfSymbol` takes the
+function arm for its value (`getTypeOfFuncClassEnumModule`, checker.go:16904),
+and `resolveAnonymousTypeMembers` builds the value type from the exports and
+the call signatures; it never reads `members`. This port's function worker
+declines when the symbol's `members` table holds a value member. That guard
+is the unported JavaScript constructor-function instance side (tsr-6.27):
+`this.x = …` and `F.prototype.x = …` declare into it. The interface half of
+the merge also puts its property and method signatures there, so every
+merged function+interface value read the gap. The guard now ignores members
+whose every declaration sits directly in an `InterfaceDeclaration`; a JS
+constructor's members still decline. Witness: `Tag` in
+`contextualParamTypeVsNestedReturnTypeInference2/3/4`. The `Tag<I, S>`
+reference side already resolved through `declared.rs`.

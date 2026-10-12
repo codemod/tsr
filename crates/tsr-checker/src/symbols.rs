@@ -4284,10 +4284,26 @@ impl<'a> Checker<'a, '_> {
         // type-only namespace members. `createTypeNodeFromObjectType` prints
         // those properties after call signatures. Instance members still need
         // the JavaScript constructor/prototype resolution path (tsr-6.27).
+        // The decline is for a JavaScript constructor function's instance
+        // members, which land in the symbol's `members`. An interface merged
+        // with the function (`interface Tag<Id> { id: Id }` + `declare function
+        // Tag`) puts its property signatures there too, and those are the
+        // interface's instance side, not members of the function's value
+        // type: native's `resolveAnonymousTypeMembers` never reads `members`
+        // for a function (`contextualParamTypeVsNestedReturnTypeInference2`,
+        // r7-shared.md §33).
         let symbol_data = self.binder.symbols().get(symbol);
         let symbols = self.binder.symbols();
-        let contributes_a_property =
-            |&member: &SymbolId| symbols.get(member).flags.intersects(SymbolFlags::VALUE);
+        let nodes = self.nodes;
+        let contributes_a_property = |&member: &SymbolId| {
+            let entry = symbols.get(member);
+            entry.flags.intersects(SymbolFlags::VALUE)
+                && !entry.declarations.iter().all(|&declaration| {
+                    nodes.parent(declaration).is_some_and(|parent| {
+                        nodes.kind(parent) == SyntaxKind::InterfaceDeclaration
+                    })
+                })
+        };
         if symbol_data.members.values().any(contributes_a_property) {
             return self.intrinsics.error;
         }
