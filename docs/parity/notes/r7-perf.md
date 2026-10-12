@@ -1717,6 +1717,150 @@ and 2 are built and measured on the proposal branch
 `box/r7-perf-proposed-adr56`, on top of a scratch flip, not on
 `box/r7-perf`.
 
+## §43 ADR-0056 stages 1 and 2, built and measured on a proposal branch
+
+This section is placed before §21, after §42, for the same reason as §32.
+`box/r7-perf-proposed-adr56` holds three commits on top of §42's stage 0b
+(`6c0efed2`). None of them is on `box/r7-perf`, because stage 1 needs the
+visibility flip first (§42), and the flip is the integrator's to schedule:
+
+1. `40b07ec5`, **the flip (scratch)**. The generator makes the field
+   `pub(crate)`. The reads outside `tsr-ast` were rewritten in three passes:
+   - rustc's E0616 errors drove the first rewrite;
+   - the rest went through §40.2's regex, and five false positives on the
+     `CommonJsExport` and `ExpandoMember` structs' own fields were reverted;
+   - `clippy --fix` turned the 161 closures that became `|x| x.node_id()`
+     into method paths.
+
+   The hand fixes were:
+   - two parser writes now go through `set_node_id`;
+   - three struct literals became `::new` plus `set_node_id` (`spreads.rs`
+     ×2, `calls.rs`'s `foreign` test node);
+   - `declared.rs:3870`, where a guard `== node.node_id =>` read as an
+     assignment to the error-driven pass.
+
+   One lesson for the integrator's own codemod: the regex pass must not
+   touch `xtask/`. It rewrote the generator's templates
+   (`self.node_id = Some(id)` became `self.node_id() = Some(id)`), which
+   compiled only because the generated files had not been regenerated.
+2. `b81d2be3`, **stage 1, `NodeIdCell`**: §43.1.
+3. `84e89619`, **stage 2, adopt instead of copy**: §43.2.
+
+### §43.1 Stage 1: the id becomes a `NodeIdCell`
+
+`NodeIdCell` (`crates/tsr-ast/src/lib.rs`) is a relaxed `AtomicU32`, so an
+in-place rebase can run through `&` while the tree stays `Sync`. Two shapes
+were refused before the one kept. Ir on gi against the flip:
+
+| shape | gi Ir | change |
+|---|---:|---:|
+| flip (plain `Option<NodeId>` field) | 176,755,239 | — |
+| raw value, `u32::MAX` unset, atomic store at registration | 179,305,869 | +1.44% |
+| `Option<NodeId>`'s own bits (`NonMaxU32` XOR MAX, 0 = `None`), atomic store at registration | 178,811,664 | +1.16% |
+| own bits; registration through `&mut` (`set_mut`, a plain store); alias `node_id()` `#[inline]` | **176,346,228** | **−0.23%** |
+
+The function diff of the refused shapes put the cost in inlining, not in the
+load. `Parser::finish_node` went out of line (+1.71 M Ir), and five alias
+`node_id()`s stopped inlining (+0.7 M). An atomic store at the parser's one
+registration site was enough to change those decisions. With the kept
+shape, dm is −0.12% and dml −0.22%, and the output is identical.
+
+### §43.2 Stage 2: the coordinator keeps the worker's parse
+
+`ParsedFile::adopt` (`crates/tsr-parser/src/parsed_file.rs`) replaces
+`ParsedFile::publish` in the loader and in `Program::new`. In order, it:
+
+1. appends the private table's rows (`append_relocated`, as before) and
+   drops the private table;
+2. moves the parse's `self_cell` into the program arena's keeping;
+3. borrows the tree for `'a` through `borrow_dependent`, which is safe
+   because the dependent is covariant;
+4. rebases every registered node's cell by the file's base
+   (`tsr_ast::publication::rebase`, one relaxed store per node);
+5. pushes the nodes into the program's map;
+6. shifts the JSDoc and list-fact keys.
+
+The program then uses the parse's own text as the file's text, because the
+tree's strings point into it. No node is copied.
+
+`tsr_core::Arena::keep` is the new audited `unsafe`, inside `arena.rs`'s
+existing ADR-0011 exception. Its argument: an append-only `Vec` of boxes
+that is dropped only with the arena, lent out for `&self`'s lifetime. It is
+ADR-0056's `ArenaPool` in a smaller form: the program arena owns the kept
+parses, so no new owner needs plumbing.
+
+Two follow-ups were needed for memory:
+
+- Bundled lib texts are now borrowed by their parse (`Cow<'static, str>` in
+  `Owner`; `ParsedFile::parse_text_with_options`), not owned as a copy that
+  a kept parse would hold for the program's life.
+- The private node table is dropped at adoption instead of being kept with
+  the cell.
+
+Measured against stage 1 with dist builds. Phases are medians of 21
+`--extendedDiagnostics` runs (ms); wall is 41/21 interleaved runs; RSS is
+the median of 5:
+
+| | gi | dm | dml |
+|---|---:|---:|---:|
+| Loader | — | 30 → 25 | 52 → 35 |
+| Parse | — | 23 → 20 | 40 → 24 |
+| Bind | — | 14 → 17 | 21 → 25 |
+| Program | — | 47 → 42 | 76 → 61 |
+| Compilation | — | 114 → 107 | 374 → 370 |
+| wall ratio, dist (run 1 / run 2) | 0.998 | 0.960 / 0.985 | 1.014 |
+| wall ratio, release (the gate's freeze binaries) | — | 1.003 | — |
+| peak RSS | 58.6 → 58.6 MB (+0.1%) | 108.3 → 114.5 MB (+5.7%) | 184.2 → 188.2 MB (+2.2%) |
+
+gi does not change because its front end is serial (`workers == 1`, r5-loader
+§3), so it never publishes.
+
+**Reading.**
+
+- **Loader.** Removing the copy saves what ADR-0056 modelled on the
+  loader: dml −17 ms, dm −5 ms.
+- **Bind.** Bind gives 3–4 ms of it back. With the copy, the coordinator
+  had just written every node, so its binder walked a tree already in the
+  coordinator's cache. An adopted tree was written by another core. Stage 4
+  (bind on the worker that parsed the file) is the step that should recover
+  this, which is ADR-0056's own sequencing.
+- **Check.** A release-build rerun on dm put Check at 69 → 74 ms, so the
+  checker may be paying for the same locality.
+- **Wall.** Net wall is within noise on all three projects. dm read 0.960,
+  then 0.985 and 1.003. dml's check phase (303 ms) dominates it.
+- **Memory.** **RSS rises**, which is one of ADR-0056's two falsifiers.
+  The rise on dm is about 6 MB. Two causes are measured or bounded:
+  - the private node map, which stays inside the kept cell, duplicates the
+    program's at 16 bytes per node (2.9 MB on dm's 180 K nodes);
+  - each kept worker arena ends in a partly used chunk. Chunks double from
+    4 KiB, so for a small file most of its last chunk is slack.
+
+  The map could be dropped only by restructuring the cell, so that the
+  node map lives outside the dependent. The slack could be cut by sizing a
+  worker arena's first chunk from its text length. Neither is built.
+
+**Gates** on the proposal tip `3ff33a27`, against §42's 0b freeze and
+oracle:
+
+- `parity_gate.sh compare`: all 0.
+- Exact oracle: 11,036 → 11,036, with gained, lost and missing all 0.
+- jsTyping: identical.
+- fmt, strict clippy and `cargo test --workspace --release` all pass.
+- Ir (`--singleThreaded`, so no publication): gi −0.44%, dm −0.21%,
+  dml −0.25%.
+
+**Decision needed.** Stages 1 and 2 alone do not pay for themselves:
+
+- **Wall:** no measurable gain on gi, dm or dml. The loader's saving is
+  given back in bind, and perhaps in check.
+- **RSS:** +2–6%.
+- **Flip:** they wait on it.
+
+I recommend that they not land on their own. They should land together with
+stage 4 (bind on the parsing worker, and r5-loader §3's gate dropped), which
+is where ADR-0056's modelled gi and dm gains are, plus a fix for the two
+memory causes above.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
