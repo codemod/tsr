@@ -8534,11 +8534,8 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
-        let (Some(first_text), Some(next_text)) =
-            (self.type_to_string_at(first, node), self.type_to_string_at(next, node))
-        else {
-            return;
-        };
+        let first_text = self.type_to_string_for_message(first, node);
+        let next_text = self.type_to_string_for_message(next, node);
         let message = if is_property {
             &messages::SUBSEQUENT_PROPERTY_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_PROPERTY_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
         } else {
