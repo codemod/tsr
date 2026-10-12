@@ -970,7 +970,14 @@ impl Checker<'_, '_> {
         use crate::flags::TypeFlags;
         let flags = self.store.get(receiver).flags;
         if matches!(self.store.get(receiver).data, crate::types::TypeData::Union { .. }) {
-            return self.union_property_lacks(receiver, name, false)?.then_some(receiver);
+            // `checkPropertyAccessExpressionOrQualifiedName` widens the
+            // receiver of an assignment target or of a callee
+            // (`getWidenedType`): a fresh object literal constituent stops
+            // being one (§77).
+            let widened = self.assignment_target_kind(access)
+                != crate::expressions::AssignmentTargetKind::None
+                || self.is_callee_of_call_or_new(access);
+            return self.union_property_lacks(receiver, name, false, widened)?.then_some(receiver);
         }
         // getApparentType(never) is never, whose getPropertyOfType misses with
         // no index info; only silentNeverType is any-like
@@ -1107,12 +1114,21 @@ impl Checker<'_, '_> {
         receiver: TypeId,
         name: &str,
         nullable_lacks: bool,
+        widened: bool,
     ) -> Option<bool> {
         use crate::flags::TypeFlags;
         let crate::types::TypeData::Union { types, .. } = &self.store.get(receiver).data else {
             return None;
         };
         let types = types.clone();
+        // A widened receiver's lone object literal constituent is an ordinary
+        // object: `getWidenedTypeOfObjectLiteral` adds missing members only
+        // from sibling object literals (`getPropertiesOfContext`), and drops
+        // `ObjectFlagsObjectLiteral`. Two or more object literals still
+        // decline.
+        let literal_count =
+            types.iter().filter(|&&constituent| self.is_object_literal_type(constituent)).count();
+        let widened_literal = widened && literal_count == 1;
         let mut missing = false;
         let mut properties = Vec::new();
         for constituent in types {
@@ -1126,7 +1142,7 @@ impl Checker<'_, '_> {
             }
             if constituent_flags
                 .intersects(TypeFlags::NULLABLE | TypeFlags::ANY | TypeFlags::UNKNOWN)
-                || self.is_object_literal_type(constituent)
+                || self.is_object_literal_type(constituent) && !widened_literal
             {
                 return None;
             }
@@ -1245,7 +1261,7 @@ impl Checker<'_, '_> {
         }
         let apparent =
             if matches!(self.store.get(parent).data, crate::types::TypeData::Union { .. }) {
-                if !self.union_property_lacks(parent, name, true)? {
+                if !self.union_property_lacks(parent, name, true, false)? {
                     return None;
                 }
                 parent

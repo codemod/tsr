@@ -1869,3 +1869,21 @@ Measured (§75 with §76) on `7f6848b8`: legacy verdicts unchanged
 (`keyofAndIndexedAccessErrors` keeps other lanes' TS2345/TS2322 differences;
 its seven TS2537/TS2538 now match), exact oracle unchanged, 0 lost; jsTyping
 gap 18 → 18, new_false 0, lost_true 0; Ir gi 1.0002, dm 1.0004.
+
+## §77 A widened receiver's lone object literal constituent is an ordinary object
+
+`checkPropertyAccessExpressionOrQualifiedName` widens the receiver of an
+assignment target or a callee (`getWidenedType`), and
+`getWidenedTypeOfObjectLiteral` drops `ObjectFlagsObjectLiteral`, adding
+missing members only from sibling object literals (`getPropertiesOfContext`).
+So `(options || {}).a = 1` misses `a` on the widened `{}` and reports TS2339
+on `'{ a: string; b: number; } | {}'` (`propertyAccessWidening`).
+`union_property_lacks` declined every object literal constituent; for a
+widened receiver it now reads a lone object literal constituent as an
+ordinary object. Two or more object literal constituents (whose widening
+adds optional `undefined` members) still decline. Not covered: the element
+access form, which native reports as TS7053 against the constituent.
+
+Measured on `40f29ab9`: legacy verdicts unchanged (`propertyAccessWidening`
+keeps the TS7053), exact oracle unchanged, 0 lost; jsTyping gap 18 → 18,
+new_false 0, lost_true 0; Ir gi 0.9997, dm 1.0000.
