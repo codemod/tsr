@@ -1849,3 +1849,18 @@ check.rs calls it beside `check_object_type_for_duplicate_declarations` for
 class declarations and expressions. Checked with `--pretty true` against
 `target/tsgo-pinned`: `privateNameDuplicateField`, `privateNamesUnique-3`
 and three controls.
+
+## §83 TS2675, extending a class whose constructor is private
+
+`checkClassLikeDeclaration` calls `checkBaseTypeAccessibility`
+(`checker.go:4481`) when `getBaseTypes` is not empty. The first construct
+signature of the base constructor type is declared by the nearest class on
+the base chain that has a constructor. When that declaration is `private`
+and the `extends` entry is not within the base class
+(`isNodeWithinClass`), it is TS2675, *Cannot extend a class '{0}'. Class
+constructor is marked as private.*, at the entry, with the base fully
+qualified. No emitter existed. heritage_conformance.rs's
+`check_base_type_accessibility` runs ahead of that file's member-table
+declines, as native's call precedes the relation. Checked with `--pretty
+true` against `target/tsgo-pinned`: `extendPrivateConstructorClass`
+(`abc.XYZ`), `classConstructorAccessibility2`, and two controls.

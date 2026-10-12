@@ -61,6 +61,7 @@ impl Checker<'_, '_> {
         };
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
+        self.check_base_type_accessibility(symbol, clauses);
         // A class merged with an **interface** assembles its member table from
         // several declarations, and upstream's merge is not this port's for
         // private and inherited members (`mergedInterfacesWithInheritedPrivates3`).
@@ -95,6 +96,98 @@ impl Checker<'_, '_> {
             );
         }
         self.check_class_implemented_types(node, false);
+    }
+
+    /// `checkBaseTypeAccessibility` (`checker.go:4481`), from
+    /// `checkClassLikeDeclaration` when `getBaseTypes` is not empty: the
+    /// first construct signature of the base constructor type is declared by
+    /// the nearest class on the base chain that declares a constructor. When
+    /// that declaration is `private` and the `extends` entry is not within
+    /// that class, it is TS2675 at the entry, naming the base fully
+    /// qualified (r7-grammar §83).
+    fn check_base_type_accessibility(
+        &mut self,
+        symbol: SymbolId,
+        clauses: &[&tsr_ast::HeritageClause<'_>],
+    ) {
+        let Some(entry) = clauses
+            .iter()
+            .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            .flat_map(|clause| clause.types.iter())
+            .next()
+        else {
+            return;
+        };
+        let Some(at) = entry.node_id else { return };
+        let Some(base) = self.base_symbol_of_heritage_entry(entry, false) else { return };
+        if self.get_base_types(symbol).is_empty() {
+            return;
+        }
+        let mut class_symbol = base;
+        for _ in 0..16 {
+            let Some(class) =
+                self.binder.symbols().get(class_symbol).declarations.iter().copied().find(|&d| {
+                    matches!(
+                        self.nodes.kind(d),
+                        SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                    )
+                })
+            else {
+                return;
+            };
+            let (members, heritage) = match self.node_map.get(class) {
+                Some(Node::ClassDeclaration(c)) => (c.members, c.heritage_clauses),
+                Some(Node::ClassExpression(c)) => (c.members, c.heritage_clauses),
+                _ => return,
+            };
+            let constructor = members.iter().find_map(|member| match member {
+                tsr_ast::ClassElement::ConstructorDeclaration(constructor) => Some(*constructor),
+                _ => None,
+            });
+            if let Some(constructor) = constructor {
+                if !has_modifier(constructor.modifiers, SyntaxKind::PrivateKeyword) {
+                    return;
+                }
+                // `isNodeWithinClass(node, typeClassDeclaration)`.
+                let Some(base_class) =
+                    self.binder.symbols().get(base).declarations.iter().copied().find(|&d| {
+                        matches!(
+                            self.nodes.kind(d),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
+                    })
+                else {
+                    return;
+                };
+                if self.nodes.ancestors(at).any(|ancestor| ancestor == base_class) {
+                    return;
+                }
+                let name = self.fully_qualified_name(base);
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+                let span = self.error_span(at);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::CANNOT_EXTEND_A_CLASS_0_CLASS_CONSTRUCTOR_IS_MARKED_AS_PRIVATE,
+                        span,
+                        [name],
+                    ),
+                );
+                return;
+            }
+            // No constructor of its own: the construct signatures are the
+            // next base's.
+            let Some(next) = heritage
+                .iter()
+                .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+                .flat_map(|clause| clause.types.iter())
+                .next()
+                .and_then(|next| self.base_symbol_of_heritage_entry(next, false))
+            else {
+                return;
+            };
+            class_symbol = next;
+        }
     }
 
     /// `checkClassLikeDeclaration`'s implemented-type loop (`checker.go:4293`)
