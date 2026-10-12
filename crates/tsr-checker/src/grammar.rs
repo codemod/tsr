@@ -150,6 +150,20 @@ impl Checker<'_, '_> {
         {
             self.check_grammar_big_int_literal(id);
         }
+        self.check_big_int_property_names(typed);
+        // `Checker.checkGrammarMappedType` (`grammarchecks.go:120`), from
+        // `checkMappedType`: a mapped type that declares members is TS7061 on
+        // the first one, a grammar error (r7-grammar §68).
+        if let Node::MappedTypeNode(mapped) = typed
+            && !self.file_has_parse_errors
+            && let Some(first) =
+                mapped.members.first().and_then(|member| Node::from(*member).node_id())
+        {
+            self.grammar_error_on_node(
+                first,
+                &messages::A_MAPPED_TYPE_MAY_NOT_DECLARE_PROPERTIES_OR_METHODS,
+            );
+        }
         // `Checker.checkGrammarExpressionWithTypeArguments`
         // (`grammarchecks.go:885`), from `checkExpressionWithTypeArguments`
         // and `checkGrammarHeritageClause`: `import<T>` is TS1326 on the
@@ -431,6 +445,50 @@ impl Checker<'_, '_> {
                     })
             }),
             _ => false,
+        }
+    }
+
+    /// TS1539 — `A 'bigint' literal cannot be used as a property name.`, a
+    /// `c.error`, whether or not the file has parse diagnostics:
+    /// `checkVariableLikeDeclaration` (`checker.go:5890`) for a property
+    /// declaration or signature, and `checkGrammarObjectLiteralExpression`'s
+    /// property-assignment arm (`grammarchecks.go:1111`,
+    /// `addErrorOrSuggestion(true, …)`) for an object literal member
+    /// (r7-grammar §67).
+    fn check_big_int_property_names(&mut self, typed: Node<'_>) {
+        let mut names: Vec<NodeId> = Vec::new();
+        match typed {
+            Node::PropertyDeclaration(property) => {
+                if let tsr_ast::PropertyName::BigIntLiteral(literal) = property.name {
+                    names.extend(literal.node_id);
+                }
+            }
+            Node::PropertySignatureDeclaration(property) => {
+                if let tsr_ast::PropertyName::BigIntLiteral(literal) = property.name {
+                    names.extend(literal.node_id);
+                }
+            }
+            Node::ObjectLiteralExpression(literal) => {
+                for property in literal.properties {
+                    if let ObjectLiteralElementLike::PropertyAssignment(assignment) = property
+                        && let tsr_ast::PropertyName::BigIntLiteral(name) = assignment.name
+                    {
+                        names.extend(name.node_id);
+                    }
+                }
+            }
+            _ => return,
+        }
+        for name in names {
+            let Some(file) = self.source_file_of_for_diagnostics(name) else { continue };
+            let span = self.error_span(name);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_BIGINT_LITERAL_CANNOT_BE_USED_AS_A_PROPERTY_NAME,
+                    span,
+                ),
+            );
         }
     }
 
