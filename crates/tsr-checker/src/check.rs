@@ -320,6 +320,7 @@ impl Checker<'_, '_> {
                 self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 self.check_object_type_for_duplicate_declarations(node);
+                self.check_private_names_static_and_instance(declaration.members);
                 self.check_class_static_property_names(node, declaration.members);
                 // `checkClassOrInterfaceForDuplicateIndexSignatures`
                 // (`checker.go:4389`), from `checkClassLikeDeclaration`.
@@ -889,6 +890,7 @@ impl Checker<'_, '_> {
             }
             Node::ClassDeclaration(class_declaration) => {
                 self.check_object_type_for_duplicate_declarations(node);
+                self.check_private_names_static_and_instance(class_declaration.members);
                 self.check_merged_namespace_prototype(node);
                 self.check_class_static_property_names(node, class_declaration.members);
                 self.check_type_parameter_lists_identical(node);

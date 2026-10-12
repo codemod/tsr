@@ -585,6 +585,59 @@ impl Checker<'_, '_> {
 }
 
 impl Checker<'_, '_> {
+    /// The private-name arm of `checkObjectTypeForDuplicateDeclarations`
+    /// (`checker.go:3196`, `checkPrivateNames` from `checkClassLikeDeclaration`):
+    /// a private name used by both a static and an instance member is
+    /// TS2804 on every member of that name, static or not
+    /// (`reportDuplicateMemberErrors(…, checkStatic=false)`), once per name
+    /// (r7-grammar §82).
+    pub(crate) fn check_private_names_static_and_instance<'n>(
+        &mut self,
+        members: &[tsr_ast::ClassElement<'n>],
+    ) {
+        let private_name = |member: &tsr_ast::ClassElement<'n>| -> Option<(NodeId, &'n str, bool)> {
+            let (name, modifiers) = match member {
+                tsr_ast::ClassElement::PropertyDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::MethodDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) => (n.name, n.modifiers),
+                _ => return None,
+            };
+            let tsr_ast::PropertyName::PrivateIdentifier(identifier) = name else { return None };
+            let is_static = crate::check::has_modifier(modifiers, SyntaxKind::StaticKeyword);
+            Some((identifier.node_id?, identifier.text, is_static))
+        };
+        let named: Vec<(NodeId, &'n str, bool)> = members.iter().filter_map(private_name).collect();
+        let mut flags: std::collections::HashMap<&'n str, u8> = std::collections::HashMap::new();
+        for &(_, text, is_static) in &named {
+            let entry = flags.entry(text).or_insert(0);
+            if *entry == 3 {
+                continue;
+            }
+            *entry |= if is_static { 2 } else { 1 };
+            if *entry != 3 {
+                continue;
+            }
+            for &(at, other, _) in &named {
+                if other != text {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+                let span = self.error_span(at);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::DUPLICATE_IDENTIFIER_0_STATIC_AND_INSTANCE_ELEMENTS_CANNOT_SHARE_THE_SAME_PRIVATE_NAME,
+                        span,
+                        [text.to_string()],
+                    ),
+                );
+            }
+        }
+    }
+}
+
+impl Checker<'_, '_> {
     /// `checkParameter`'s parameter-property arm (`checker.go:2666`): a
     /// parameter with `ModifierFlagsParameterPropertyModifier` (an
     /// accessibility modifier, `readonly` or `override`) whose containing

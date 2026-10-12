@@ -1835,3 +1835,17 @@ spans) took `error_span(declaration)`, which was a method signature's name
 until §75. Native's `addDuplicateDeclarationError` reports at
 `getAdjustedNodeForError`, i.e. `GetNameOfDeclaration`, never at the error
 range. The default arm now takes the declaration's name.
+
+## §82 TS2804, a private name shared by static and instance members
+
+`checkObjectTypeForDuplicateDeclarations` with `checkPrivateNames`
+(`checker.go:3196`, from `checkClassLikeDeclaration`) collects each private
+name's static (2) and instance (1) uses. The first time a name reaches 3 it
+reports `Duplicate identifier '{0}'. Static and instance elements cannot
+share the same private name.` on every member of that name, through
+`reportDuplicateMemberErrors(…, checkStatic=false)`. No emitter existed.
+class_fields.rs's `check_private_names_static_and_instance` is the arm.
+check.rs calls it beside `check_object_type_for_duplicate_declarations` for
+class declarations and expressions. Checked with `--pretty true` against
+`target/tsgo-pinned`: `privateNameDuplicateField`, `privateNamesUnique-3`
+and three controls.
