@@ -808,3 +808,32 @@ completes it only for a type-literal body, so `A[]`'s element context is
 `string | <object A>`, which has no literal constituent, and
 `const g: A = ["number"]` widens to `string[]` (recursiveTupleTypeInference
 0:5–0:7). Owner: r7-declared.
+
+## 26. INFER-NO-CANDIDATE: inferFromObjectTypes' member walks certify an absence
+
+`source_could_supply_candidate` (§4, §7, §17, §18) certified that a source
+supplies no candidate only through `inferFromTypes`' early exits. Between two
+plain object types it answered "could", so the no-candidate arm declined
+(`error`) where native infers `unknown`: `bar<T>(param: { x?: T }): T` called
+with `{}`, and `getNumberIndexValue<T>(map: { [x: number]: T }): T` called with
+`{ a: "x" }` or a string enum object (objectLiteralContextualTyping 0:41,
+0:42, 0:45; implicitIndexSignatures 0:153, 0:154; tsgo d.ts emit agrees:
+`unknown` for all four probes). `object_members_could_supply` ports the
+member walks of `inferFromObjectTypes` (`inference.go:714-809`). The target
+must be a type literal (no reference, mapped type or alias instance, whose
+type-argument roads come first), and both property lists must be complete
+(`member_names_are_literal`). A candidate can then only come from:
+
+- a target property whose source namesake exists (`inferFromProperties`,
+  recursing on the pair). A name the global `Object` declares is assumed
+  present, since `getPropertyOfType` reads it there.
+- a signature kind both sides have (`inferFromSignatures`).
+- a target index info with any source index info, or a source property
+  applicable to its key (`inferFromIndexTypes`). A numeric-literal name
+  counts for a `number` key; any property counts for any other key.
+
+`Some(false)` needs at least one enumerated member mentioning the parameter.
+Otherwise the mention is on another road and the answer stays undecided.
+`member_names_are_literal` now also admits an enum object (`typeof E`,
+`TypeData::Anonymous` over a symbol declared only by enum declarations). A
+merged namespace would add exports that its declaration walk does not see.
