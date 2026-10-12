@@ -1016,6 +1016,35 @@ Hand reductions of the aliased-condition, closure and equality clusters
 were silent on both compilers, so those triggers need more of the
 program.
 
+## §34 Refused: lib.dom.d.ts parsed in place on the walk thread
+
+This section is placed before §21, after §32, for the same reason as §32.
+
+**Question.** Since §25, `lib.dom.d.ts` is parsed privately on a worker
+and then copied into the shared tables at its visit. That copy is about
+0.31 of the parse (r5-loader §6.2). On domain-model, the loader is 33 ms
+of a 42–47 ms `Program time`. Would the walk thread do better parsing
+`lib.dom.d.ts` in place, with no copy?
+
+**Variants** (scratch builds of `FileLoader::prepare_root_parses` on main
+`bacf0918`, not committed; dist; interleaved fresh processes, 25 pairs
+each; ratio new/§25):
+
+| variant | domain-model wall | domain-model-large wall | `Program time` |
+|---|---:|---:|---|
+| not prepared; parsed in place at its visit (last) | 1.015 | 1.027 | dm 42 → 44 ms, dml 70 → 81 ms |
+| parsed in place **before** the walk, while workers prepare the roots | 0.996 | 1.019 | dm 42 → 41 ms, dml 77 → 86 ms |
+
+Neither wins. In the first variant the walk thread publishes every root
+before it starts a 15 ms serial parse that §25's worker had already
+finished. In the second the walk thread spends that 15 ms before
+publishing the first root, and the roots' copies then queue behind it.
+dml has 202 roots, so it loses most. The second variant also changes
+the node-id order (lib.dom before the roots), which would have needed
+its own output audit. §25's arrangement stays. Without ADR-0056's
+zero-copy publication, there is no faster arrangement of these jobs on
+domain-model or domain-model-large.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
