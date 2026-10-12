@@ -2705,7 +2705,14 @@ impl<'a> Checker<'a, '_> {
         let suggestion = spelling_suggestion(text, &candidates).map(str::to_string);
         let span = self.nodes.span(name_id);
         let file = self.source_file_of_for_diagnostics(specifier)?;
-        let module_name = self.quoted_module_name(module_specifier);
+        // `getFullyQualifiedName(moduleSymbol)`: an ambient module prints its
+        // own declared name, so a specifier matched by a pattern module
+        // (`"b.foo"` against `declare module "*.foo"`) names the pattern
+        // (`ambientDeclarationsPatterns_merging1/2`, r7-shared.md §37); a file
+        // module prints as its specifier.
+        let module_name = self
+            .ambient_module_declared_name(module_symbol)
+            .unwrap_or_else(|| self.quoted_module_name(module_specifier));
         if let Some(suggestion) = suggestion {
             let mut diagnostic = Diagnostic::with_args(
                 &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
@@ -3084,6 +3091,24 @@ impl<'a> Checker<'a, '_> {
 
     /// `getFullyQualifiedName` of an external module symbol, which prints the
     /// specifier **as written, with its quotes** (`checker.go:14888`).
+    /// The quoted name an ambient module symbol was declared with
+    /// (`declare module "*.foo"`), when every declaration is a string-named
+    /// module declaration; `None` for a file module.
+    fn ambient_module_declared_name(&self, module: SymbolId) -> Option<String> {
+        let declarations = &self.binder.symbols().get(module).declarations;
+        let mut name = None;
+        for &declaration in declarations {
+            let Some(Node::ModuleDeclaration(module)) = self.node_map.get(declaration) else {
+                return None;
+            };
+            let Some(tsr_ast::ModuleName::StringLiteral(literal)) = module.name else {
+                return None;
+            };
+            name.get_or_insert(literal.text);
+        }
+        name.map(|name| format!("\"{name}\""))
+    }
+
     fn quoted_module_name(&self, module_specifier: NodeId) -> String {
         match self.node_map.get(module_specifier) {
             Some(Node::StringLiteral(literal)) => format!("\"{}\"", literal.text),
