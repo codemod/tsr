@@ -2308,6 +2308,23 @@ impl<'a, 'n> Checker<'a, 'n> {
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return Some(self.type_parameter_name_at(id, symbol, reference));
         }
+        // r7-printer §32: a key union whose origin is `keyof T`
+        // (`getLiteralTypeFromProperties`' `newIndexType(t)`) prints that
+        // origin, and the Index arm (`nodebuilderimpl.go:3472`) writes the
+        // operand at the site: `keyof Intl.NumberFormatOptionsStyleRegistry`.
+        // r7-declared records the operand beside the baked text; the arm
+        // fires only where that text is the operand's site-free print.
+        if let Some(&operand) = self.instantiation_expressions.keyof_origin_operands.get(&id)
+            && self.type_to_string(id) == format!("keyof {}", self.type_to_string(operand))
+            && let Some(text) = self.type_to_string_at(operand, reference)
+        {
+            // `createTypeOperatorNode` parenthesizes an operand that binds
+            // looser than a type operator (`keyof (A | B)`).
+            if crate::node_reuse::binds_below_type_operator(&text) {
+                return Some(format!("keyof ({text})"));
+            }
+            return Some(format!("keyof {text}"));
+        }
         // Native createAnonymousTypeNodeEx checks the visited semantic identity
         // before expanding completed signatures again. Replaying a baked
         // signature here would add an extra recursive layer on every print.

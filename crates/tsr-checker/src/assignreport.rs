@@ -2134,7 +2134,11 @@ impl<'a> Checker<'a, '_> {
         display_target: TypeId,
         target: TypeId,
         properties: &[String],
+        head: Option<&'static tsr_diagnostics::Message>,
     ) -> MissingPropertyHead {
+        // `isConversionOrInterfaceImplementationMessage` (`relater.go:4934`):
+        // these heads are never suppressed (r7-reports §45).
+        let keeps_head = head.is_some_and(is_conversion_or_interface_implementation_message);
         let mut chain_source = source;
         if self.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
             let crate::constraints::ConstraintOfType::Constraint(constraint) =
@@ -2146,11 +2150,12 @@ impl<'a> Checker<'a, '_> {
         }
         let chain_source = self.single_base_normalized(chain_source);
         let chain_target = self.single_base_normalized(target);
-        if chain_source == source && chain_target == display_target {
+        if !keeps_head && chain_source == source && chain_target == display_target {
             return MissingPropertyHead::Suppressed;
         }
         let displayed_source = self.assignability_source_for_error_display(source, display_target);
-        if self.type_to_string(displayed_source) == self.type_to_string(chain_source)
+        if !keeps_head
+            && self.type_to_string(displayed_source) == self.type_to_string(chain_source)
             && self.type_to_string(display_target) == self.type_to_string(chain_target)
         {
             return MissingPropertyHead::Suppressed;
@@ -2412,16 +2417,27 @@ impl<'a> Checker<'a, '_> {
                 .missing_required_property(source, normalized)
                 .or_else(|| self.unmatched_property_report(source, normalized))
         {
-            let MissingPropertyHead::Kept(chain) =
-                self.missing_property_chain(span, source, chain_target, normalized, &properties)
-            else {
+            let MissingPropertyHead::Kept(chain) = self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                None,
+            ) else {
                 self.report_missing_properties(file, span, source, normalized, &properties);
                 return true;
             };
-            self.report_argument_head(file, span, source, display_target, None, chain);
+            self.report_argument_head(at, file, span, source, display_target, None, chain);
             return true;
         }
-        self.report_argument_head(file, span, source, display_target, signature_error, None);
+        // checkTypeRelatedToEx's error chain under the head (r7-reports §42).
+        let chain = if not_related && signature_error.is_none() {
+            self.relation_failure_chain(at, span, source, normalized)
+        } else {
+            None
+        };
+        self.report_argument_head(at, file, span, source, display_target, signature_error, chain);
         true
     }
 
@@ -2454,8 +2470,10 @@ impl<'a> Checker<'a, '_> {
     /// `reportRelationError`'s TS2345 head (`relater.go:4751`) for
     /// [`Checker::report_argument_failure`], with the signature elaboration or
     /// the missing-property message kept under it.
+    #[allow(clippy::too_many_arguments)]
     fn report_argument_head(
         &mut self,
+        at: NodeId,
         file: NodeId,
         span: tsr_core::Span,
         source: TypeId,
@@ -2479,7 +2497,8 @@ impl<'a> Checker<'a, '_> {
             diagnostic.add_message_chain(Some(signature_error));
         }
         diagnostic.add_message_chain(chain);
-        self.report(file, diagnostic);
+        self.attach_chain_file(at, span, &mut diagnostic);
+        self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
 
     /// Report the assignability failure at `span`, choosing the code the way
@@ -2674,7 +2693,14 @@ impl<'a> Checker<'a, '_> {
             && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
-            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
+            match self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                head,
+            ) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
@@ -2713,7 +2739,14 @@ impl<'a> Checker<'a, '_> {
             && missing_property_report
             && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
-            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
+            match self.missing_property_chain(
+                span,
+                source,
+                chain_target,
+                normalized,
+                &properties,
+                head,
+            ) {
                 MissingPropertyHead::Suppressed => {
                     self.report_missing_properties(file, span, source, normalized, &properties);
                 }
@@ -2869,7 +2902,12 @@ impl<'a> Checker<'a, '_> {
     /// `NewDiagnosticChain` gives every chain level the error node's file
     /// (`createDiagnosticChainFromErrorChain`); a chain child built here
     /// without one takes the head's (r7-reports §36).
-    fn attach_chain_file(&self, at: NodeId, span: tsr_core::Span, diagnostic: &mut Diagnostic) {
+    pub(crate) fn attach_chain_file(
+        &self,
+        at: NodeId,
+        span: tsr_core::Span,
+        diagnostic: &mut Diagnostic,
+    ) {
         if diagnostic.message_chain().is_empty() {
             return;
         }
@@ -3441,9 +3479,9 @@ impl<'a> Checker<'a, '_> {
     /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
     /// `kind` signature of the source returns a type (not `any`/`never`)
     /// related to the target, the failure is reported at the expression
-    /// itself — upstream adds "Did you mean to call this expression?" as
-    /// related information, which the suite does not compare. A pair the
-    /// relation does not reject falls through to the remaining arms.
+    /// itself, with "Did you mean to call this expression?" (or `new`) as
+    /// related information on its first diagnostic. A pair the relation
+    /// does not reject falls through to the remaining arms.
     fn elaborate_did_you_mean_to_call_or_construct(
         &mut self,
         node: NodeId,
@@ -3472,7 +3510,26 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let span = self.error_span(node);
-        self.report_relation_failure(node, span, None, source, target, head)
+        let before = self.diagnostics.len();
+        if !self.report_relation_failure(node, span, None, source, target, head) {
+            return false;
+        }
+        // `diags[0]` gains the hint at the expression (r7-reports §43).
+        if self.diagnostics.len() > before {
+            let message = if kind == crate::signatures::SignatureKind::Construct {
+                &messages::DID_YOU_MEAN_TO_USE_NEW_WITH_THIS_EXPRESSION
+            } else {
+                &messages::DID_YOU_MEAN_TO_CALL_THIS_EXPRESSION
+            };
+            let hint = self.related_diagnostic_at(node, message, span, Vec::new());
+            if hint.file().is_some() {
+                let diagnostic = &mut self.diagnostics[before].1;
+                let mut list = diagnostic.related_information().to_vec();
+                list.push(hint);
+                diagnostic.set_related_information(std::sync::Arc::new(list));
+            }
+        }
+        true
     }
 
     /// `getBestMatchingType` (`relater.go:879`) for an object-literal source
@@ -5451,6 +5508,21 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 /// the one thing `docs/conventions.md` forbids about a refusal.
 const REPORT_MISSING_REQUIRED_PROPERTY: bool = true;
 
+/// `isConversionOrInterfaceImplementationMessage` (`relater.go:4934`): a
+/// head `reportRelationError` keeps over the missing-property message below.
+fn is_conversion_or_interface_implementation_message(message: &tsr_diagnostics::Message) -> bool {
+    [
+        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1,
+        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS,
+        &messages::CONVERSION_OF_TYPE_0_TO_TYPE_1_MAY_BE_A_MISTAKE_BECAUSE_NEITHER_TYPE_SUFFICIENTLY_OVERLAPS_WITH_THE_OTHER_IF_THIS_WAS_INTENTIONAL_CONVERT_THE_EXPRESSION_TO_UNKNOWN_FIRST,
+        &messages::ITS_INSTANCE_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+        &messages::ITS_RETURN_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+        &messages::ITS_ELEMENT_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT,
+    ]
+    .iter()
+    .any(|candidate| candidate.code() == message.code())
+}
+
 /// One `ErrorChain` entry (`relater.go`): a message and its arguments, as
 /// `reportError` pushes them.
 #[derive(Clone)]
@@ -5945,7 +6017,72 @@ impl Checker<'_, '_> {
         {
             return None;
         }
+        if let Some(explained) = self.explain_reference_variances(stack, source, target, depth) {
+            return explained;
+        }
         self.explain_object_relation(stack, source, target, depth, false)
+    }
+
+    /// `relateVariances` for two references to one class or interface
+    /// (`relater.go:3266`, `typeArgumentsRelatedTo` at `:3903`): the first
+    /// type argument that fails under its variance is the explanation.
+    /// `None` where the structural comparison decides instead: a variance
+    /// with `Unmeasurable`/`Unreliable` flags, a covariant `void` target
+    /// argument, or an invariant parameter (whose errors upstream resets to
+    /// show the structural reason). `Some(None)` declines.
+    #[allow(clippy::option_option)]
+    fn explain_reference_variances(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<Option<()>> {
+        use crate::relater::Ternary;
+        use crate::variances::Variance;
+        let (source_symbol, source_arguments) = self.type_reference_targets.get(&source)?.clone();
+        let (target_symbol, target_arguments) = self.type_reference_targets.get(&target)?.clone();
+        let symbol = self.binder.merged_symbol(source_symbol);
+        if symbol != self.binder.merged_symbol(target_symbol)
+            || source_arguments.len() != target_arguments.len()
+            || self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        let Some(variances) = self.inference_variances(symbol) else { return Some(None) };
+        if variances.len() != source_arguments.len() {
+            return Some(None);
+        }
+        let reliability = self.variance_reliability(symbol, variances.len());
+        let covariant_void =
+            target_arguments.iter().zip(&variances).any(|(&argument, variance)| {
+                *variance == Variance::Covariant
+                    && self.type_of(argument).flags.intersects(TypeFlags::VOID)
+            });
+        if reliability.iter().any(|flags| !flags.is_empty())
+            || covariant_void
+            || variances.contains(&Variance::Invariant)
+        {
+            return None;
+        }
+        for ((&s, &t), variance) in source_arguments.iter().zip(&target_arguments).zip(&variances) {
+            let (from, to) = match variance {
+                Variance::Independent | Variance::Invariant => continue,
+                Variance::Covariant => (s, t),
+                Variance::Contravariant => (t, s),
+                Variance::Bivariant => match self.chain_relate(stack, t, s) {
+                    Ternary::Related => continue,
+                    Ternary::Unknown => return Some(None),
+                    Ternary::NotRelated => (s, t),
+                },
+            };
+            match self.chain_relate(stack, from, to) {
+                Ternary::Related => {}
+                Ternary::Unknown => return Some(None),
+                Ternary::NotRelated => return Some(self.explain_pair(stack, from, to, depth)),
+            }
+        }
+        Some(None)
     }
 
     /// `propertiesRelatedTo`, then `signaturesRelatedTo(Call)`, for two plain

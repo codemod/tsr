@@ -933,3 +933,16 @@ loss in the first measurement. The alias is now resolved only without the
 namespace meaning. Measured with oracle filters `lias`, `odule` and
 `amespace`: +8 (`aliasBug`, `aliasErrors`, `internalAlias*`,
 `moduleVisibilityTest3`, …), 0 lost.
+
+## §49 Related declarations on TS2459/TS2460 and TS2724
+
+`reportNonExportedMember` (`checker.go:14908`) adds `'{0}' is declared here.`
+then `and here.` at every declaration of the module's local symbol to TS2459
+(`declares … locally, but it is not exported`) and TS2460 (`… exported as`).
+`errorNoModuleMemberSymbol`'s TS2724 suggestion adds `'{0}' is declared
+here.` at the suggested export's value declaration (`:14898`). The
+import-specifier reporter in symbols.rs (an import-declaration check) built
+the heads alone. It now attaches them through `related_diagnostic_at` (§34);
+the suggestion's symbol is `get_export_of_module(target, suggestion)`.
+Converted (near-full oracle vs `02301e3b`): `importNonExportedMember`–`3`,
+`missingMemberErrorHasShortPath`, `exportSpellingSuggestion`; +6, 0 lost.
