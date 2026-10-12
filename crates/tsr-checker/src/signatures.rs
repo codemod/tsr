@@ -5620,6 +5620,8 @@ impl<'a> Checker<'a, '_> {
                         if let Some(contextual) = self.get_contextually_typed_parameter_type(id)
                             && contextual != self.intrinsics.error
                         {
+                            let contextual =
+                                self.binding_pattern_fallback_for_unknown(id, contextual);
                             return Some(Parameter::new(
                                 name_text,
                                 node.question_token.is_some(),
