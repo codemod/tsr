@@ -977,6 +977,21 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::InferTypeNode(_)) {
             self.check_infer_type_position(node);
         }
+        // `checkEnumMember` (`checker.go:5122`): a private-name member is
+        // TS18024, a `c.error` on the member (its name, by error span).
+        if let Node::EnumMember(member) = typed
+            && matches!(member.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let span = self.error_span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AN_ENUM_MEMBER_CANNOT_BE_NAMED_WITH_A_PRIVATE_IDENTIFIER,
+                    span,
+                ),
+            );
+        }
         // **Every kind 's default arm names**, not
         // just  — §623, and §600's dispatch class for the
         // ninth time.
