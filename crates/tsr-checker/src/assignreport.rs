@@ -2230,6 +2230,7 @@ impl<'a> Checker<'a, '_> {
         // binder's table does not hold (`private [x]: number`; r7-reports §88).
         if !self.binder.symbols().get(symbol).members.is_empty()
             || !self.late_bound_members_of(symbol, false).is_empty()
+            || self.declares_signature_members(symbol)
         {
             return None;
         }
@@ -2245,6 +2246,33 @@ impl<'a> Checker<'a, '_> {
         let bases = self.get_base_types(symbol);
         let &[base] = bases.as_slice() else { return None };
         Some(base)
+    }
+
+    /// Members native binds under internal names that this port's binder
+    /// table leaves out: a class constructor (`__constructor`) and an
+    /// interface's call and construct signatures (`__call`, `__new`). Any of
+    /// them makes `getMembersOfSymbol` non-empty (r7-reports §110).
+    fn declares_signature_members(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => class.members.iter().any(|member| {
+                    matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(_))
+                }),
+                Some(Node::ClassExpression(class)) => class.members.iter().any(|member| {
+                    matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(_))
+                }),
+                Some(Node::InterfaceDeclaration(interface)) => {
+                    interface.members.iter().any(|member| {
+                        matches!(
+                            member,
+                            tsr_ast::TypeElement::CallSignatureDeclaration(_)
+                                | tsr_ast::TypeElement::ConstructSignatureDeclaration(_)
+                        )
+                    })
+                }
+                _ => false,
+            }
+        })
     }
 
     /// The class half of `getSingleBaseForNonAugmentingSubtype`'s gate: no
@@ -7295,6 +7323,11 @@ impl Checker<'_, '_> {
                         '"'
                     };
                     Some(format!("{quote}{}{quote}", literal.text))
+                }
+                // `declarationNameToString`: a numeric name prints as
+                // written (`2.0`), not as its normalized key (r7-reports §110).
+                tsr_ast::PropertyName::NumericLiteral(literal) => {
+                    self.declaration_name_source_text(literal.node_id?)
                 }
                 _ => None,
             }
