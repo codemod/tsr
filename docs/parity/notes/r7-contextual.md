@@ -872,3 +872,17 @@ the default types as `[string, { x: number; y: boolean; }]` under its
 initializer, and any rest element. tsgo's d.ts emit agrees with the port on
 five probes (`[a, {x, y}] = [1, {x: 1, y: true}]`, a nested array pattern, an
 object root holding an array pattern, an excess member, and a short tuple).
+
+## 29. An empty tuple spreads `never`
+
+`checkSpreadExpression` reads `checkIteratedTypeOrElementType(Spread, …)`,
+and a tuple iterates through its base type (`getTupleBaseType`:
+`Array<union of element types>`). For `[]` that is `Array<never>`, so
+`[x, y, z, ...a0] = v` with `a0: []` records `...a0 : never`
+(declarationsAndAssignments 0:486, 0:535). `array_spread_element_type` fell
+to `for_of_element_type`, which treats the empty yield list of an empty
+tuple as an absent yield and answers `any`; the spread line printed `error`.
+`array_spread_element_type` now answers `never` for an empty fixed tuple
+before that road. Routed: the for-of reader (`for_of_yield_types`,
+symbols.rs) still gives `for (const q of a0)` `q : any`, where native gives
+`never`.

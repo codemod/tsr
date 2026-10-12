@@ -1275,6 +1275,16 @@ impl Checker<'_, '_> {
         {
             return Some(arguments[0]);
         }
+        // An empty tuple iterates as its base type `Array<never>`
+        // (`getTupleBaseType` unions zero element types), so its spread
+        // element is `never`: `[x, y, z, ...a0] = v` with `a0: []` records
+        // `...a0 : never` (declarationsAndAssignments). The for-of yield
+        // reader takes an empty tuple's yield list as an absent yield.
+        if self.tuple_element_lists.get(&operand).is_some_and(|(types, _)| types.is_empty())
+            && !self.variadic_tuple_elements.contains_key(&operand)
+        {
+            return Some(self.intrinsics.never);
+        }
         // §567: a STRING spreads to `string`. `checkIteratedTypeOrElementType`
         // reaches `getIteratedTypeOrElementType` and a string-like operand
         // yields `stringType` (`checker.go`'s `isTypeAssignableToKind(…,
