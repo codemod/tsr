@@ -1551,3 +1551,19 @@ Measured on `b9edd1a7`: legacy verdicts unchanged; exact oracle 10925 →
 10925 (the chain rows now match in `unionPropertyExistence` and
 `typeGuardsWithInstanceOfBy*`, which keep other differences), 0 lost; jsTyping
 gap 22 → 22, new_false 0, lost_true 0; Ir gi 0.9999, dm 1.0000.
+
+## §57 A completed no-effects call does not uncertify a union receiver
+
+§49 counted every CALL flow node without an effects signature whose call
+mentions the reference, because `get_effects_signature`'s `None` is also its
+answer for work it has not done. Most such calls are decided negatives: the
+callee's signatures are written and completed (`completed_no_effects_calls`,
+published by `complete_written_no_effects_call`), or an identifier callee's
+function symbol has no effects. `effects_negative_is_certain` now exempts
+those, so `x.m(); x.onlyInOne` on a declared union reports again
+(`unionTypeMembers`' four TS2339 had been held back by the preceding
+`x.commonMethod…(…)` statements).
+
+Measured on `44169174`: diagnostics **+1** case (`unionTypeMembers`), 0 lost;
+exact oracle +1, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir
+gi 0.9998, dm 1.0003.
