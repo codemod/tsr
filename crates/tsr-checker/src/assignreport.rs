@@ -6516,7 +6516,9 @@ impl Checker<'_, '_> {
                 if name.starts_with("__@") || name.starts_with("__#") {
                     return None;
                 }
-                if self.chain_property_is_optional(source, &name)? {
+                // A member without a readable optionality is a synthesized
+                // required one (an import-attributes literal).
+                if self.chain_property_is_optional(source, &name) == Some(true) {
                     return None;
                 }
                 let member = self.get_type_of_property_of_type(source, &name)?;

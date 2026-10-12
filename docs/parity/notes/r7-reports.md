@@ -1913,3 +1913,8 @@ was abandoned. `I → Object` lost `The types returned by 'toString()'…`.
 The check now applies only when both answers are known (source optional,
 target required). This is a fix to §51 as committed; the c50 measurement
 (+18) included the defect.
+
+The same applies to §46's member-to-index arm. A synthesized source
+member with no symbol (an import-attributes literal, `{ field: 0 }`
+against `ImportAttributes`) has no optionality answer. It is required,
+and the arm now relates it instead of declining.
