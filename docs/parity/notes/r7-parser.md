@@ -261,7 +261,8 @@ function whose recovery differed. Each landed as its own commit:
 | `ScanJsxTokenEx`'s text loop (`scanner.go:1281`) | a `<<<<<<< ` marker inside JSX text scanned as `<` tokens | conflictMarkerTrivia3 (types; diagnostics wait on the checker's TS17004, unported) |
 | `parseJSDocComment`'s `PCJSDocComment` (`jsdoc.go:168`) | a list inside a comment's type expression skipped a token it could not use instead of aborting, as every token is that context's element | jsdocFunctionTypeFalsePositive's parse errors (diagnostics wait on TS1098 from the list facts, §10) |
 | `parsePrimaryExpression` / `parseTemplateHead` re-scan gate (`:5551`, `:3691`) | every untagged template was re-scanned, so an unterminated one reported TS1160 a second time after a parser error at it, and the guard dropped the next error at end of file | labeledStatementDeclarationListInLoopNoCrash4 |
-| `parseExpectedMatchingBrackets` (`:971`), `parseImportAttributes` (`:3085`) and the import type's attributes (`:3047`) | a missing `}`, `)` or `]` reported no TS1007 pointing back at its opening bracket; an attribute list without `{` still parsed entries | parser half of ~20 exact-oracle cases (missingCloseBrace*, parserErrorRecovery_ObjectLiteral2–5, …); they turn exact only when the compiler sets the file on parse diagnostics' related information, as `attachFileToDiagnostics` (`:6392`) does — every TSR related row currently prints without a file |
+| `parseExpectedMatchingBrackets` (`:971`), `parseImportAttributes` (`:3085`) and the import type's attributes (`:3047`) | a missing `}`, `)` or `]` reported no TS1007 pointing back at its opening bracket; an attribute list without `{` still parsed entries | parser half of ~20 exact-oracle cases (missingCloseBrace*, parserErrorRecovery_ObjectLiteral2–5, …); the file half is the next row |
+| `attachFileToDiagnostics` (`:6392`), called by `parseSourceFileWorker` | parse diagnostics' related information had no file, so TS1007 and TS8034 printed with no position (the oracle's `R` rows read `-`). The parser never sees the file name (ADR-0016), so `attach_file_to_diagnostics` is the parser's port and `ProgramFile::new` (tsr-compiler, integrator's grant), where name, text and parse diagnostics first meet, calls it. Head diagnostics keep no file: the program reports them per file already. The file image is made only when a diagnostic has related information | the TS1007 bucket (missingCloseBrace\*, exportInFunction, parserErrorRecoveryIfStatement2/3, importAttributes10, …), typedefDuplicateTypeDeclaration |
 | `parseTypedefTag` (`jsdoc.go:1017`) and the reparser's `checkNonIdentifierName` (`reparser.go:41`) | a nameless `@typedef` reported nothing: native reports `Identifier expected` in the comment, and — in a JavaScript file, when the tag has a type — again on the character before the missing name in the file's own diagnostics, as `reparseTags` runs at attach time. This port has no reparser pass; the typedef parse records the position and `attach_jsdoc` reports it. The tag keeps no name rather than native's empty identifier, which the binder would declare | jsdocTypedefNoCrash, jsdocTypedefNoCrash2, misspelledJsDocTypedefTags, checkJsdocTypedefOnlySourceFile (exact oracle) |
 | `parseClassDeclarationOrExpression` (`:1751`), `parseDeclarationWorker`'s `export` arm, `parseImportDeclarationOrImportEqualsDeclaration`'s phase, `parseImportType` (`:3026`) | a node made and then dropped stayed in the node table with no parent: a class expression parsed a declaration and copied it (and a decorated one copied the expression again), `export` became a token node before the parser knew it was not a modifier (`export =`, `export default`, `export {…}`, `export *`, `export as namespace`), `import type A = require(…)` made a `type` token it then recorded as a flag, and `typeof import(…)` wrapped a finished import type in a second one. Across the TypeScript test cases that was 2,155 `ExportKeyword`, 623 `ClassDeclaration`, 68 `ClassExpression` and 9 `TypeKeyword` nodes. Each is now made once. Native leaves an `ExpressionWithTypeArguments` behind when a call or tagged template absorbs it (`parser.go:5462`) and so does this port; the JSDoc tags a rewound speculative parse leaves are not looked at yet | no case moves; `crates/tsr-parser/tests/no_orphans.rs` |
 | `parseSatisfiesTag` (`jsdoc.go:928`) | `@satisfies T` without braces parsed nothing; native expects the braces (`parseJSDocTypeExpression(false)`), reports `'{' expected.` and still takes `T` | checkJsdocSatisfiesTag14 |
@@ -272,6 +273,8 @@ function whose recovery differed. Each landed as its own commit:
 | `parseTypedefTag`'s second `@type` (`jsdoc.go:1048`) | TS8033 carried no related report; native relates TS8034 "The tag was first specified here." at `(0, 0)`, the range it builds | typedefDuplicateTypeDeclaration (with the compiler's related-info file) |
 | `scanner.TokenToString` (`scanner.go:124`) | `'{0}' expected` knew twenty token texts and printed any other kind's name (`'LessThanSlashToken' expected.`) | message text only (the exact oracle; the diagnostics suite compares codes) |
 | `scanString` (`scanner.go:1586`) | an unterminated string literal's value dropped its last character: the slow path ended the value one before the cursor, as if a closing quote had been consumed | scannerStringLiterals (types) |
+| `parseMethodDeclaration`'s `parseFunctionBlockOrSemicolon` (`:1950`, `:3481`) for an object-literal method, with `checkGrammarMethod`'s missing-body arm (`grammarchecks.go:1451`, in `grammar.rs`) and the walk's dispatch (`check.rs`), both integrator's grants | an object-literal method always parsed a block, so `async * x: 1;` reported `'{' expected` at `;` and checked an empty body against the return type `1` (TS2322). The parser's `'{' expected` stood in for the grammar arm, which reports only when the file has no parse errors. With no body, the walk also had to stop running `checkFunctionOrConstructorSymbol` (TS2391/TS2393) on object-literal methods: native reaches them through `checkObjectLiteralMethod` (`checker.go:13865`), never `checkFunctionOrMethodDeclaration` | parser.asyncGenerators.objectLiteralMethods.es2018; objectLiteralMemberWithoutBlock1 now parses cleanly (printer_round_trip +1) |
+| `parseEntityName` (`:2901`) under `parseTypeReference` (`:2858`), with `resolveEntityName`'s missing-name skip (`checker.go:15773`, in `check.rs::check_qualified_type_name_at`, integrator's grant) | native's missing type name is still the head of a dotted name, so as an import type's argument `import.defer("./a")` is the reference `<missing>.defer`, with `')' expected` at `(`; this port ended the type at the missing name and took `.defer` as the import type's qualifier. The parser half alone measured diagnostics +0 / −1 (held earlier): the checker reported TS2503 `Cannot find namespace ''` on the missing head, which native's `resolveEntityName` returns nil for. Without a `.` after it a missing type stays this port's `any` keyword stand-in, where native has a reference to the missing name; both check to `any` with no report | typeofImportDefer (exact oracle: TS1141 span) |
 
 The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
 parseType)`; its diagnostics stand when the list is accepted and the
@@ -295,15 +298,6 @@ Held, with the reason:
 - parserSuperExpression2: the tree matches native's; the extra TS2304 on
   `super<T>` is the checker resolving the type arguments of a super call
   outside a constructor, which native does not.
-
-- `parseEntityName` (`:2901`) under `parseTypeReference`: native's missing
-  type name is still the head of an entity name a `.` qualifies, so
-  `typeof import.defer("./a").Foo` has the argument `<missing>.defer` and
-  `')' expected` at `(`; this port ends the type at the missing name and takes
-  `.defer` as the import type's qualifier. Porting it measured diagnostics
-  +0 / −1: typeofImportDefer gains the TS1141 span but the checker then reports
-  TS2503 `Cannot find namespace ''` on the missing head, which native's
-  `resolveEntityName` skips for a missing name. Lands with that skip.
 
 Refused, with the number:
 
@@ -443,3 +437,40 @@ all of it inside the lib files' long comments:
 How it would be wrong: a `.ts` construct whose `@see`/`@link` comment is no
 longer attached, which shows up as lost `@link` references in the checker's
 JSDoc output (types suite) or in the exact oracle.
+
+## 12. Re-triage on `02301e3` with the exact oracle
+
+Measured 2026-10-12 by the replacement thread, after the queue's first four
+items turned out to be on main already (a206b053, bf980613, the scanner
+cluster, jsxAndTypeAssertion, importCallExpressionIncorrect2, the static-block
+await context). Native run frozen once (`oracle-native`, one worker, under
+`ulimit -v 4500000`: 12,796 cases, 1 `NATIVE_FAILED`, largeControlFlowGraph,
+which is the memory cap, not a parity fact). Base report: 10,295 / 12,797
+EXACT, the integrator's batch-48 number.
+
+`full_oracle_run rank` over the 2,502 non-exact cases, filtered to parse
+diagnostics (TS1xxx, TS17xxx), `parser.*`/`scanner.*` emitters and the
+`node-selection` class:
+
+- parse diagnostics are exact everywhere except the related-information file
+  (§6's `attachFileToDiagnostics` row, ≈21 cases);
+- `node-selection` is 3 cases: decoratorOnArrowFunction and
+  decoratorOnFunctionExpression wait on `Expression::MissingDeclaration` in
+  the generated AST (§1), manyCompilerErrorsInTheTwoFiles on §6's refused
+  full-start placement of missing identifiers (its other row was the
+  `scanString` fix);
+- every other parser-adjacent bucket is the checker's: TS1046 and TS1108
+  spans (`grammarErrorOnFirstToken`, `checkReturnStatement`), TS17004
+  (`checkJsxPreconditions`, unported), the list-fact readers of §10
+  (TS1098/TS1099/TS1092/TS1025/TS1013, 12 cases), TS1326, TS1200, TS1341,
+  TS1368, TS1141 on a JSDoc `@import` specifier, TS8023.
+
+Two parser ports need a checker partner. An object-literal method's
+`parseFunctionBlockOrSemicolon` landed with it, under the integrator's grant
+(§6's table; the parser half alone reports TS2391 on `var v = { foo(); }`).
+`parseEntityName` under `parseTypeReference` landed with `resolveEntityName`'s
+skip of a missing name, under a grant as well.
+
+Parse time is not a wall bottleneck: on domain-model TSR's parse phase is
+17–36 ms against tsgo's 53–66 ms (`--extendedDiagnostics`, noisy 4-core box),
+and the scanner is 8% of single-threaded Ir.

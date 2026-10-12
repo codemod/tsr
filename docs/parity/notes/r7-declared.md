@@ -1359,6 +1359,24 @@ the first suspect) comes before either arm. Local probes: `ParentConfig` and
 `T[P] extends string ? (...args: Parameters<Required<T>[P]>) => 1 : 2` both
 print as native with either arm.
 
+### 40.1 Follow-up: a nested-capture guard ends the OOM, and the case then regresses
+
+The OOM traced to `capture_inline_conditional_constraint`: computing an inline
+conditional mint's distributive constraint at mint time reaches other
+aliases' branches (`capture_conditional_alias_branches`), whose own inline
+mints capture again, so `SimplifyPrivateSpec`'s mutually recursive alias set
+recursed through constraint captures without bound. Native computes that
+constraint lazily (getConstraintOfType on demand). A guard that skips a
+capture nested in another capture (a depth counter in
+`instantiation_expressions`; the inner mint publishes no constraint, as an
+undecidable one publishes none) removed the OOM under both §40 arms.
+
+**Refused all the same.** With the guard, `ParentConfig` resolves and
+thislessFunctionsNotContextSensitive3 goes from 3 to 35 probe diffs against
+native: the resolved mapped type reaches contextual-typing roads that answer
+differently from native's. Neither the arms nor the guard is committed; the next attempt
+starts from that contextual difference, not from the print.
+
 ## 41. An argument-less qualified reference to a fully defaulted generic is its defaults' instance
 
 **Forcing constraint.** fillMissingTypeArguments (`checker.go:19458`) fills
@@ -1448,3 +1466,202 @@ parentheses are. No state.
 **Measured** (unfiltered against `58a511f1`): types **+1, 0 lost**
 (readonlyArraysAndTuples 0:7); diagnostics 0 / 0; jsTyping new_false 0 /
 lost_true 0; Ir gi 0.9999, dm 1.0000.
+
+## 45. §21 landed: `keyof` of a non-generic object that mentions a type parameter resolves now
+
+§21's held diff (`keyof_operand_resolves_now`: a plain object operand that is
+not generic, `is_generic_type`, has its keys now, as getIndexTypeEx defers
+only under shouldDeferIndexType) re-measured on the rebased `cfe2d4e5`: the
+deeplyNestedMappedTypes diagnostic it cost is gone (other lanes' relation
+work since `4af98855`), and the mapped-type rows it unblocks now land too.
+
+**Measured** (unfiltered against `cfe2d4e5`): types **+12, 0 lost**
+(deeplyNestedMappedTypes 11, thislessFunctionsNotContextSensitive1 1);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9998, dm
+1.0000.
+
+## 46. §18 and the wide union-alias slice landed together
+
+§18's frame isolation (getDeclaredTypeOfTypeAlias resolves with no mapper:
+`get_declared_type_of_type_alias` sets the alias-evaluation frames aside for
+the resolution, so React's `type ReactNode = ReactChild | …` first reached
+under `ComponentType<P>`'s frame is published with its alias) and §10.1's
+wide union-alias slice (`is_union_alias_body` admits any constituents, so a
+generic union-bodied alias instance is its instantiated union carrying the
+alias, getUnionTypeEx's alias argument) were held for one
+deeplyNestedMappedTypes diagnostic that §45 now lands. Alone, the slice
+still loses ReactNode's alias (styledComponentsInstantiaionLimitNotReached)
+and HandlerRendererResult's (jsxComplexSignatureHasApplicabilityError):
+that is the frame leak, so the two go in one commit. Measured alone on
+`cfe2d4e5`: the slice +50 / −2 types; with the isolation +61 / 0.
+
+**Measured** (unfiltered against `56aba53c`): types **+50, 0 lost**
+(assignmentTypeNarrowing 9, jsxComplexSignatureHasApplicabilityError 8,
+typePredicateFreshLiteralWidening 4, discriminateWithOptionalProperty3 8,
+unionAndIntersectionInference1 4, awaitedType/awaitedTypeStrictNull 6,
+for-of58 3, and others); diagnostics **+4 cases, 0 lost**
+(coAndContraVariantInferences5, jsxElementTypeLiteralWithGeneric,
+typeAssignabilityErrorMessage, for-of58); jsTyping new_false 0 / lost_true
+0 (one native-absent error fewer); Ir gi 0.9999, dm **1.0012** (the union
+instances are built where the mint was a name).
+
+## 47. A mapped type's members are ordered as compareSymbols orders them
+
+**Forcing constraint.** setStructuredTypeMembers → getNamedMembers
+(`checker.go:22049`) sorts a members table with compareSymbols
+(`utilities.go:366`): symbols with declarations first, by their first
+declaration's position, then by name, then by id. A mapped symbol carries
+its modifiers property's declarations when resolveMappedTypeMembers links
+them. So `{ [K in 2 | 10 | 1]: 1 }` prints `{ 1: 1; 10: 1; 2: 1; }` (names
+compare as strings), and the §33 mapping over `Omit<Mappings, "foo"> &
+Partial<Pick<Mappings, "foo">>` prints `foo?` first, at its declaration in
+`Mappings` (mappedTypeIndexedAccessConstraint's five `mapper` rows, §33's
+residue). TSR kept key order, and an intersection member linked nothing.
+
+**Port.** The member producer sorts its table by `(no origin, the origin's
+first declaration position, name, creation order)`, reusing
+`compare_symbols_key`, and renumbers each mapped slot to its new table index.
+`intersection_modifier_member` now also answers the providing constituent's
+property (the captured slot's origin, or the property symbol), which the
+producer links like any other modifiers property. No state.
+
+The held r6-typesroots3 "mapped member names as native" patch (`afeaa2bce`
+on `box/r7-declared-held`) carries the same ordering over its own member
+pipeline; its name arm is partly §32's.
+
+**Measured** (unfiltered against `27c5925b`): types **+6, 0 lost**
+(mappedTypeIndexedAccessConstraint 5, deeplyNestedMappedTypes 1);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9999, dm
+1.0000.
+
+## 48. A mapped member's name is printed from its linked declarations
+
+**Forcing constraint.** getPropertyNameNodeForSymbolFromNameType
+(`nodebuilderimpl.go:2455`) names a mapped symbol from its name type and the
+declarations it links: a non-identifier name is a string literal when every
+linked declaration is string-named (single-quoted when they all are) or the
+name is not numeric; a negative numeric name is computed (`[-1]`); any other
+is classified (`classifyPropertyName`). So `{ [K in keyof S]: 1 }` over
+`{ 'a-b': 1; "12": 2; 3: 3 }` prints `{ 'a-b': 1; "12": 1; 3: 1; }`, and
+`{ [K in "12" | -1]: 1 }` (nothing linked) prints `{ [-1]: 1; 12: 1; }`.
+§32's rule quoted every non-identifier string key, and the `as`-clause arm
+quoted by the key's literal kind.
+
+**Port.** `mapped_property_printed_name` (the held r6-typesroots3 patch
+`afeaa2bce`'s, which reads the origin's declarations) replaces both arms;
+the origin is computed before the name. No state.
+
+**Measured** (unfiltered against `41565caf`): types 0 / 0, diagnostics 0 / 0,
+jsTyping 0 / 0, Ir gi 1.0001, dm 1.0002. Kept for its prints, which match
+native on every probe above; no corpus row has these shapes.
+
+## 49. A renamed import of a literal-key alias gives a mapped constraint its keys
+
+**Forcing constraint.** declarationEmitAliasFromIndirectFile 1:4:
+`import { key as LocaleKey } from "./locale"` over `export type key = "ar" |
+"bg"`, then `l10ns: {[k in LocaleKey]?: CustomLocale } & { default: Locale }`.
+Native records `{ ar?: CustomLocale | undefined; bg?: CustomLocale |
+undefined; } & { default: Locale; }`; TSR printed the mapped type from its
+parts, `{ [k in LocaleKey]?: CustomLocale; }`. resolveTypeReferenceName
+resolves the renamed specifier to `key` whatever its local name, so the
+constraint is the union and resolveMappedTypeMembers enumerates it. This
+port's annotation road keeps a renamed reference a written mint (only its
+printed name depends on the site), so the mapped producer met a mint it
+cannot enumerate.
+
+**Port.** `mapped_constraint_type` (mapped.rs) gains a TypeReference arm:
+when the written reference answers `error`, `renamed_import_key_constraint`
+resolves an argument-less ALIAS symbol fully; a non-generic TYPE_ALIAS target
+whose declared type is a string or number literal, or a union of them,
+answers that declared type. A mapped constraint is never printed once its
+keys are concrete (the mapped type prints its members), so the site-printed
+name the mint carries has no reader here. No state.
+
+**Alternatives.** Resolving every renamed import to its declared type on the
+annotation road is native's shape, but it moves every printed renamed
+reference, which is the printer's, not this lane's. Admitting any declared
+type (an object, a generic alias) would hand the producer constraints this
+arm has not been measured on; the literal-key slice is what the forcing row
+needs.
+
+**Measured** (unfiltered against `d87e190a`): types **+1, 0 lost**
+(declarationEmitAliasFromIndirectFile 1:4); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 0.9999, dm 0.9998.
+
+**Not reached:** 2:6 and 2:8 print the same type in `app.ts`, where native
+qualifies the template, `import("./locale").CustomLocale | undefined`. A
+plain `CustomLocale | undefined` union read in another file already prints
+unqualified (probe: `d: CustomLocale | undefined` in an interface), so the
+residue is the union printer's qualification, not the mapped type.
+
+## 50. Routed, not ported: three roads met while looking for §49
+
+- **An interface extending a generic alias of an interface reference**
+  (`interface TaggedPair<T> extends Pair<T>` over `type Pair<T> = AB<T, T>`;
+  genericTypeAliases 0:80–0:87, `p.a : number`): `interface_heritage_type`
+  (base_types.rs) answers the alias reference, and the base is valid, but
+  members.rs's `generic_heritage_member` walks `base_symbol_of_heritage_entry`
+  and finds no class or interface behind the alias, so `p.a` is `error`.
+  Even a non-generic `interface X extends Pair<number>` misses. Members.rs's.
+- **`unknown` against a signature type under `strictNullChecks: false`**
+  (awaitedType 0:6, `Awaited<{ then(): void }>`, native `never`):
+  `relate_ternary(unknown, (value: number) => any)` answers `Unknown`, so
+  the conditional's false branch is not taken and the alias is `error`.
+  Strict mode decides it (unknown includes null). The relater's.
+- **Local and non-exported aliases printed structurally**
+  (genericTypeAliases 0:94–0:112, inlineMappedTypeModifierDeclarationEmit,
+  keyRemappingKeyofResult 0:62): native expands an alias the enclosing
+  declaration cannot name (`Foo : T | { x: T | any; }`). The printer's
+  accessibility arm.
+
+
+## 51. An unconstrained parameter is its own restrictive form, and an open conditional reference defers
+
+**Forcing constraint.** deferredConditionalTypes 0:7 and 0:8: over `type
+A<T> = { x: T } extends { x: 0 } ? 1 : 0`, native declares `type T4<T> =
+[A<T>] extends [0, 0] ? 1 : 0` as `0` (and `T5` likewise); TSR declared
+`T4<T>`. Two gaps sat on the road:
+
+1. `A<T>` in an alias-declared position answered `error`. Its check `{ x:
+   T }` is not generic, so `conditional_alias_check_is_deferred` said no,
+   and §36's site keeps the gap for every other refusal. Native's
+   getConditionalType (checker.go:24339) relates the permissive
+   instantiations (related: `{ x: any }` to `{ x: 0 }`), then the
+   restrictive ones (not related), and falls through to the deferred
+   ConditionalType carrying the reference's alias. An open outcome defers
+   exactly as a generic check does.
+2. The restrictive relation answered `Unknown`, because
+   `restrictive_type_parameter` always minted a clone the relater cannot
+   trace to a declaration. getRestrictiveTypeParameter (checker.go:24512)
+   returns the parameter itself when it has no constraint and no constraint
+   declaration; the clone exists only to drop a constraint.
+
+**Port.** `restrictive_type_parameter` returns the parameter when
+`declares_no_constraint` holds (no known constraint, and every declaration
+a type parameter declaration without a constraint node; untraceable
+parameters keep the clone). `conditional_alias_outcome_is_open` binds the
+alias's parameters as `conditional_alias_check_is_deferred` does and
+answers true only when the permissive relation is `Related` and the
+restrictive one is `NotRelated`; infer parameters, an `any` check, an
+`any`/`unknown` extends type, a deferred operand, or any `Unknown` answer
+false. §36's site keeps its gap unless one of the two deferral tests holds.
+No new state: the restrictive cache keeps its key and owner, and a parameter
+that is its own form is never inserted.
+
+**Alternatives.** Teaching the relater to treat an unregistered type
+parameter as unconstrained would decide the clone too, but the clone is
+wrong in the first place for these parameters: native never makes one, so
+a cache keyed by it would hold types native never builds. Accepting
+`Unknown` from the restrictive relation as "open" would publish a deferred
+name where native might take the true branch.
+
+**Measured** (unfiltered against `e9011546`): types **+11, 0 lost**
+(mappedTypeOverlappingStringEnumKeys 5, conditionalTypes2 4,
+deferredConditionalTypes 2); diagnostics **+1 case, 0 lost**
+(mappedTypeOverlappingStringEnumKeys); jsTyping new_false 0 / lost_true 0;
+Ir gi 0.9998, dm 1.0000; exact oracle +1 (mappedTypeOverlappingStringEnumKeys),
+0 lost.
+
+**Not reached:** `[q, r]` over `q: [A<T>]` and `r: A<T>` is still `error`.
+Subtype reduction relates the tuple and the conditional-alias mint, and the
+relater answers `Unknown` (relater.rs, routed).

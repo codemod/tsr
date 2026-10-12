@@ -1721,16 +1721,23 @@ impl Checker<'_, '_> {
                 incomplete: false,
             });
         }
-        if self.store.get(state.declared_type).flags.contains(TypeFlags::UNION) {
-            let declared = state.declared_type;
-            if let Some(assigned) = self.get_initial_or_assigned_type(node) {
-                return Some(FlowType {
-                    t: self.get_assignment_reduced_type(declared, assigned),
-                    incomplete: false,
-                });
-            }
+        // `flow.go:243-246`: in a compound-like assignment (`x = x + 1`) the
+        // declared type reads at its literal's base, so `let x = c` with `c:
+        // ""` is `string` after `x = x + "b"`.
+        let declared = if self.is_in_compound_like_assignment(node) {
+            self.get_base_type_of_literal_type(state.declared_type)
+        } else {
+            state.declared_type
+        };
+        if self.store.get(declared).flags.contains(TypeFlags::UNION)
+            && let Some(assigned) = self.get_initial_or_assigned_type(node)
+        {
+            return Some(FlowType {
+                t: self.get_assignment_reduced_type(declared, assigned),
+                incomplete: false,
+            });
         }
-        Some(FlowType { t: state.declared_type, incomplete: false })
+        Some(FlowType { t: declared, incomplete: false })
     }
 
     /// Whether ANY assignment in the declaration's control-flow container
@@ -2257,6 +2264,22 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `isReadonlySymbol` of a union receiver's property
+    /// (`createUnionOrIntersectionProperty`, `checker.go:21508`): readonly
+    /// when any constituent's property is. `None` unless every constituent
+    /// (by its apparent type) has the property, a union property this port's
+    /// `is_readonly_property_of_type` does not assemble.
+    fn union_property_is_readonly(&mut self, receiver: TypeId, name: &str) -> Option<bool> {
+        let TypeData::Union { types, .. } = &self.store.get(receiver).data else { return None };
+        let mut readonly = false;
+        for part in types.clone() {
+            let apparent = self.apparent_type(part);
+            let property = self.get_property_of_type(apparent, name)?;
+            readonly |= self.constituent_property_is_readonly(apparent, name, property);
+        }
+        Some(readonly)
+    }
+
     pub(crate) fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
@@ -2314,7 +2337,9 @@ impl Checker<'_, '_> {
                 let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
                     return false;
                 };
-                let readonly = self.is_readonly_property_of_type(receiver_type, name.text);
+                let readonly = self
+                    .union_property_is_readonly(receiver_type, name.text)
+                    .unwrap_or_else(|| self.is_readonly_property_of_type(receiver_type, name.text));
                 readonly && self.is_constant_reference(receiver)
             }
             // §904: `case ast.KindElementAccessExpression` shares upstream's
@@ -3607,11 +3632,29 @@ impl Checker<'_, '_> {
         } else if self.nodes.kind(callee_id) == SyntaxKind::SuperKeyword {
             return None;
         } else {
-            // `checkNonNullExpression(node.Expression())`. The optional-chain
-            // arm (`getOptionalExpressionType`) is not split out: this
-            // port's `check_expression` of a chain already answers the
-            // non-optional type at the callee position.
-            self.check_expression(callee)
+            // `checkNonNullExpression(node.Expression())`, or for an optional
+            // call `checkNonNullType(getOptionalExpressionType(…))`: either
+            // way the callee's nullable constituents are gone
+            // (`GetNonNullableType`), so `f?.(x)` with `f: undefined | ((x:
+            // any) => x is number)` reads the predicate.
+            let callee_type = self.check_expression(callee);
+            let optional = call.question_dot_token.is_some()
+                || self.nodes.flags(call_node).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN);
+            let callee_type = if optional {
+                self.get_optional_expression_type(
+                    callee_type,
+                    Some(callee_id),
+                    call.question_dot_token.is_some(),
+                )
+            } else {
+                callee_type
+            };
+            if self.strict_null_checks && self.maybe_type_of_kind(callee_type, TypeFlags::NULLABLE)
+            {
+                self.get_non_nullable_type(callee_type)
+            } else {
+                callee_type
+            }
         };
         if func_type == self.intrinsics.error {
             return None;
@@ -7928,18 +7971,42 @@ impl Checker<'_, '_> {
     /// no already-never constituent, and an intersection reducing to never.
     /// Keep this reduced view separate from the written intersection identity.
     pub(crate) fn intersection_has_never_discriminant(&mut self, ty: TypeId) -> bool {
-        let TypeData::Intersection { types, .. } = &self.store.get(ty).data else {
+        if !matches!(self.store.get(ty).data, TypeData::Intersection { .. }) {
             return false;
-        };
+        }
         if let Some(&reduced) = self.never_intersection_types.get(&ty) {
             return reduced;
         }
-        let types = types.clone();
         self.never_intersection_types.insert(ty, false);
+        let reduced = self.never_reduced_properties(ty, true).is_some();
+        if reduced {
+            self.never_intersection_types.insert(ty, true);
+        }
+        reduced
+    }
+
+    /// `elaborateNeverIntersection`'s property (`checker.go:21868`): of a
+    /// never-reduced intersection, the first discriminant property with a
+    /// `never` type, else the first conflicting private property, with
+    /// whether it is the private kind. `None` when `ty` is not reduced.
+    pub(crate) fn never_reduced_property(&mut self, ty: TypeId) -> Option<(String, bool)> {
+        self.never_reduced_properties(ty, false)
+    }
+
+    /// The scan behind [`Checker::intersection_has_never_discriminant`]
+    /// (`first`: stop at any never-reduced property) and
+    /// [`Checker::never_reduced_property`] (the first discriminant one,
+    /// else the first private one, as `elaborateNeverIntersection` finds
+    /// them over the property list).
+    fn never_reduced_properties(&mut self, ty: TypeId, first: bool) -> Option<(String, bool)> {
+        let TypeData::Intersection { types, .. } = &self.store.get(ty).data else {
+            return None;
+        };
+        let types = types.clone();
         let mut parts = Vec::new();
         let mut names = Vec::new();
         for part in types {
-            let Some(part_names) = self.get_property_names_of_type(part) else { return false };
+            let part_names = self.get_property_names_of_type(part)?;
             for name in &part_names {
                 if !names.contains(name) {
                     names.push(name.clone());
@@ -7947,6 +8014,7 @@ impl Checker<'_, '_> {
             }
             parts.push((part, part_names));
         }
+        let mut private_found = None;
         'property: for name in names {
             // A property contributed by only one constituent cannot acquire
             // a conflicting discriminant or private declaration. Avoid forcing
@@ -7960,8 +8028,13 @@ impl Checker<'_, '_> {
                     .iter()
                     .any(|&symbol| self.property_has_modifier(symbol, SyntaxKind::PrivateKeyword))
             {
-                self.never_intersection_types.insert(ty, true);
-                return true;
+                if first {
+                    return Some((name, true));
+                }
+                if private_found.is_none() {
+                    private_found = Some(name.clone());
+                }
+                continue;
             }
 
             let mut values = Vec::new();
@@ -7995,11 +8068,10 @@ impl Checker<'_, '_> {
                 && values.windows(2).any(|pair| pair[0] != pair[1])
                 && self.get_intersection_type(&values, None) == self.intrinsics.never
             {
-                self.never_intersection_types.insert(ty, true);
-                return true;
+                return Some((name, false));
             }
         }
-        false
+        private_found.map(|name| (name, true))
     }
 
     /// `getKeyPropertyName` with its constituent map

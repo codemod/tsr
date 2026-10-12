@@ -609,7 +609,14 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
-                self.check_function_or_constructor_symbol(node, ambient);
+                // An object-literal method reaches `checkObjectLiteralMethod`
+                // (`checker.go:13865`), never `checkFunctionOrMethodDeclaration`,
+                // so its overloads and missing body are not looked at.
+                if !self.nodes.parent(node).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+                }) {
+                    self.check_function_or_constructor_symbol(node, ambient);
+                }
                 self.check_implicit_any_parameters(node, ambient);
                 self.check_implicit_any_return(node, ambient);
                 // **A member's own `declare` is an ambient context for its
@@ -9662,6 +9669,12 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(namespace_name) = self.identifier_text(left).map(str::to_string) else { return };
+        // `resolveEntityName` returns nil for a missing name
+        // (`ast.NodeIsMissing`, `checker.go:15773`): the parser's missing type
+        // name heading a dotted name, `<missing>.defer`.
+        if namespace_name.is_empty() {
+            return;
+        }
         let Some(member) = self.identifier_text(right).map(str::to_string) else { return };
         // `resolveEntityName(left, SymbolFlagsNamespace)`. `MODULE` rather than
         // the wider `NAMESPACE` keeps a class or enum from answering — the

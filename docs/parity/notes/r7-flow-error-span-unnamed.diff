@@ -1,8 +1,8 @@
 diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
-index 63aa77239..f0408cbe4 100644
+index 63aa77239..1055f3e08 100644
 --- a/crates/tsr-checker/src/check.rs
 +++ b/crates/tsr-checker/src/check.rs
-@@ -13381,6 +13381,43 @@ impl Checker<'_, '_> {
+@@ -13381,6 +13381,54 @@ impl Checker<'_, '_> {
              return self.error_span(name);
          }
          let span = self.nodes.span(node);
@@ -19,6 +19,17 @@ index 63aa77239..f0408cbe4 100644
 +                if span.start != span.end =>
 +            {
 +                if let Some(token) = self.first_token_span(node, span.start) {
++                    return token;
++                }
++            }
++            // `scanner.go:2626`: a `satisfies` expression reports at its
++            // `satisfies` keyword, the token after the expression.
++            SyntaxKind::SatisfiesExpression => {
++                if let Some(Node::SatisfiesExpression(satisfies)) = self.node_map.get(node)
++                    && let Some(expression) = satisfies.expression.and_then(|e| e.node_id())
++                    && let Some(token) =
++                        self.first_token_span(node, self.nodes.span(expression).end)
++                {
 +                    return token;
 +                }
 +            }

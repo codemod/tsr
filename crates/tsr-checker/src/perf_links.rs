@@ -512,11 +512,27 @@ impl Checker<'_, '_> {
             return answer;
         }
         let mark = self.publication_mark();
-        let answer = call
-            .expression
-            .map(|callee| self.check_expression(callee))
-            .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
-            .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
+        let callee = call.expression.map(|callee| self.check_expression(callee));
+        // The resolved signature is one of the callee's call signatures
+        // (`resolveCall`'s candidates), instantiated or not, and an
+        // instantiation keeps each type parameter's const modifier. When the
+        // callee has signatures and none declares one, the answer is `false`
+        // without the
+        // resolution, which inside an overload walk is not published and so
+        // re-ran once per literal member (`r7-perf.md` §35).
+        let no_const_candidate = callee.is_some_and(|callee| {
+            self.signatures_of_type_kind(callee, crate::signatures::SignatureKind::Call)
+                .is_some_and(|signatures| {
+                    !signatures.is_empty()
+                        && !signatures
+                            .iter()
+                            .any(|signature| signature.type_parameters.iter().any(|p| p.is_const))
+                })
+        });
+        let answer = !no_const_candidate
+            && callee
+                .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
+                .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
         self.resolving_signature_calls.remove(&call_id);
         if clean && self.call_link_context_clean() && self.publishable_since(mark) {
             self.perf_links.call_const_type_parameters.insert(call_id, answer);

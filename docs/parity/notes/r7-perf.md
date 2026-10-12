@@ -945,6 +945,219 @@ What remains:
 All of these are r7-flow's (`flow.rs`) and r7-calls' (`calls.rs`,
 `call_reports.rs`) files. They are routed through the integrator.
 
+## §32 Main at batch 51 (`bacf0918`): ratios, and jsTyping's delta by owner
+
+This section is placed before §21 so that it does not touch the lines
+that the proposed branches `box/r7-perf-proposed-rcc` (an append) and
+`box/r7-perf-proposed` (a block before §25) change.
+
+**Ratios** (TSR/tsgo-pinned, `whole_project_perf.py`, one session,
+21 samples, jsTyping 5; median wall · median child CPU):
+
+| project | dist | release |
+|---|---|---|
+| domain-model | **0.489** · 0.393 | 0.557 · 0.436 |
+| domain-model-large | **0.527** · 0.417 | 0.573 · 0.467 |
+| generic-imports | **0.565** · 0.287 | 0.663 · 0.330 |
+| jsTyping | 7.42 · 5.85 | 8.31 · 6.40 |
+
+A later quiet session read main's dist ratios at dm 0.524, dml 0.510 and
+gi 0.604, in the session that measured the proposed chain on
+`box/r7-perf-proposed`. So dm straddles 0.50 between sessions on main alone.
+`diagnostics_match` is true on the three bench projects. jsTyping still
+carries §19's batch-6 regression. The fixes that remove it are on the
+proposed chain (`box/r7-perf-proposed`), which is not landed.
+
+**jsTyping's delta** (TSR 122 unique lines against tsgo's 86): 38 extra
+and 2 missing. These are §21's clusters, re-counted line by line against
+the source:
+
+| cluster | lines | code | sites | owner |
+|---|---:|---|---|---|
+| `Pick<…>` against a string-index target | 8 | TS2345 | `utilities.ts` 9231–9280 | r7-reports (`relater.rs`, `isObjectTypeWithInferableIndex`) |
+| destructuring-assignment narrowing | 5 | TS2322, TS2365 | `semver.ts` 63/73, `program.ts` 1220 ×2, `esDecorators.ts` 1309 | r7-flow (`flow.rs`) |
+| generic-signature assignability | 5 | TS2322, TS2345 | `nodeFactory.ts` 543/579/7158, `moduleNameResolver.ts` 1087, `tsbuildPublic.ts` 1669 | r7-reports / inference (`relater.rs`, `inference.rs`) |
+| tuple context through overloaded `append`/`concatenate` | 4 | TS2322 | `builder.ts` 1304/1432/1494, `declarations.ts` 544 | r7-contextual (`contextual.rs`) |
+| aliased-condition inlining | 3 | TS2345, TS18048 | `checker.ts` 38800/45144/48616 | r7-flow |
+| equality and `asserts` narrowing | 3 | TS18048, TS2345 | `expressionToTypeNode.ts` 596 ×2, `visitorPublic.ts` 362 | r7-flow |
+| closure narrowing of an outer `let` | 3 | TS18048 | `program.ts` 2508/2520/2570 | r7-flow |
+| `BindableStatic*` overloads | 3 | TS2769, TS2322, TS2345 | `utilities.ts` 4187/4258, `binder.ts` 3594 | r7-calls (`calls.rs`) |
+| `??=` RHS return-type inference | 2 | TS7053 | `commandLineParser.ts` 3295/3325 | r7-contextual |
+| `Readonly<array intersection>` | 2 | TS2345 | `resolutionCache.ts` 460/463 | r7-declared (`mapped.rs`) |
+| missing implicit-any reports | 2 missing | TS7006, TS7031 | `sys.ts` 1696 | r7-reports (`implicit_any.rs`) |
+
+Compared with §21, equality/`asserts` narrowing has one TS18048 fewer.
+Every other cluster has the same lines.
+
+Three fresh reductions still reproduce on `bacf0918`. Each prints the
+diagnostic on TSR and nothing on tsgo-pinned (`--strict --target
+es2020`):
+
+```ts
+declare function parse(s: string): { major: number };
+export function d1(major: string | number): number {
+    if (typeof major === "string") ({ major } = parse(major));
+    return major;   // TSR: TS2322 'string | number' is not assignable to 'number'
+}
+interface CO { strict?: boolean; noImplicitAny?: boolean; [option: string]: unknown }
+declare function gsv(o: CO, k: string): boolean;
+export function p1(o: Pick<CO, "strict" | "noImplicitAny">) {
+    return gsv(o, "noImplicitAny");   // TSR: TS2345 'Pick<CO, ...>' is not assignable to 'CO'
+}
+declare function assign<T extends object>(t: T, ...a: T[]): T;
+export function q1(options: Record<string, number>, name: string, value: number) {
+    let result: Record<string, number> | undefined;
+    (result ??= assign({}, options))[name] = value;   // TSR: TS7053 on '{}'
+    return result;
+}
+```
+
+Hand reductions of the aliased-condition, closure and equality clusters
+were silent on both compilers, so those triggers need more of the
+program.
+
+## §34 Refused: lib.dom.d.ts parsed in place on the walk thread
+
+This section is placed before §21, after §32, for the same reason as §32.
+
+**Question.** Since §25, `lib.dom.d.ts` is parsed privately on a worker
+and then copied into the shared tables at its visit. That copy is about
+0.31 of the parse (r5-loader §6.2). On domain-model, the loader is 33 ms
+of a 42–47 ms `Program time`. Would the walk thread do better parsing
+`lib.dom.d.ts` in place, with no copy?
+
+**Variants** (scratch builds of `FileLoader::prepare_root_parses` on main
+`bacf0918`, not committed; dist; interleaved fresh processes, 25 pairs
+each; ratio new/§25):
+
+| variant | domain-model wall | domain-model-large wall | `Program time` |
+|---|---:|---:|---|
+| not prepared; parsed in place at its visit (last) | 1.015 | 1.027 | dm 42 → 44 ms, dml 70 → 81 ms |
+| parsed in place **before** the walk, while workers prepare the roots | 0.996 | 1.019 | dm 42 → 41 ms, dml 77 → 86 ms |
+
+Neither wins. In the first variant the walk thread publishes every root
+before it starts a 15 ms serial parse that §25's worker had already
+finished. In the second the walk thread spends that 15 ms before
+publishing the first root, and the roots' copies then queue behind it.
+dml has 202 roots, so it loses most. The second variant also changes
+the node-id order (lib.dom before the roots), which would have needed
+its own output audit. §25's arrangement stays. Without ADR-0056's
+zero-copy publication, there is no faster arrangement of these jobs on
+domain-model or domain-model-large.
+
+## §35 A call whose callee declares no const type parameter is not resolved again for a literal's const context
+
+This section is placed before §21, after §34, for the same reason as §32.
+The change is in this lane's `perf_links.rs` and lands on `box/r7-perf`.
+
+**Forcing measurement.** A single-threaded perf profile of jsTyping, on
+the chain of §31 and §33 (profiling build, frame pointers), puts 4.7% of
+all samples under `call_resolves_const_type_parameter`. That function is
+reached from `literal_in_const_type_variable_context` through
+`check_object_literal_members`, inside `choose_construct_overload`'s
+argument walk. The pattern is `getScriptTargetFeatures`'
+`new Map(Object.entries({ … }))`. For every member of the inner literal,
+the port asked whether `Object.entries(…)`'s resolved signature
+declares a const type parameter. Inside the outer overload walk an
+inference context is active, so the per-call answer
+(`perf_links.call_const_type_parameters`) is not published, and the
+call was resolved again for each member.
+
+**Native.** `isConstContext`'s type-variable arm
+(`checker.go:13618`) reads the literal's contextual type, which comes
+from the call's resolved signature. That signature is one of the
+callee's call signatures, possibly instantiated, and instantiation keeps
+each type parameter's `const` modifier. When no candidate declares one,
+the answer cannot be true.
+
+**Change.** `call_resolves_const_type_parameter` reads the callee's
+call signatures (`signatures_of_type_kind`, which applies the apparent
+type as resolution does). When there is at least one and none declares
+a const type parameter, it answers `false` without resolving the call.
+An empty or undecided signature list keeps the old road. This is not a
+new cache: the existing per-call answer keeps its publication rules.
+
+**Measured** (base: main `cac2f4c8`, batch 56):
+
+- Both unfiltered dumps are byte-identical to a freeze of `cac2f4c8`
+  once the `ms=`/`mib=` columns are cut. `compare` reports 0 gained,
+  0 lost and 0 missing.
+- jsTyping leg against tsgo-pinned (86 lines). Default mode: base 111,
+  candidate 111, identical. `--singleThreaded`: 109 and 109, identical.
+  new_false 0, lost_true 0. CLI output is `cmp`-identical on dm, dml
+  and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,609 → 10,609
+  exact, 0 lost, 0 missing.
+- Callgrind Ir, `--singleThreaded`: generic-imports 191,608,893 →
+  191,610,958; domain-model 858,068,852 → 858,138,769 (+0.008%). The
+  bench projects have no such call.
+- jsTyping `--singleThreaded`, interleaved, 3 runs each, on a box shared
+  with a gate run: user CPU 33.4–33.8 s → 30.4–31.2 s (**−7%**). On the
+  §31 chain, which already removes §24's re-check loops, single-threaded
+  wall went 8.97 → 7.80 s (−13%).
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,848 passed, 0 failed.
+
+**Side finding: jsTyping's output depends on the checker mode.** On main,
+`--singleThreaded` reports 120 unique lines and the default
+4-checker mode reports 122. The two extra lines are the `BindableStatic*`
+cluster of §32: `utilities.ts(4187,92)` TS2769 and
+`utilities.ts(4258,13)` TS2322. tsgo prints neither. The two modes
+differ only in what the checker has resolved before it reaches
+`utilities.ts`. So the cluster's answer depends on evaluation order:
+it is an order bug in the overload or alias road, not a missing rule
+(r7-calls). This change leaves both modes' outputs
+unchanged.
+
+**How we would know it was wrong.** A call whose resolved signature
+declares a const type parameter that none of `signatures_of_type_kind`'s
+answers declares, for example a signature synthesised for a union callee.
+A literal in that call would lose its const context and widen, which a
+types row would show.
+
+## §37 Routed: a generic alias's mapped branch is resolved at its declaration
+
+This section is placed before §21, after §35, for the same reason as §32.
+It records a measurement and a routing. Nothing is built here.
+
+**Forcing measurement.** On domain-model-large with the chain (§31),
+`check_type_alias_circularity` costs 161 M Ir (4.6%) over 200
+`FrozenModelNNN = DeepReadonly<ModelNNN>` aliases, about 800 K Ir per
+alias. A generated file isolates it (`/tmp/box/micro`, not committed).
+It has 200 pairs of interfaces shaped like the bench's `ModelNNN` and
+`ModelNNNLine`, and the bench's `DeepReadonly`. Check time is the
+minimum of 5 runs, `--singleThreaded --skipLibCheck`, release:
+
+| file | TSR check | tsgo check |
+|---|---:|---:|
+| interfaces only | 7 ms | 4 ms |
+| + 200 `type FNNN = DeepReadonly<MNNN>` | 48 ms | 6 ms |
+| + 200 `const fNNN: FNNN = mNNN` | 56 ms | 34 ms |
+
+Declaring the aliases costs TSR 41 ms and tsgo 2 ms. Using each alias
+once in an assignment costs tsgo 28 ms, because that is where its lazy
+members resolve, and TSR 8 ms more on top of its 41 ms. In total TSR
+pays 49 ms against tsgo's 30 ms.
+
+**Where TSR's cost is.** A callgrind of the declaration-only file
+(profiling build) puts 194 M of
+`evaluate_conditional_node`'s 206 M Ir under `get_type_from_type_node`
+of the branches. The true branch
+`{ readonly [K in keyof T]: DeepReadonly<T[K]> }` is resolved member by
+member at the declaration, and each member's `DeepReadonly<T[K]>` again,
+down to the leaves. `infer_conditional_parameters` (the
+`T extends (infer U)[]` test) is the next largest, at 42 M Ir over
+200 aliases. Native's `getConditionalType` picks the branch
+and `instantiateType`s it, and a mapped type's instantiation is a new
+deferred object type whose members `resolveStructuredTypeMembers`
+computes only when a relation or property access reads them.
+
+**Routing.** Lazy members for an instantiated mapped type belong to
+r7-declared (`declared.rs`, `mapped.rs`). This lane does not build them.
+The table bounds the gain on this pattern: the 41 ms at declaration
+would become use-time work only for the members a relation reads, and
+tsgo needs 30 ms for declaration and use together.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):

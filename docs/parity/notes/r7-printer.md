@@ -1373,3 +1373,79 @@ native's loop, which skips the shadowed text. No cache or table.
 see the gate record in the integration report.
 `inferenceContextualReturnTypeUnion3` (2 lines) still differs: there the
 port's multi-signature print names a declaration `T` but its uses `T_1`.
+
+## 35. A spread object's members are printed at the site
+
+**Forcing constraint.** `spreadExpressionContextualTypeWithNamespace`,
+16 lines: for `const thing = { ...stuff }` over a namespace import, native
+prints `klass: typeof stuff.klass`; the port printed `typeof klass`.
+
+**Cause.** Native serializes each member at the print site
+(`createTypeNodesFromResolvedType` → `addPropertyToElementList`), where
+`klass` is reached through the namespace import. The port's certified
+member renderer refuses a literal with a spread
+(`object_member_plan_matches_source`), so the image kept its creation-time
+member print.
+
+**The port.** `spread_object_text_at` (printing.rs), after the certified
+and deferred roads:
+- it rebuilds the member list from the image's own complete properties and
+  requires it to reproduce the baked text exactly, or it declines;
+- it then re-prints, at the site, each property that yields one plain
+  property member;
+- methods, accessors, literal and intrinsic slots keep their print, as the
+  certified renderer keeps them;
+- a slot whose baked text is not its type's own site-free print keeps it.
+  The producer adjusted that display. The first cut lacked this guard and
+  lost `spreadObjectPermutations` 0:9/0:10 (×2 configurations): the optional
+  `x?: string | number` re-printed with the optionality's `| undefined`,
+  which `addPropertyToElementList` removes.
+
+The visited check is `rendering_composites`. No cache or table.
+
+**Alternative rejected.** Certifying spread plans in
+`object_member_plan_matches_source` would reshape r7-perf's certified plan
+for every spread literal. This road only re-prints slot texts and leaves
+member names, order and kinds as already printed.
+
+## 36. A synthesized object image's members are printed at the site too
+
+**Forcing constraint.** `legacyNodeModulesExportsSpecifierGenerationConditions`,
+3 lines: `(await import("inner"))` prints
+`{ x: () => import("./node_modules/inner/private").Thing; default: typeof import("inner"); }`
+natively; the port printed `x: () => Thing`.
+
+**Cause.** The module object of a dynamic import under the synthetic
+default (`getTypeWithSyntheticDefaultImportType`) is an owner-less image
+(`Named { members: None }` with complete properties). Its members kept their
+creation-time print, and no site road reached it.
+
+**The port.** §35's `spread_object_text_at` also admits an owner-less image,
+under the same guard: the rebuilt member list must reproduce the baked text
+exactly, and only plain property slots are re-printed. No cache or table.
+
+A resolved mapped object is excluded: it is owner-less too, but
+`mapped_object_text_at` prints it at the site later in the worker,
+computed keys included. The first cut pre-empted that road and lost
+`declarationEmitMappedTypeTemplateTypeofSymbol` 1:1/1:2
+(`[x.timestampSymbol]` printed `[timestampSymbol]`), at +51 / −2.
+
+## 37. A renamed signature whose substitution declines still declares its new names
+
+**Forcing constraint.** `inferenceContextualReturnTypeUnion3`, 2 lines:
+inside `<T extends object>(obj: T) => …`, `Reflect.set` prints natively as
+`{ <T_1 extends object, P extends PropertyKey>(target: T_1, …) … }`. The
+port printed `<T extends object, …>(target: T_1, …)`, contradicting itself.
+
+**Cause.** `rename_type_parameters_for_site` allocates the shadowed
+parameter's fresh name by type id (`T_1`) and then substitutes it through
+the signature (`instantiate_signature`). For `Reflect.set` the substitution
+declines (its conditional slot `P extends keyof T ? T[P] : any`), and the
+function returned the original signature. The slots, printed at the site
+through the by-id allocation, still said `T_1`, while the declaration kept
+`T`.
+
+**The port.** When the substitution declines, the declarations are renamed
+in place to the allocated names. The slots keep their by-id names, so
+declaration and uses agree, as native's `typeParameterToName` cache does.
+No cache or table.
