@@ -2995,3 +2995,16 @@ Routed from r7-calls (`recursiveTypeRelations`).
   the numeric name's source text (`subtypingWithObjectMembers2` is EXACT).
 - **Measured.** Quick oracles over `ubtyping`, `nterface`, `lass`, `ases` and
   `mplement`: 0 lost.
+
+## 111. Alias instantiations of tuple types read their bodies; computed names print as written
+
+- **`type T1<T> = [number, T1<{ x: T }>]`.** The port mints `T1<U>` under its
+  alias name, not as the tuple it stands for, so the retrace found no
+  tuple arm and declined. Native relates the tuple: `Type at position 0 in
+  source is not compatible with type at position 0 in target.` / `Type
+  'number' is not assignable to type '42'.` (`inferFromNestedSameShapeTuple`).
+  When either side is an alias instantiation whose evaluated body
+  (`evaluate_alias_body`) is a tuple, the tuple arm now reads the body.
+  Two instantiations of the same alias are left to alias variance.
+- **Measured.** Quick oracles over `uple`, `nfer`, `ecursive` and `lias`: 0
+  lost.
