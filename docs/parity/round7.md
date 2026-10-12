@@ -868,3 +868,13 @@ previous freeze: types +39 RIGHT / 0 lost / 0 missing, diagnostics +9 cases / 0 
 | `checker_types_configured` | 1,829 | 1,829 |
 | `diagnostics` | 5,052 | 5,059 |
 | `diagnostics_configured` | 1,016 | 1,018 |
+
+**Batch 47 note (integration owner).** The loop's gate was OOM-killed four
+times in the exact-oracle leg. The memory logger the gate now carries
+(`mem.log`) showed TSR's serve worker growing past 4.5 GB on one case,
+compiler/recursiveConditionalCrash3. It was a plain TSR_TIMEOUT up to batch 46
+and allocates much faster with batch 47's merge set. The oracle leg runs on one
+worker under `ulimit -v 4500000`, so such a case reads TSR_FAILED instead of
+killing the orb. It was never EXACT, so this is not a parity loss, but it is a
+resource regression, routed to r7-perf to attribute and to port native's
+instantiation-depth/count limits.
