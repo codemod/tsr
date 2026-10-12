@@ -6610,13 +6610,15 @@ impl Checker<'_, '_> {
         self.explain_object_relation(stack, source, target, depth, false)
     }
 
-    /// `propertiesRelatedTo`'s tuple-target arm (`relater.go:4103`) for a
-    /// fixed tuple target (required elements only) against a fixed tuple or
-    /// an array source: the arity messages, then the first element that
-    /// fails (`Type at position i in source is not compatible with type at
-    /// position i in target.` when either side has more than one element).
-    /// A readonly source against a mutable target, an optional, rest or
-    /// variadic element on either side, decline (r7-reports §52).
+    /// `propertiesRelatedTo`'s tuple-target arm (`relater.go:4103`) for tuples
+    /// of required, optional and rest elements, and an array source (all
+    /// rest): the arity messages in native's order, then each source position
+    /// against its target position (`Source provides no match for required
+    /// element at position i in target.`, then the element relation, with
+    /// `Type at position(s) …` when either side has more than one element).
+    /// A readonly source against a mutable target, a variadic element, and an
+    /// element failure where either side is optional (whose types native
+    /// compares with `removeMissingType`) decline (r7-reports §52, §87, §89).
     fn explain_fixed_tuple_target(
         &mut self,
         stack: &mut ChainStack,
@@ -6625,46 +6627,60 @@ impl Checker<'_, '_> {
         depth: usize,
     ) -> Option<()> {
         use crate::relater::Ternary;
-        // A labeled tuple carries an optional mask even when no element is
-        // optional; only a set bit makes it unfixed (r7-reports §87).
-        let fixed = |checker: &Self, ty: TypeId| {
-            if checker.tuple_optional_masks.get(&ty).is_some_and(|mask| mask.contains(&true))
-                || checker.variadic_tuple_elements.contains_key(&ty)
-                || checker.tuple_rest_tails.contains_key(&ty)
-            {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum Kind {
+            Required,
+            Optional,
+            Rest,
+        }
+        let shape = |checker: &Self, ty: TypeId| -> Option<(Vec<(TypeId, Kind)>, bool)> {
+            if let Some((elements, readonly)) = checker.variadic_tuple_elements.get(&ty) {
+                let mut shape = Vec::with_capacity(elements.len());
+                for element in elements {
+                    if element.spread {
+                        // A rest element over an array; a variadic `...T`
+                        // declines.
+                        checker.array_reference_readonly(element.r#type)?;
+                        let item =
+                            checker.type_reference_targets.get(&element.r#type)?.1.first()?;
+                        shape.push((*item, Kind::Rest));
+                    } else if element.optional {
+                        shape.push((element.r#type, Kind::Optional));
+                    } else {
+                        shape.push((element.r#type, Kind::Required));
+                    }
+                }
+                return Some((shape, *readonly));
+            }
+            if checker.tuple_rest_tails.contains_key(&ty) {
                 return None;
             }
-            checker.tuple_element_lists.get(&ty).cloned()
+            let (types, readonly) = checker.tuple_element_lists.get(&ty)?;
+            let mask = checker.tuple_optional_masks.get(&ty);
+            let kind = |index: usize| {
+                if mask.and_then(|mask| mask.get(index)).copied().unwrap_or(false) {
+                    Kind::Optional
+                } else {
+                    Kind::Required
+                }
+            };
+            Some((
+                types.iter().enumerate().map(|(index, &ty)| (ty, kind(index))).collect(),
+                *readonly,
+            ))
         };
-        // A target with one trailing rest element (`[A, B, ...C[]]`): only
-        // the first arity check reads it, a fixed source shorter than the
-        // target's required elements (`relater.go:4110`, `minLength`).
-        if fixed(self, target).is_none()
-            && let Some((elements, target_readonly)) =
-                self.variadic_tuple_elements.get(&target).cloned()
-        {
-            let (last, leading) = elements.split_last()?;
-            if !last.spread
-                || self.array_reference_readonly(last.r#type).is_none()
-                || leading.iter().any(|element| element.spread || element.optional)
-            {
-                return None;
-            }
-            let (source_elements, source_readonly) = fixed(self, source)?;
-            if source_readonly && !target_readonly {
-                return None;
-            }
-            if source_elements.len() < leading.len() {
-                stack.push(ChainEntry {
-                    message: &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_REQUIRES_1,
-                    args: vec![source_elements.len().to_string(), leading.len().to_string()],
-                });
-                return Some(());
-            }
+        let (target_elements, target_readonly) = shape(self, target)?;
+        let (source_elements, source_readonly, source_is_array) =
+            if let Some(readonly) = self.array_reference_readonly(source) {
+                let element = *self.type_reference_targets.get(&source)?.1.first()?;
+                (vec![(element, Kind::Rest)], readonly, true)
+            } else {
+                let (elements, readonly) = shape(self, source)?;
+                (elements, readonly, false)
+            };
+        if source_readonly && !target_readonly {
             return None;
         }
-        let (target_elements, target_readonly) = fixed(self, target)?;
-        let target_arity = target_elements.len();
         let push_count = |stack: &mut ChainStack,
                           message: &'static tsr_diagnostics::Message,
                           args: Vec<usize>| {
@@ -6674,49 +6690,96 @@ impl Checker<'_, '_> {
             });
             Some(())
         };
-        if let Some(readonly) = self.array_reference_readonly(source) {
-            if readonly && !target_readonly {
-                return None;
-            }
-            // An array source is all rest: its minimum length is 0.
-            let message = if target_arity > 0 {
-                &messages::TARGET_REQUIRES_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_FEWER
-            } else {
-                &messages::TARGET_ALLOWS_ONLY_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_MORE
-            };
-            return push_count(stack, message, vec![target_arity]);
-        }
-        let (source_elements, source_readonly) = fixed(self, source)?;
-        if source_readonly && !target_readonly {
-            return None;
-        }
+        let required = |elements: &[(TypeId, Kind)]| {
+            elements.iter().filter(|element| element.1 == Kind::Required).count()
+        };
         let source_arity = source_elements.len();
-        if source_arity < target_arity {
+        let target_arity = target_elements.len();
+        let source_rest = source_elements.iter().any(|element| element.1 == Kind::Rest);
+        let target_has_rest = target_elements.iter().any(|element| element.1 == Kind::Rest);
+        let source_min = if source_is_array { 0 } else { required(&source_elements) };
+        let target_min = required(&target_elements);
+        if !source_rest && source_arity < target_min {
             return push_count(
                 stack,
                 &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_REQUIRES_1,
-                vec![source_arity, target_arity],
+                vec![source_arity, target_min],
             );
         }
-        if target_arity < source_arity {
+        if !target_has_rest && target_arity < source_min {
             return push_count(
                 stack,
                 &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_ALLOWS_ONLY_1,
-                vec![source_arity, target_arity],
+                vec![source_min, target_arity],
             );
         }
-        for (position, (&from, &to)) in source_elements.iter().zip(&target_elements).enumerate() {
+        if !target_has_rest && (source_rest || target_arity < source_arity) {
+            return if source_min < target_min {
+                push_count(
+                    stack,
+                    &messages::TARGET_REQUIRES_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_FEWER,
+                    vec![target_min],
+                )
+            } else {
+                push_count(
+                    stack,
+                    &messages::TARGET_ALLOWS_ONLY_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_MORE,
+                    vec![target_arity],
+                )
+            };
+        }
+        let target_start =
+            target_elements.iter().take_while(|element| element.1 != Kind::Rest).count();
+        let target_end =
+            target_elements.iter().rev().take_while(|element| element.1 != Kind::Rest).count();
+        for (source_position, &(from, source_kind)) in source_elements.iter().enumerate() {
+            let from_end = source_arity - 1 - source_position;
+            let target_position = if target_has_rest && source_position >= target_start {
+                target_arity - 1 - from_end.min(target_end)
+            } else {
+                if source_position >= target_arity {
+                    return push_count(
+                        stack,
+                        &messages::TARGET_ALLOWS_ONLY_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_MORE,
+                        vec![target_arity],
+                    );
+                }
+                source_position
+            };
+            let (to, target_kind) = target_elements[target_position];
+            if target_kind == Kind::Required && source_kind != Kind::Required {
+                return push_count(
+                    stack,
+                    &messages::SOURCE_PROVIDES_NO_MATCH_FOR_REQUIRED_ELEMENT_AT_POSITION_0_IN_TARGET,
+                    vec![target_position],
+                );
+            }
             match self.chain_relate(stack, from, to) {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
+                    if source_kind == Kind::Optional || target_kind == Kind::Optional {
+                        return None;
+                    }
                     self.explain_pair(stack, from, to, depth)?;
                     if target_arity > 1 || source_arity > 1 {
-                        push_count(
-                            stack,
-                            &messages::TYPE_AT_POSITION_0_IN_SOURCE_IS_NOT_COMPATIBLE_WITH_TYPE_AT_POSITION_1_IN_TARGET,
-                            vec![position, position],
-                        );
+                        if target_has_rest
+                            && source_position >= target_start
+                            && from_end >= target_end
+                            && target_start != source_arity - target_end - 1
+                        {
+                            push_count(
+                                stack,
+                                &messages::TYPE_AT_POSITIONS_0_THROUGH_1_IN_SOURCE_IS_NOT_COMPATIBLE_WITH_TYPE_AT_POSITION_2_IN_TARGET,
+                                vec![target_start, source_arity - target_end - 1, target_position],
+                            );
+                        } else {
+                            push_count(
+                                stack,
+                                &messages::TYPE_AT_POSITION_0_IN_SOURCE_IS_NOT_COMPATIBLE_WITH_TYPE_AT_POSITION_1_IN_TARGET,
+                                vec![source_position, target_position],
+                            );
+                        }
                     }
                     return Some(());
                 }

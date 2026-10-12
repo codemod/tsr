@@ -2551,3 +2551,33 @@ no match for the signature` already did. `typePredicateInherit` and
 - **Measured.** Quick oracles against base24 (`ssignmentCompat`, `rivate`,
   `ubtyping`, `ndexSignature`, `onstructor`, `nheritance`, `nterface`,
   `xtends`, `erived`, `bject`): 0 lost after the gate fix.
+
+## 89. The tuple arm with optional and rest elements
+
+`explain_fixed_tuple_target` previously read only fixed tuples, plus §87's
+single required-arity check for a rest target. It now follows
+`propertiesRelatedTo`'s tuple arm (`relater.go:4103-4205`) over a shape of
+required, optional and rest elements:
+
+- **The arity checks**, in native's order, from `minLength` (the count of
+  required elements) and the arities: `Source has N element(s) but target
+  requires M.`, then `… allows only M.`, then `Target requires M element(s)
+  but source may have fewer.` / `Target allows only M element(s) but source
+  may have more.`.
+- **The position walk.** Each source position maps to a target position.
+  When the target has a rest element, the positions past its start count
+  map through the end count. *Source provides no match for required
+  element at position i in target.* fires before the element relation
+  (`optionalTupleElements1`: `T2 → T1` and the other five lines).
+  `Type at positions i through j …` is used where native uses it.
+- **Declines.** A variadic element (`...T`); a readonly source against a
+  mutable target; and an element failure where either side is optional.
+  Native compares optional elements after `removeMissingType`, and this
+  port's element lists may or may not carry the added `undefined`, so the
+  printed pair would not be certain.
+- **The shapes.** `variadic_tuple_elements` is read first, because a tuple
+  with a rest element can also have a `tuple_rest_tails` node. An all-`false`
+  optional mask is a labeled tuple (§87). An array source is one rest
+  element with minimum length 0, which reproduces §52's array messages.
+- **Measured.** Quick oracles against base24 (`uple`, `ariadic`,
+  `estParam`, `pread`, `estructuring`, `ptional`, `rray`): 0 lost.
