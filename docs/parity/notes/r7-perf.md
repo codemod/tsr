@@ -945,6 +945,77 @@ What remains:
 All of these are r7-flow's (`flow.rs`) and r7-calls' (`calls.rs`,
 `call_reports.rs`) files. They are routed through the integrator.
 
+## §32 Main at batch 51 (`bacf0918`): ratios, and jsTyping's delta by owner
+
+This section is placed before §21 so that it does not touch the lines
+that the proposed branches `box/r7-perf-proposed-rcc` (an append) and
+`box/r7-perf-proposed` (a block before §25) change.
+
+**Ratios** (TSR/tsgo-pinned, `whole_project_perf.py`, one session,
+21 samples, jsTyping 5; median wall · median child CPU):
+
+| project | dist | release |
+|---|---|---|
+| domain-model | **0.489** · 0.393 | 0.557 · 0.436 |
+| domain-model-large | **0.527** · 0.417 | 0.573 · 0.467 |
+| generic-imports | **0.565** · 0.287 | 0.663 · 0.330 |
+| jsTyping | 7.42 · 5.85 | 8.31 · 6.40 |
+
+A later quiet session read main's dist ratios at dm 0.524, dml 0.510 and
+gi 0.604, in the session that measured the proposed chain on
+`box/r7-perf-proposed`. So dm straddles 0.50 between sessions on main alone.
+`diagnostics_match` is true on the three bench projects. jsTyping still
+carries §19's batch-6 regression. The fixes that remove it are on the
+proposed chain (`box/r7-perf-proposed`), which is not landed.
+
+**jsTyping's delta** (TSR 122 unique lines against tsgo's 86): 38 extra
+and 2 missing. These are §21's clusters, re-counted line by line against
+the source:
+
+| cluster | lines | code | sites | owner |
+|---|---:|---|---|---|
+| `Pick<…>` against a string-index target | 8 | TS2345 | `utilities.ts` 9231–9280 | r7-reports (`relater.rs`, `isObjectTypeWithInferableIndex`) |
+| destructuring-assignment narrowing | 5 | TS2322, TS2365 | `semver.ts` 63/73, `program.ts` 1220 ×2, `esDecorators.ts` 1309 | r7-flow (`flow.rs`) |
+| generic-signature assignability | 5 | TS2322, TS2345 | `nodeFactory.ts` 543/579/7158, `moduleNameResolver.ts` 1087, `tsbuildPublic.ts` 1669 | r7-reports / inference (`relater.rs`, `inference.rs`) |
+| tuple context through overloaded `append`/`concatenate` | 4 | TS2322 | `builder.ts` 1304/1432/1494, `declarations.ts` 544 | r7-contextual (`contextual.rs`) |
+| aliased-condition inlining | 3 | TS2345, TS18048 | `checker.ts` 38800/45144/48616 | r7-flow |
+| equality and `asserts` narrowing | 3 | TS18048, TS2345 | `expressionToTypeNode.ts` 596 ×2, `visitorPublic.ts` 362 | r7-flow |
+| closure narrowing of an outer `let` | 3 | TS18048 | `program.ts` 2508/2520/2570 | r7-flow |
+| `BindableStatic*` overloads | 3 | TS2769, TS2322, TS2345 | `utilities.ts` 4187/4258, `binder.ts` 3594 | r7-calls (`calls.rs`) |
+| `??=` RHS return-type inference | 2 | TS7053 | `commandLineParser.ts` 3295/3325 | r7-contextual |
+| `Readonly<array intersection>` | 2 | TS2345 | `resolutionCache.ts` 460/463 | r7-declared (`mapped.rs`) |
+| missing implicit-any reports | 2 missing | TS7006, TS7031 | `sys.ts` 1696 | r7-reports (`implicit_any.rs`) |
+
+Compared with §21, equality/`asserts` narrowing has one TS18048 fewer.
+Every other cluster has the same lines.
+
+Three fresh reductions still reproduce on `bacf0918`. Each prints the
+diagnostic on TSR and nothing on tsgo-pinned (`--strict --target
+es2020`):
+
+```ts
+declare function parse(s: string): { major: number };
+export function d1(major: string | number): number {
+    if (typeof major === "string") ({ major } = parse(major));
+    return major;   // TSR: TS2322 'string | number' is not assignable to 'number'
+}
+interface CO { strict?: boolean; noImplicitAny?: boolean; [option: string]: unknown }
+declare function gsv(o: CO, k: string): boolean;
+export function p1(o: Pick<CO, "strict" | "noImplicitAny">) {
+    return gsv(o, "noImplicitAny");   // TSR: TS2345 'Pick<CO, ...>' is not assignable to 'CO'
+}
+declare function assign<T extends object>(t: T, ...a: T[]): T;
+export function q1(options: Record<string, number>, name: string, value: number) {
+    let result: Record<string, number> | undefined;
+    (result ??= assign({}, options))[name] = value;   // TSR: TS7053 on '{}'
+    return result;
+}
+```
+
+Hand reductions of the aliased-condition, closure and equality clusters
+were silent on both compilers, so those triggers need more of the
+program.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
