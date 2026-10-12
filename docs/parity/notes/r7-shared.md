@@ -972,7 +972,14 @@ all at heritage checks that now compare substituted members:
 
 The read is native's on every witness probed. What it exposes are gaps in
 consumers that the raw `this` used to hide, so it stays on
-`box/r7-shared-held` until the two routed items land. This is a correctness
+`box/r7-shared-held` until the two routed items land.
+
+Re-measured on batch 46 (`57e45ae7`), per commit, measurement chain only:
+
+| commit | types | diagnostics | losses |
+|---|---|---|---|
+| read + mapper + heritage form | +5 / −3 | +2 / −3 | `inferenceErasedSignatures` ×3 types (relater); `superPropertyAccessNoError` (super); `coAndContraVariantInferences2`, `arityAndOrderCompatibility01` (cleared by the next commit) |
+| generic-base road | +10 / −1 | +3 / 0 | `inferenceErasedSignatures` 0:45 (relater) | This is a correctness
 prerequisite, not a speed claim.
 
 **Alternatives rejected.**
