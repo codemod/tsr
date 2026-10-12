@@ -2928,3 +2928,27 @@ port reported the bare head.
   `omparab`: `genericTypeAssertions4/5/6`, `typeAssertions`,
   `typeAssertionsWithIntersectionTypes01`, `castingTuple`, `fuzzy` and
   `genericWithNoConstraintComparableWithCurlyCurly` gained, 0 lost.
+
+## 108. TS2417's chain; missing-property names qualified when they print alike
+
+- **TS2417** (`checkKindSpecificInheritance`'s static side):
+  `checkTypeAssignableTo(staticType,
+  getTypeWithoutSignatures(staticBaseType), …,
+  Class_static_side_0_incorrectly_extends_base_class_static_side_1)`. The
+  port reported the bare head. `check.rs`'s static-side check (the TS2417
+  site) now attaches `relation_failure_chain` of the static types. This is a
+  consumer hunk under the default grant. Native compares against the base
+  without signatures. The retrace walks properties before signatures, so
+  the first failing member is the same:
+  - `Types of property 'x' are incompatible.`
+  - `Property 'r' is protected in type 'typeof Derived6' but public in type 'typeof Base'.`
+- **`getTypeNamesForErrorDisplay` in the missing-property messages.**
+  `reportUnmatchedProperty` names its pair through
+  `getTypeNamesForErrorDisplay`, which qualifies both types when they print
+  alike: `Property 'convert' is missing in type 'typeof Path.Utils' but
+  required in type 'typeof Shape.Utils'`. The unqualified names also failed
+  `chainArgsMatch`, so the pair line above was not suppressed
+  (`clodulesDerivedClasses`). `missing_properties_diagnostic` now does the
+  same.
+- **Measured.** Quick oracles over `nheritance`, `tatic`, `lodule`,
+  `erived` and `issing`: 0 lost.
