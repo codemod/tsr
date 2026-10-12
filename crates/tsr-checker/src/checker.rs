@@ -978,6 +978,10 @@ pub struct Checker<'a, 'n> {
     /// type arguments, result alias, inside a mapped template) → the
     /// evaluated type. Completed evaluations only; see `declared.rs`'
     /// `evaluate_conditional_alias`.
+    /// Conditional type nodes whose deferred mint inside a mapped template is
+    /// evaluating its branches now (`declared.rs`, `r7-perf.md` §30): a
+    /// re-entered mint of the same node keeps its root without branches.
+    pub(crate) eager_branch_conditionals: rustc_hash::FxHashSet<NodeId>,
     pub(crate) conditional_alias_instantiations:
         FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>, Option<tsr_binder::SymbolId>, bool), TypeId>,
     /// §107: while true, `instantiate_type` answers an UNMAPPED type
@@ -1701,6 +1705,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             key_names_in_progress: rustc_hash::FxHashSet::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
             conditional_alias_instantiations: FxHashMap::default(),
+            eager_branch_conditionals: rustc_hash::FxHashSet::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,
