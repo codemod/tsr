@@ -899,6 +899,28 @@ stays silent: the relater does not decide `typeof C` → `I<C>` (a static
 method's `void` return against `T`), with or without a decorator
 (`const x: I<C> = C` is silent too). Routed to r7-reports.
 
+## 29. A written type argument that relates to its constraint over type variables
+
+`check_call_type_argument_constraints_with` (`checkTypeArguments`,
+`checker.go:9222`) declined any written type argument or instantiated
+constraint mentioning type variables, before relating them. That keeps out
+a negative answer this port cannot trust over type variables, the same
+refusal `constraints.rs` makes for type references. A positive answer is a
+different matter: `Related` means the candidate passes `checkTypeArguments`,
+so the call goes on to its argument checks exactly as native's does.
+`foo<T, U>(c, d)` inside `function other<T, U extends T>()`
+(genericCallWithObjectTypeArgsAndConstraints4/5) relates `U` to its
+constraint `T` and now reports the argument failure (TS2345, `'T' could be
+instantiated with an arbitrary type…`).
+
+The order is now relate first, then refuse a non-`Related` answer over type
+variables. A pair that still declines now pays for one relation it used to
+skip; written type arguments over type variables are rare, and the Ir
+measurement below covers it. **Falsifier:** a `Related` answer the relater
+gives over type variables where native fails the constraint. That would
+show up as a TS2345 (or other argument report) where native reports
+TS2344.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** Done for a single

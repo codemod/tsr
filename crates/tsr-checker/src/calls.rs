@@ -2108,9 +2108,10 @@ impl Checker<'_, '_> {
     ///
     /// `Some(true)`: every constraint holds. `Some(false)`: a failure was
     /// found (and reported where the relation reporter speaks). `None`: a
-    /// side this port cannot decide — an unresolved argument, a constraint
-    /// or argument mentioning type variables (the refusal
-    /// `constraints.rs`' type-reference check makes), an unknown relation.
+    /// side this port cannot decide — an unresolved argument, a failed
+    /// relation between a constraint or argument mentioning type variables
+    /// (the refusal `constraints.rs`' type-reference check makes; a pair
+    /// that relates is accepted), an unknown relation.
     /// `getTypeWithThisArgument` is not applied (no `this`-typed
     /// constraint reaches here decided).
     fn check_call_type_argument_constraints(
@@ -2138,13 +2139,21 @@ impl Checker<'_, '_> {
             };
             let target = self.instantiate_type(constraint, &map, &parameters, &names);
             let source = map[position].1;
-            if self.is_gap(target)
-                || self.could_contain_type_variables_at_head(source, 3)
+            if self.is_gap(target) {
+                return None;
+            }
+            // A pair mentioning type variables is trusted only when it
+            // relates: a negative answer over one is the refusal above.
+            let related = self.relate_ternary(source, target, Relation::Assignable);
+            if related == Ternary::Related {
+                continue;
+            }
+            if self.could_contain_type_variables_at_head(source, 3)
                 || self.could_contain_type_variables_at_head(target, 3)
             {
                 return None;
             }
-            match self.relate_ternary(source, target, Relation::Assignable) {
+            match related {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
