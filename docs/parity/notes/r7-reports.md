@@ -1690,3 +1690,25 @@ caller is a question for its owner; it is proposed rather than changed.
   nothing below the relation error, whose TS5075/TS5082 explanation
   `chain_report_relation_error` already pushes. `Derived → T` under
   `'number' index signatures are incompatible.` needed this.
+
+## 47. `reportErrorResults`' messages; an object source against a primitive
+
+- **TS2692 / TS2696** (`reportErrorResults`, `relater.go:4717`). Between
+  the structural report and the relation error, an object source against
+  a primitive target gets `'number' is a primitive, but 'Number' is a
+  wrapper object.…` when the source is that primitive's global wrapper
+  interface (`String`, `Number`, `Boolean`, `Symbol`). The global `Object`
+  source gets `The 'Object' type is assignable to very few other types.…`
+  above whatever the structural pass reported (`provides no match for the
+  signature`). `chain_error_results` runs at every chain level and at the
+  head pair, before the relation error. The wrapper comparison reads the
+  global interface symbol at arity 0. `global_type_symbol`'s default
+  arity is 1 and finds none of them.
+- **An object source against a primitive** has no structural arm, so
+  nothing is reported below its relation error except that message.
+- **A target with no properties** needs no source property list.
+  `get_property_names_of_type` has no answer for a function declaration's
+  overload set (`typeof f`, §40). Against a signature-only target the list
+  is never read, so the N×M signature arm now runs:
+  `assignmentCompatWithOverloads`' `g = f4` reads `Type 'string' is not
+  assignable to type 'number'.`

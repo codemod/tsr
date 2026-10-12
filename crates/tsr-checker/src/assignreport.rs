@@ -5621,6 +5621,7 @@ impl Checker<'_, '_> {
     ) -> Option<Diagnostic> {
         let mut stack = ChainStack::default();
         self.explain_relation(&mut stack, source, target, 0)?;
+        self.chain_error_results(&mut stack, source, target);
         let related = std::mem::take(&mut stack.related);
         let entries: Vec<ChainEntry> = stack
             .entries
@@ -5770,10 +5771,62 @@ impl Checker<'_, '_> {
             return Some(());
         }
         self.explain_relation(stack, source, target, depth + 1)?;
+        self.chain_error_results(stack, source, target);
         self.chain_report_relation_error(stack, source, target)?;
         let hint = self.type_parameter_constraint_hint(source, target)?;
         stack.related.extend(hint);
         Some(())
+    }
+
+    /// `reportErrorResults`' switch (`relater.go:4717`), between the
+    /// structural report and the relation error: an object source against
+    /// its own primitive (`String` → `string`, `Number`, `Boolean`, the
+    /// global `Symbol`) is TS2692; the global `Object` source is TS2696
+    /// (r7-reports §47).
+    fn chain_error_results(&mut self, stack: &mut ChainStack, source: TypeId, target: TypeId) {
+        let source_flags = self.type_of(source).flags;
+        if !source_flags.contains(TypeFlags::OBJECT) {
+            return;
+        }
+        // `source == c.globalStringType`: the global interface's own
+        // declared type, read here through the symbol it names.
+        let source_symbol = match &self.type_of(source).data {
+            TypeData::Named { members: Some(symbol), .. } => {
+                Some(self.binder.merged_symbol(*symbol))
+            }
+            _ => None,
+        };
+        let global = |checker: &mut Self, name: &str| {
+            let symbol = checker.global_type_symbol_with_arity(name, 0)?;
+            let symbol = checker.binder.merged_symbol(symbol);
+            (source_symbol == Some(symbol) && !checker.type_reference_targets.contains_key(&source))
+                .then_some(source)
+        };
+        if self.type_of(target).flags.intersects(TypeFlags::PRIMITIVE) {
+            let pairs = [
+                ("String", self.intrinsics.string),
+                ("Number", self.intrinsics.number),
+                ("Boolean", self.intrinsics.boolean),
+                ("Symbol", self.intrinsics.es_symbol),
+            ];
+            for (name, primitive) in pairs {
+                if target == primitive && global(self, name) == Some(source) {
+                    let target_text = self.type_to_string(target);
+                    let source_text = self.type_to_string(source);
+                    stack.push(ChainEntry {
+                        message: &messages::_0_IS_A_PRIMITIVE_BUT_1_IS_A_WRAPPER_OBJECT_PREFER_USING_0_WHEN_POSSIBLE,
+                        args: vec![target_text, source_text],
+                    });
+                }
+            }
+            return;
+        }
+        if global(self, "Object") == Some(source) {
+            stack.push(ChainEntry {
+                message: &messages::THE_OBJECT_TYPE_IS_ASSIGNABLE_TO_VERY_FEW_OTHER_TYPES_DID_YOU_MEAN_TO_USE_THE_ANY_TYPE_INSTEAD,
+                args: Vec::new(),
+            });
+        }
     }
 
     /// `reportErrorResults`' last arm (`relater.go:4741`): an unconstrained,
@@ -5999,6 +6052,15 @@ impl Checker<'_, '_> {
         {
             return None;
         }
+        // An object source against a primitive: no structural arm applies,
+        // so nothing reports below the relation error (`reportErrorResults`
+        // adds the wrapper message).
+        if source_flags.contains(TypeFlags::OBJECT)
+            && target_flags.intersects(TypeFlags::PRIMITIVE)
+            && !target_flags.intersects(TypeFlags::INSTANTIABLE)
+        {
+            return Some(());
+        }
         if !source_flags.contains(TypeFlags::OBJECT) || !target_flags.contains(TypeFlags::OBJECT) {
             return None;
         }
@@ -6109,7 +6171,10 @@ impl Checker<'_, '_> {
         use crate::relater::Ternary;
         use crate::signatures::SignatureKind;
         let names = self.get_property_names_of_type(target)?;
-        self.get_property_names_of_type(source)?;
+        // The source's own members matter only against some target member.
+        if !names.is_empty() {
+            self.get_property_names_of_type(source)?;
+        }
         // `getUnmatchedProperty` first.
         for name in &names {
             if self.get_type_of_property_of_type(source, name).is_none()
