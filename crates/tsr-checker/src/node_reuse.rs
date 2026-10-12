@@ -297,6 +297,19 @@ fn text_precedence(text: &str) -> Precedence {
     }
 }
 
+/// `emitPostfixTypeOperand` (`printer.go:1991`): the operand of an array,
+/// indexed-access or optional type is emitted at postfix precedence, except a
+/// type query under a parse-tree parent, which keeps its written spelling
+/// (`typeof a['a']`, `declarationEmitResolveTypesIfNotReusable`). A reused
+/// node is the parse tree's (r7-printer §48).
+fn postfix_operand(operand: TypeNode<'_>) -> Precedence {
+    if matches!(operand, TypeNode::TypeQueryNode(_)) {
+        Precedence::TypeOperator
+    } else {
+        Precedence::Postfix
+    }
+}
+
 /// `emitTypeNode(node, TypePrecedenceIntersection)` (`printer.go:2274`)
 /// parenthesises a constituent whose node binds below `Intersection`. A
 /// constituent's node kind is only available here as its printed text, so it
@@ -685,6 +698,10 @@ impl<'a> Checker<'a, '_> {
         signature: &crate::signatures::Signature,
         reference: Option<NodeId>,
     ) -> Option<String> {
+        // §44: no reuse with no enclosing declaration.
+        if self.print_without_enclosing {
+            return None;
+        }
         let mut pseudo_owner = None;
         let written = if let Some(written) = signature.written_return {
             written
@@ -775,6 +792,10 @@ impl<'a> Checker<'a, '_> {
         property_type: TypeId,
         reference: Option<NodeId>,
     ) -> Option<String> {
+        // §44: no reuse with no enclosing declaration.
+        if self.print_without_enclosing {
+            return None;
+        }
         let record = self.binder.symbols().get(symbol);
         let declaration =
             record.value_declaration.or_else(|| record.declarations.first().copied())?;
@@ -1549,6 +1570,24 @@ impl<'a> Checker<'a, '_> {
         reference: Option<NodeId>,
     ) -> Option<String> {
         if let Some(written) = &parameter.written_constraint {
+            if let Some(reference) = reference {
+                if self.written_constraint_declares_taken_name(parameter, reference) {
+                    return None;
+                }
+                // r7-printer §52: `typeParameterToDeclaration` reuses the
+                // constraint node at the print site
+                // (`typeToTypeNodeHelperWithPossibleReusableTypeNode`), whose
+                // entity names `trackExistingEntityName` re-spells there:
+                // `T extends import("react").Component<P,
+                // import("react").ComponentState>` outside the module. The
+                // carried text is the declaration-site spelling.
+                if let Some(resolved) = parameter.resolved_type
+                    && let Some(text) =
+                        self.reused_constraint_text(resolved, constraint, Some(reference))
+                {
+                    return Some(text);
+                }
+            }
             return Some(written.clone());
         }
         let resolved = parameter.resolved_type?;
@@ -1565,6 +1604,14 @@ impl<'a> Checker<'a, '_> {
         current: TypeId,
         reference: NodeId,
     ) -> Option<String> {
+        // r7-printer §44: with no enclosing declaration nothing is reused
+        // (`serializeTypeForDeclaration` and
+        // `serializeReturnTypeForSignature` reuse only when
+        // `ctx.enclosingDeclaration != nil`, `nodebuilderimpl.go:2231`,
+        // `:2043`): a message serializes the type.
+        if self.print_without_enclosing {
+            return None;
+        }
         self.annotation_text_at_site(written, current, reference, None)
     }
 
@@ -1584,7 +1631,11 @@ impl<'a> Checker<'a, '_> {
         let mut cx = ReuseContext::new(Some(reference), written.node);
         cx.pseudo_owner = pseudo_owner;
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
-        if written.renamed && self.renamed_declarations_collide(&cx, reference) {
+        // r7-printer §46: any reused node's own type-parameter declarations
+        // take `typeParameterToName`, renamed or not.
+        if (written.renamed || cx.declares_type_parameters)
+            && self.renamed_declarations_collide(&cx, reference)
+        {
             return None;
         }
         (!cx.unnameable).then_some(text)
@@ -1603,6 +1654,67 @@ impl<'a> Checker<'a, '_> {
         // (`type_symbol_baseline.go:394`).
         let enclosing = self.nodes.parent(site).unwrap_or(site);
         cx.declared_type_parameter_names.iter().any(|name| {
+            self.render_type_parameter_names.allocations.iter().any(|(_, text)| text == name)
+                || self.render_type_parameter_scope.iter().any(|(text, _)| text == name)
+                || self
+                    .binder
+                    .resolve_name(self.nodes, self.node_map, enclosing, name, SymbolFlags::TYPE)
+                    .is_some_and(|found| {
+                        self.binder.symbols().get(found).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                    })
+        })
+    }
+
+    /// r7-printer §46: a written constraint that declares type parameters of
+    /// its own (`<T extends <T>(x: T) => void>`) is reused through the
+    /// visitor, whose type-parameter declarations take `typeParameterToName`
+    /// (`nodebuilderimpl.go:1404`): a name the render already holds (the
+    /// outer `T`, named first by `enterNewScope`) or one that resolves at the
+    /// site to another type parameter becomes `T_1`. The visitor does not
+    /// allocate for declarations ([`Checker::renamed_declarations_collide`]),
+    /// so such a constraint is serialized instead, which renames it. A
+    /// message renames nothing (§43). No cache or table.
+    fn written_constraint_declares_taken_name(
+        &self,
+        parameter: &crate::signatures::TypeParameter,
+        reference: NodeId,
+    ) -> bool {
+        if self.print_without_enclosing {
+            return false;
+        }
+        let Some(symbol) =
+            parameter.resolved_type.and_then(|id| self.type_parameter_symbols.get(&id).copied())
+        else {
+            return false;
+        };
+        let Some(constraint) =
+            self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                match self.node_map.get(id)? {
+                    Node::TypeParameterDeclaration(declaration) => declaration.constraint,
+                    _ => None,
+                }
+            })
+        else {
+            return false;
+        };
+        let mut names = Vec::new();
+        let mut stack = vec![Node::from(constraint)];
+        let mut children = Vec::new();
+        while let Some(node) = stack.pop() {
+            if let Node::TypeParameterDeclaration(declaration) = node
+                && let Some(name) = declaration.name
+            {
+                names.push(name.text);
+            }
+            children.clear();
+            tsr_ast::push_children(node, &mut children);
+            stack.extend(children.iter().copied());
+        }
+        if names.is_empty() {
+            return false;
+        }
+        let enclosing = self.nodes.parent(reference).unwrap_or(reference);
+        names.iter().any(|&name| {
             self.render_type_parameter_names.allocations.iter().any(|(_, text)| text == name)
                 || self.render_type_parameter_scope.iter().any(|(text, _)| text == name)
                 || self
@@ -2429,20 +2541,21 @@ impl<'a> Checker<'a, '_> {
                 text
             }
             TypeNode::ArrayTypeNode(array) => {
+                let element = array.element_type?;
                 let mut element =
-                    self.emit_reused_type(array.element_type?, Precedence::Postfix, in_extends, cx);
+                    self.emit_reused_type(element, postfix_operand(element), in_extends, cx);
                 element.push_str("[]");
                 element
             }
             TypeNode::IndexedAccessTypeNode(access) => {
-                let object =
-                    self.emit_reused_type(access.object_type?, Precedence::Postfix, in_extends, cx);
+                let object = access.object_type?;
+                let object = self.emit_reused_type(object, postfix_operand(object), in_extends, cx);
                 let index = self.emit_reused_type(access.index_type?, LOWEST, false, cx);
                 format!("{object}[{index}]")
             }
             TypeNode::OptionalTypeNode(optional) => {
-                let inner =
-                    self.emit_reused_type(optional.r#type?, Precedence::Postfix, in_extends, cx);
+                let inner = optional.r#type?;
+                let inner = self.emit_reused_type(inner, postfix_operand(inner), in_extends, cx);
                 format!("{inner}?")
             }
             TypeNode::RestTypeNode(rest) => {

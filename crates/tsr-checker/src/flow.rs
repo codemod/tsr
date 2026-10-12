@@ -92,6 +92,13 @@ impl AutoFlowType {
     }
 }
 
+/// `getTypeAtFlowLoopLabel`'s converged answers, keyed by the loop label,
+/// the reference (symbol or synthetic owner, with the auto-query bit) and
+/// the initial type: the type, the evolving-array elements its walk
+/// contributed (§739), and whether that walk counted a decline (§49).
+pub(crate) type FlowLoopCache =
+    rustc_hash::FxHashMap<(usize, u64, TypeId), (TypeId, Vec<TypeId>, bool)>;
+
 /// One `getFlowTypeOfReference` invocation's working state
 /// (upstream's `FlowState`, `flow.go`).
 struct FlowState {
@@ -172,6 +179,18 @@ struct FlowState {
     /// `reference[names[0]][names[1]]…`, an element access native
     /// synthesizes for a destructured name. `None` for every real reference.
     synthetic: Option<SyntheticAccess>,
+    /// How many steps of this walk may have answered wider than native: an
+    /// assignment whose assigned type this port cannot reach, a subtype
+    /// reduction the relation could not decide, or a cached loop whose walk
+    /// met one. Nonzero makes the answer uncertified
+    /// ([`Checker::flow_type_is_certified`], `r7-flow.md` §49). A count
+    /// rather than a flag: a step may be met more than once.
+    declines: u32,
+    /// The nodes at which a narrowing left its input unchanged. Each is a
+    /// decline when it mentions the reference
+    /// ([`Checker::mentions_reference_root`]); the test is deferred to
+    /// where an answer is published, and run only for a union answer.
+    unchanged: Vec<NodeId>,
 }
 
 /// The synthetic element access `getFlowTypeOfDestructuring` walks
@@ -448,11 +467,15 @@ impl Checker<'_, '_> {
             element_dedupe_mark: 0,
             depth: 0,
             synthetic: None,
+            declines: 0,
+            unchanged: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        self.flow_result_or_declared(reference, result, parent_union)
+        let answer = self.flow_result_or_declared(reference, result, parent_union);
+        self.record_flow_certainty(&state, reference, answer);
+        answer
     }
 
     /// `getFlowTypeOfReferenceEx`'s explicit `initialType` parameter.
@@ -621,11 +644,23 @@ impl Checker<'_, '_> {
             element_dedupe_mark: 0,
             depth: 0,
             synthetic: None,
+            declines: 0,
+            unchanged: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        self.flow_result_or_declared(reference, result, declared_type)
+        let answer = self.flow_result_or_declared(reference, result, declared_type);
+        self.record_flow_certainty(&state, reference, answer);
+        answer
+    }
+
+    /// Whether `reference`'s flow type is certified: no walk of it met a step
+    /// that may have answered wider than native ([`FlowState::declines`]).
+    /// A reference no walk recorded is certified here; callers decide
+    /// whether its type came from a walk at all. `r7-flow.md` §49.
+    pub(crate) fn flow_type_is_certified(&self, reference: NodeId) -> bool {
+        !self.flow_uncertain_references.contains(&reference)
     }
 
     /// The tail of `getFlowTypeOfReferenceEx` (`flow.go:111`): the declared
@@ -697,11 +732,15 @@ impl Checker<'_, '_> {
             element_dedupe_mark: 0,
             depth: 0,
             synthetic: None,
+            declines: 0,
+            unchanged: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
-        self.flow_result_or_declared(reference, result, any)
+        let answer = self.flow_result_or_declared(reference, result, any);
+        self.record_flow_certainty(&state, reference, answer);
+        answer
     }
 
     /// `getFlowTypeOfDestructuring` (`checker.go:17849`): the flow type of
@@ -754,6 +793,8 @@ impl Checker<'_, '_> {
             element_dedupe_mark: 0,
             depth: 0,
             synthetic: Some(SyntheticAccess { owner: node, names, this_root: false }),
+            declines: 0,
+            unchanged: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -986,6 +1027,8 @@ impl Checker<'_, '_> {
             element_dedupe_mark: 0,
             depth: 0,
             synthetic: None,
+            declines: 0,
+            unchanged: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let answer = self.finalize_evolving_array(&mut state, answer).t;
@@ -1055,6 +1098,8 @@ impl Checker<'_, '_> {
                 names: vec![name.to_string()],
                 this_root: true,
             }),
+            declines: 0,
+            unchanged: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         self.shared_flows.truncate(state.shared_flow_start);
@@ -1161,6 +1206,96 @@ impl Checker<'_, '_> {
             Some(synthetic) if synthetic.this_root => None,
             _ => Some(state.reference),
         }
+    }
+
+    /// Count a step that may have answered wider than native
+    /// ([`FlowState::declines`]): a narrowing at `node` that left its input
+    /// `before` unchanged, when `node` mentions the reference. Native narrows
+    /// or keeps the type at such a node; this port's arms also keep it when
+    /// they cannot decide, and from the result the two are the same, so
+    /// every unchanged answer at a node that could have narrowed is counted
+    /// (`r7-flow.md` §49). A node that does not mention the reference
+    /// cannot narrow it, so the common unrelated condition costs one scan.
+    fn note_unchanged_narrowing(
+        state: &mut FlowState,
+        before: TypeId,
+        after: TypeId,
+        node: NodeId,
+    ) {
+        if before == after {
+            state.unchanged.push(node);
+        }
+    }
+
+    /// Whether the walk so far met a decline since the marks: a counted one,
+    /// or an unchanged narrowing at a node that mentions the reference.
+    fn walk_declined_since(&self, state: &FlowState, declines: u32, unchanged: usize) -> bool {
+        state.declines > declines
+            || state.unchanged[unchanged..]
+                .iter()
+                .any(|&node| self.mentions_reference_root(state, node))
+    }
+
+    /// Publish a finished walk's certificate for `reference`
+    /// ([`Checker::flow_type_is_certified`]). Only a union receiver is ever
+    /// asked about, so the deferred mention test runs only when the answer
+    /// or the declared type the walk started from is a union (a caller may
+    /// widen a non-union answer back toward its declared type).
+    fn record_flow_certainty(&mut self, state: &FlowState, reference: NodeId, answer: TypeId) {
+        let union = [answer, state.declared_type].into_iter().any(|t| {
+            matches!(self.store.get(t).data, TypeData::Union { .. })
+                && !self.store.get(t).flags.contains(TypeFlags::BOOLEAN)
+        });
+        if state.declines > 0 || union && self.walk_declined_since(state, 0, 0) {
+            self.flow_uncertain_references.insert(reference);
+        }
+    }
+
+    /// Whether `node`'s subtree spells the reference's root: an identifier
+    /// with the root's text, or `this`/`super` for a `this` root. A
+    /// superset of the nodes that can match the reference
+    /// (`isMatchingReference`, `containsMatchingReference`, a discriminant
+    /// access on it), decided by text alone so no name resolves here.
+    fn mentions_reference_root(&self, state: &FlowState, node: NodeId) -> bool {
+        let mut root = Self::synthetic_root(state);
+        while let Some(current) = root {
+            match self.node_map.get(current) {
+                Some(
+                    access @ (Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_)),
+                ) => root = access.expression_id(),
+                Some(Node::ParenthesizedExpression(inner)) => {
+                    root = inner.expression.and_then(|e| e.node_id());
+                }
+                _ => break,
+            }
+        }
+        let text = match root.and_then(|root| self.node_map.get(root)) {
+            Some(Node::Identifier(identifier)) => Some(identifier.text),
+            // A `this` root (real or synthetic) or an unreadable one: match
+            // `this`/`super`, and any identifier when unreadable.
+            Some(Node::KeywordExpression(_)) | None => None,
+            Some(_) => return true,
+        };
+        let mut stack = vec![node];
+        while let Some(id) = stack.pop() {
+            let Some(current) = self.node_map.get(id) else { continue };
+            match (current, text) {
+                (Node::Identifier(identifier), Some(text)) if identifier.text == text => {
+                    return true;
+                }
+                (Node::KeywordExpression(keyword), None)
+                    if matches!(
+                        keyword.kind,
+                        SyntaxKind::ThisKeyword | SyntaxKind::SuperKeyword
+                    ) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+            tsr_ast::for_each_child_id(current, |child| stack.push(child));
+        }
+        false
     }
 
     /// For an access reference, real or synthetic: its accessed name when
@@ -1504,18 +1639,51 @@ impl Checker<'_, '_> {
                 // what makes `largeControlFlowGraph` bail deliberately. This
                 // walk skips the node iteratively, so the recursion is
                 // accounted for explicitly — one depth step per mutation.
-                if flags.contains(FlowFlags::ARRAY_MUTATION) && state.evolving.is_some() {
+                // `getTypeAtFlowArrayMutation` (`flow.go:1393`) acts only on
+                // a mutation of the reference itself: `x.push(…)`'s or
+                // `x[i] = …`'s `x`, through `getReferenceCandidate`. Another
+                // array's mutation is passed by (`r7-flow.md` §50).
+                if flags.contains(FlowFlags::ARRAY_MUTATION)
+                    && state.evolving.is_some()
+                    && let Some(mutation) = binder.flow().node(flow)
+                    && let Some(target) = self.array_mutation_target(mutation)
+                    && {
+                        let candidate = self.get_reference_candidate(target);
+                        self.is_matching_reference(state, candidate)
+                    }
+                {
                     // §710: `addEvolvingArrayElementType` — `x.push(a)`
-                    // contributes each argument, `x[i] = e` the right-hand side.
-                    if let Some(mutation) = binder.flow().node(flow) {
+                    // contributes each argument, `x[i] = e` the right-hand
+                    // side when the index is number-like
+                    // (`isTypeAssignableToKind(…, NumberLike)` of its
+                    // context-free type).
+                    {
                         let contributed: Vec<TypeId> = match self.node_map.get(mutation) {
                             Some(Node::CallExpression(call)) => {
                                 call.arguments.iter().map(|&a| self.check_expression(a)).collect()
                             }
-                            Some(Node::BinaryExpression(binary)) => binary
-                                .right
-                                .map(|right| vec![self.check_expression(right)])
-                                .unwrap_or_default(),
+                            Some(Node::BinaryExpression(binary)) => {
+                                let numeric = match binary.left {
+                                    Some(tsr_ast::Expression::ElementAccessExpression(access)) => {
+                                        access.argument_expression.is_some_and(|argument| {
+                                            let index = self.check_expression(argument);
+                                            self.store
+                                                .get(index)
+                                                .flags
+                                                .intersects(TypeFlags::NUMBER_LIKE)
+                                                || self.is_type_assignable_to(
+                                                    index,
+                                                    self.intrinsics.number,
+                                                )
+                                        })
+                                    }
+                                    _ => false,
+                                };
+                                match binary.right {
+                                    Some(right) if numeric => vec![self.check_expression(right)],
+                                    _ => Vec::new(),
+                                }
+                            }
                             _ => Vec::new(),
                         };
                         for element in contributed {
@@ -1714,6 +1882,7 @@ impl Checker<'_, '_> {
                 // status quo. Returning `None` would be worse: the walk would
                 // continue past a real assignment to the `undefined` at the top
                 // of the graph.
+                state.declines += 1;
                 return Some(FlowType { t: state.declared_type, incomplete: false });
             };
             return Some(FlowType {
@@ -1729,13 +1898,15 @@ impl Checker<'_, '_> {
         } else {
             state.declared_type
         };
-        if self.store.get(declared).flags.contains(TypeFlags::UNION)
-            && let Some(assigned) = self.get_initial_or_assigned_type(node)
-        {
-            return Some(FlowType {
-                t: self.get_assignment_reduced_type(declared, assigned),
-                incomplete: false,
-            });
+        if self.store.get(declared).flags.contains(TypeFlags::UNION) {
+            if let Some(assigned) = self.get_initial_or_assigned_type(node) {
+                return Some(FlowType {
+                    t: self.get_assignment_reduced_type(declared, assigned),
+                    incomplete: false,
+                });
+            }
+            // The declared union where native reduces by the assigned type.
+            state.declines += 1;
         }
         Some(FlowType { t: declared, incomplete: false })
     }
@@ -4157,7 +4328,13 @@ impl Checker<'_, '_> {
         // what keeps the walk a read-only probe (§741's load-bearing
         // property, and the reason §127's iteration 3 needed a gate at all:
         // it had typed the callee through `checkExpression`).
-        let signature = self.get_effects_signature(call_node, call)?;
+        let Some(signature) = self.get_effects_signature(call_node, call) else {
+            // No effects signature is also this port's answer for one it
+            // has not computed (inferred predicates, deferred signature
+            // work): an assertion it would have applied is not excluded.
+            state.unchanged.push(call_node);
+            return None;
+        };
         // §128 second attempt returned the DECLARED type here, reasoning
         // that the observable at an unreachable read is the declared type
         // (upstream converts its sentinel at the walk's exit, `flow.go:111`).
@@ -4187,17 +4364,24 @@ impl Checker<'_, '_> {
             return Some(incoming);
         }
         let narrowed = match (predicate_type, argument_id) {
-            (Some(predicate_type), Some(argument)) => self.narrow_type_by_type_predicate(
-                state,
-                incoming.t,
-                predicate_type,
-                argument,
-                true,
-            ),
+            (Some(predicate_type), Some(argument)) => {
+                let narrowed = self.narrow_type_by_type_predicate(
+                    state,
+                    incoming.t,
+                    predicate_type,
+                    argument,
+                    true,
+                );
+                Self::note_unchanged_narrowing(state, incoming.t, narrowed, argument);
+                narrowed
+            }
             (None, Some(argument)) if predicate.parameter_name.is_some() => {
                 self.narrow_type_by_assertion(state, incoming.t, argument)
             }
-            _ => incoming.t,
+            _ => {
+                Self::note_unchanged_narrowing(state, incoming.t, incoming.t, call_node);
+                incoming.t
+            }
         };
         Some(FlowType { t: narrowed, incomplete: incoming.incomplete })
     }
@@ -4294,7 +4478,15 @@ impl Checker<'_, '_> {
         if narrowed == incoming.t {
             return incoming;
         }
-        self.new_flow_type(narrowed, incoming.incomplete)
+        let result = self.new_flow_type(narrowed, incoming.incomplete);
+        // `silentNeverType`'s consumers (an any-like property access,
+        // `silentNeverSignature`) are not ported here yet
+        // (`r7-flow-silent-never-callers.diff`, §21), so a walk that made one
+        // may converge wider than native (§49).
+        if result.t != narrowed {
+            state.declines += 1;
+        }
+        result
     }
     /// The converging loop-label walk — `Checker.getTypeAtFlowLoopLabel`
     /// (`internal/checker/flow.go:1325`). On-stack re-entry answers with the
@@ -4338,9 +4530,11 @@ impl Checker<'_, '_> {
                 },
             state.initial_type,
         );
-        if let Some((cached, elements)) = self.flow_loop_cache.get(&key) {
-            let (cached, elements) = (*cached, elements.clone());
+        if let Some((cached, elements, declined)) = self.flow_loop_cache.get(&key) {
+            let (cached, elements, declined) = (*cached, elements.clone(), *declined);
             Self::replay_loop_elements(state, &elements);
+            // The walk that converged met a decline the replay skips (§49).
+            state.declines += u32::from(declined);
             return FlowType { t: cached, incomplete: false };
         }
         // The on-stack answer requires a NON-EMPTY so-far list — an empty one
@@ -4364,6 +4558,8 @@ impl Checker<'_, '_> {
         // from here on is THIS label's element region — the slice a cache hit
         // must replay for queries that never walk the antecedents at all.
         let element_mark = state.array_elements.len();
+        let declines_mark = state.declines;
+        let unchanged_mark = state.unchanged.len();
         let outer_dedupe_mark = state.element_dedupe_mark;
         state.element_dedupe_mark = element_mark;
         let mut subtype_reduction = false;
@@ -4378,8 +4574,9 @@ impl Checker<'_, '_> {
                 let shared_mark = self.shared_flows.len();
                 let back = self.get_type_at_flow_node(state, antecedent);
                 self.shared_flows.truncate(shared_mark);
-                if let Some((cached, elements)) = self.flow_loop_cache.get(&key) {
-                    let (cached, elements) = (*cached, elements.clone());
+                if let Some((cached, elements, declined)) = self.flow_loop_cache.get(&key) {
+                    let (cached, elements, declined) = (*cached, elements.clone(), *declined);
+                    state.declines += u32::from(declined);
                     state.depth = depth_mark;
                     self.flow_loop_stack.truncate(stack_index);
                     state.element_dedupe_mark = outer_dedupe_mark;
@@ -4438,7 +4635,8 @@ impl Checker<'_, '_> {
             let incomplete = first.is_some_and(|f| f.incomplete);
             if !incomplete {
                 let contributed = state.array_elements[element_mark..].to_vec();
-                self.flow_loop_cache.insert(key, (result, contributed));
+                let declined = self.walk_declined_since(state, declines_mark, unchanged_mark);
+                self.flow_loop_cache.insert(key, (result, contributed, declined));
             }
             return FlowType { t: result, incomplete };
         }
@@ -4449,9 +4647,11 @@ impl Checker<'_, '_> {
         let result = if types.is_empty() {
             self.intrinsics.never
         } else if subtype_reduction {
-            match self.union_with_subtype_reduction(&types) {
-                Some(reduced) => reduced,
-                None => state.declared_type,
+            if let Some(reduced) = self.union_with_subtype_reduction(&types) {
+                reduced
+            } else {
+                state.declines += 1;
+                state.declared_type
             }
         } else {
             self.get_union_type(&types)
@@ -4468,7 +4668,8 @@ impl Checker<'_, '_> {
             return FlowType { t: result, incomplete: true };
         }
         let contributed = state.array_elements[element_mark..].to_vec();
-        self.flow_loop_cache.insert(key, (result, contributed));
+        let declined = self.walk_declined_since(state, declines_mark, unchanged_mark);
+        self.flow_loop_cache.insert(key, (result, contributed, declined));
         FlowType { t: result, incomplete: false }
     }
 
@@ -4641,6 +4842,11 @@ impl Checker<'_, '_> {
                 _ => reduced,
             }
         } else {
+            // A reduction the relation could not decide answers wider than
+            // native's `UnionReductionSubtype` join (§49).
+            if subtype_reduction {
+                state.declines += 1;
+            }
             // §58 (`checker-notes-narrow.md`): a join re-forming a NAMED
             // union's exact member set answers the named type. Not native
             // (`r7-flow.md` §24): held until the jsTyping inference it
@@ -5786,6 +5992,23 @@ impl Checker<'_, '_> {
     /// `getReferenceCandidate` (flow.go:1861): normalize the value/reference
     /// operands used by equality, typeof, instanceof and in guards. Ordinary
     /// arithmetic compound assignments and non-null wrappers stay intact.
+    /// The array an `ARRAY_MUTATION` node mutates (`flow.go:1397`): `x` of
+    /// `x.push(…)`/`x.unshift(…)` (the callee's receiver) or of `x[i] = …`
+    /// (the element access's receiver).
+    fn array_mutation_target(&self, mutation: NodeId) -> Option<NodeId> {
+        let access = match self.node_map.get(mutation)? {
+            Node::CallExpression(call) => call.expression?.node_id()?,
+            Node::BinaryExpression(binary) => binary.left?.node_id()?,
+            _ => return None,
+        };
+        match self.node_map.get(access)? {
+            access @ (Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_)) => {
+                access.expression_id()
+            }
+            _ => None,
+        }
+    }
+
     fn get_reference_candidate(&self, mut node: NodeId) -> NodeId {
         loop {
             let next = match self.node_map.get(node) {
@@ -5930,6 +6153,9 @@ impl Checker<'_, '_> {
             }
             t
         };
+        if let Some(id) = expr.node_id() {
+            Self::note_unchanged_narrowing(state, incoming.t, narrowed, id);
+        }
         FlowType { t: narrowed, incomplete: incoming.incomplete }
     }
 
@@ -6452,8 +6678,12 @@ impl Checker<'_, '_> {
             element_dedupe_mark: 0,
             depth: 0,
             synthetic: None,
+            declines: 0,
+            unchanged: Vec::new(),
         };
-        self.narrow_type(&mut state, initial, condition, assume_true)
+        let narrowed = self.narrow_type(&mut state, initial, condition, assume_true);
+        self.record_flow_certainty(&state, reference, narrowed);
+        narrowed
     }
 
     /// Native narrowType (flow.go) receives the instantiated semantic body.
@@ -6471,6 +6701,7 @@ impl Checker<'_, '_> {
         // Non-union mapped/reference types keep their existing narrowing road.
         let expanded = if self.store.get(body).flags.contains(TypeFlags::UNION) { body } else { t };
         let narrowed = self.narrow_type_worker(state, expanded, condition, assume_true);
+        Self::note_unchanged_narrowing(state, expanded, narrowed, condition);
         if narrowed == expanded { t } else { narrowed }
     }
 

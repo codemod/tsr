@@ -447,3 +447,155 @@ export interface Thing {}
         ],
     );
 }
+
+/// r7-printer §38: an instantiation expression's image prints its signatures
+/// and properties at the site, where `b` is reached only through `A`.
+#[test]
+fn an_instantiation_expression_image_is_named_at_the_site() {
+    let lines = assertions(
+        "probe/instantiation_expression_image",
+        r"declare namespace A {
+    export class b<T> {
+        static d: number;
+        constructor(x: T);
+    }
+}
+declare const a: typeof A;
+const x = a.b<string>;
+",
+    );
+    assert_has(&lines, &["x : { new (x: string): A.b<string>; d: number; prototype: A.b<any>; }"]);
+}
+
+/// r7-printer §39: a class its module exports only as `default` is spelled
+/// through that export where the local `Test` names another class.
+#[test]
+fn a_default_exported_class_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/default_export_leaf",
+        r#"// @filename: a.ts
+class Test {}
+export default Test;
+// @filename: b.ts
+class Test {}
+export default Test;
+// @filename: index.ts
+import Test from './a'
+declare let t: typeof import("./b").default;
+let v = new t();
+"#,
+    );
+    assert_has(&lines, &["t : typeof import(\"./b\").default", "v : import(\"./b\").default"]);
+}
+
+/// r7-printer §40: a type literal aliased by `Foo` is named by the alias's
+/// chain, in TypeScript and through a JSDoc `@typedef`.
+#[test]
+fn a_type_literal_alias_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/type_literal_alias",
+        r#"// @allowJs: true
+// @checkJs: true
+// @filename: a.ts
+export type Foo = { a: boolean };
+export declare const x: Foo;
+// @filename: c.js
+/**
+ * @typedef {Object} Baz
+ * @property {boolean} a
+ */
+/** @type {Baz} */
+export const z = { a: false };
+// @filename: b.ts
+import { x } from "./a";
+import { z } from "./c";
+x;
+z;
+"#,
+    );
+    assert_has(&lines, &["x : import(\"./a\").Foo", "z : import(\"./c\").Baz"]);
+}
+
+/// r7-printer §42: in a JavaScript file a `require("…")` call is an
+/// existing import, so the module keeps the specifier written there.
+#[test]
+fn a_required_module_keeps_its_written_specifier() {
+    let lines = assertions(
+        "probe/require_existing_import",
+        r#"// @allowJs: true
+// @checkJs: true
+// @noEmit: true
+// @filename: index.js
+exports.a = 1;
+// @filename: usage.js
+const { a } = require("./index");
+"#,
+    );
+    assert_has(&lines, &["require(\"./index\") : typeof import(\"./index\")"]);
+}
+
+/// r7-printer §50: a namespace an ambient module's `export =` names is the
+/// module itself in the chain (`getSymbolChain`'s `export =` arm).
+#[test]
+fn an_ambient_export_equals_namespace_is_its_module() {
+    let lines = assertions(
+        "probe/ambient_export_equals_namespace",
+        r#"// @filename: react.d.ts
+declare module "react" {
+    export = React;
+    namespace React {
+        type ComponentType<P = {}> = { props: P };
+        const Fragment: ComponentType;
+    }
+}
+// @filename: index.ts
+import { Fragment } from "react";
+"#,
+    );
+    assert_has(&lines, &["Fragment : import(\"react\").ComponentType<{}>"]);
+}
+
+/// r7-printer §51: a symbol its module's `export =` names, with no name in
+/// scope at the site, is spelled as that module (native-read line).
+#[test]
+fn an_export_equals_target_is_spelled_as_its_module() {
+    let lines = assertions(
+        "probe/export_equals_target",
+        r"// @module: commonjs
+// @filename: a.ts
+namespace A {
+    export class B { constructor(b: number) {} }
+    export namespace B { export const b: number = 0; }
+}
+export = A.B;
+",
+    );
+    assert_has(&lines, &["A.B : typeof import(\"./a\")"]);
+}
+
+/// r7-printer §52: a type parameter's written constraint is reused at the
+/// print site, its entity names re-spelled there (native-read line).
+#[test]
+fn a_written_constraint_is_spelled_at_the_site() {
+    let lines = assertions(
+        "probe/written_constraint_site",
+        r#"// @filename: react.d.ts
+declare module "react" {
+    export = React;
+    namespace React {
+        type State = any;
+        class Component<P, S> { p: P; s: S }
+        function create<P, T extends Component<P, State>>(p: P): T;
+    }
+}
+// @filename: index.ts
+import { create } from "react";
+"#,
+    );
+    assert_has(
+        &lines,
+        &[
+            "create : <P, T extends import(\"react\").Component<P, import(\"react\").State>>(p: P) => T",
+        ],
+    );
+}
