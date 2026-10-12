@@ -973,6 +973,7 @@ impl Checker<'_, '_> {
             self.check_grammar_accessor(node, typed);
             self.resolve_accessor_symbol_type(node);
         }
+        self.check_constructor_named_member(node, typed);
         // **Every kind 's default arm names**, not
         // just  — §623, and §600's dispatch class for the
         // ninth time.
@@ -9288,6 +9289,50 @@ impl Checker<'_, '_> {
                 &messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW,
             );
         }
+    }
+
+    /// A class member named `constructor` that is not one:
+    /// `checkAccessorDeclaration`'s TS1341 (`checker.go:2936`) for an accessor
+    /// whose parent is class-like, and `checkMethodDeclaration`'s TS1368
+    /// (`:2799`) for a generator method, behind `checkGrammarMethod` (its
+    /// modifier chain is the arm this port tracks). Both are `c.error` on the
+    /// name.
+    fn check_constructor_named_member(&mut self, node: NodeId, typed: Node<'_>) {
+        let (name, message) = match typed {
+            Node::GetAccessorDeclaration(accessor) => {
+                (accessor.name, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_AN_ACCESSOR)
+            }
+            Node::SetAccessorDeclaration(accessor) => {
+                (accessor.name, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_AN_ACCESSOR)
+            }
+            Node::MethodDeclaration(method)
+                if method.asterisk_token.is_some()
+                    && !self.modifier_chain_reported.contains(&node) =>
+            {
+                (method.name, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_A_GENERATOR)
+            }
+            _ => return,
+        };
+        let tsr_ast::PropertyName::Identifier(identifier) = name else { return };
+        if identifier.text != "constructor" {
+            return;
+        }
+        let class_like = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        });
+        // `checkMethodDeclaration` is reached for a class or interface
+        // member only; an object-literal method goes through
+        // `checkObjectLiteralMethod`.
+        if !class_like {
+            return;
+        }
+        let Some(at) = identifier.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// `checkAccessorDeclaration`'s grammar arm (`checker.go:2932`):
