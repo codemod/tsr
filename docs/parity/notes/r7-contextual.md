@@ -724,3 +724,11 @@ re-check. Two variants were measured and refused:
 Methods and accessors stay out:
 `objects.rs` builds their member types through
 `get_signature_from_declaration`, not from `node_types`.
+
+Commit 23 extends this to a generic mapped context. `getTypeOfPropertyOfContextualType`'s
+generic-mapped arm substitutes the key (`substituteIndexedMappedType`), so
+`create([() => 1, [() => ""]])` against `Definition<T> = { [K in keyof T]:
+(() => T[K]) | Definition<T[K]> }` gives the inner literal
+`(() => T["1"]) | Definition<T["1"]>`, a homomorphic mapped constituent and
+so a tuple context (`reverseMappedTupleContext`). The element road answered
+`None` for a generic mapped context.

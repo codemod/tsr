@@ -2449,7 +2449,8 @@ impl<'a> Checker<'a, '_> {
         // `unknown` (appendContextualPropertyTypeConstituent, `:30671`):
         // `[any] & [1]` gives `[1]` its literal context.
         if first_spread.is_none_or(|spread| index < spread)
-            && matches!(self.store.get(contextual).data, TypeData::Intersection { .. })
+            && (matches!(self.store.get(contextual).data, TypeData::Intersection { .. })
+                || self.mapped_types.contains_key(&contextual))
             && let Some(property) = self.contextual_property_type(contextual, &index.to_string())
         {
             return Some(property);
