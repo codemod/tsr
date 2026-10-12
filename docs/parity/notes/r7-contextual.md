@@ -1378,3 +1378,19 @@ object/array literal argument reads the active context in phase 1.
 reverseMappedContravariantInference stays 0; intraExpressionInferences 26 → 17
 and jsxChildrenGenericContextualTypes 10 → 7 non-RIGHT lines; no loss across
 110,939 related verdict lines.
+
+## 52. Inference sees through alias-of-alias targets
+
+A type alias instance is its body type natively; only a source and target
+sharing an alias infer through the alias arguments. This port keeps alias
+identity types and exposes the body in two places. One exposes it for an
+instantiable, union or intersection body, so an alias whose body is another
+alias instance (`PropValidator<T[K]>` = `PropOptions<T[K]>`) stopped: its
+member walk saw no members. The other is `infer_from_members`' signature arm,
+whose `signatures_of_type_kind` cannot answer for an alias-of-alias layer
+(`PropType<T[K]>` = `Prop<T[K]>` = `{ (): T[K] }`). Both now continue down the
+chain: the body exposure also follows an alias-instance body, and the
+signature arm falls back to `binding_type_alias_body`. Reverse-mapped
+inference through `{ [K in keyof T]: PropValidator<T[K]> }` then finds
+`T[K] ← MyType` (reverseMappedPartiallyInferableTypes 39 → 14 non-RIGHT lines;
+no loss across 55,716 related verdict lines).
