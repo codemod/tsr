@@ -1218,6 +1218,36 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// Whether native's initial type for this walk is its declared type —
+    /// `checkIdentifier`'s `assumeInitialized` (`checker.go:11150`) for an
+    /// identifier, and always for an access, `this` or synthetic reference
+    /// (`getFlowTypeOfReference`'s default) — decided only for the shapes
+    /// this port can read without `check.rs`' used-before-assigned rule: a
+    /// non-identifier reference, a parameter, a declared
+    /// `any`/`unknown`/`void`, or any reference outside `strictNullChecks`. The query road's own initial is the
+    /// declared type in more places than native's (§8), so only these
+    /// take `getTypeAtFlowBranchLabel`'s declared-type early answer.
+    fn native_initial_is_declared(&self, state: &FlowState) -> bool {
+        if state.synthetic.is_some()
+            || !self.strict_null_checks
+            || self.nodes.kind(state.reference) != SyntaxKind::Identifier
+            || self
+                .store
+                .get(state.declared_type)
+                .flags
+                .intersects(TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::VOID)
+        {
+            return true;
+        }
+        state.symbol.is_some_and(|symbol| {
+            self.binder
+                .symbols()
+                .get(symbol)
+                .value_declaration
+                .is_some_and(|declaration| self.nodes.kind(declaration) == SyntaxKind::Parameter)
+        })
+    }
+
     /// Count a step that may have answered wider than native
     /// ([`FlowState::declines`]): a narrowing at `node` that left its input
     /// `before` unchanged, when `node` mentions the reference. Native narrows
@@ -4778,7 +4808,10 @@ impl Checker<'_, '_> {
             // `getOptionalType(declared)`), so `declared == initial` there is
             // not native's test: `typeGuardsWithInstanceOf` lost 8 lines
             // (`r7-flow.md` §8).
-            if state.auto_query && t == state.declared_type && state.initial_type == t {
+            if t == state.declared_type
+                && state.initial_type == t
+                && (state.auto_query || self.native_initial_is_declared(state))
+            {
                 return FlowType { t, incomplete: false };
             }
             // `never` from a path means that path cannot reach here, so it
@@ -5826,6 +5859,12 @@ impl Checker<'_, '_> {
                 }
                 Node::NonNullExpression(node) => node.expression.and_then(|e| e.node_id()),
                 Node::SatisfiesExpression(node) => node.expression.and_then(|e| e.node_id()),
+                // `flow.go:1645`: a comma source matches by its right operand.
+                Node::BinaryExpression(binary)
+                    if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::CommaToken) =>
+                {
+                    binary.right.and_then(|right| right.node_id())
+                }
                 _ => None,
             }
         };

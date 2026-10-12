@@ -92,8 +92,8 @@ impl Checker<'_, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
+        // `getTypeNamesForErrorDisplay` (r7-printer §61).
+        let (source_text, target_text) = self.type_names_for_error_display(source, target, node);
         self.report(
             file,
             Diagnostic::with_args(

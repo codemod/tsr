@@ -126,7 +126,7 @@ impl<'a> Checker<'a, '_> {
             let Some(at) = self.excess_property_name_node(literal, &name) else { return };
             let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
             let span = self.error_span(at);
-            let printed = self.type_to_string(target);
+            let printed = self.type_to_string_for_message(target, at);
             self.report(
                 file,
                 Diagnostic::with_args(
