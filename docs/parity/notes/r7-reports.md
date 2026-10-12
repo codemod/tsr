@@ -1633,3 +1633,16 @@ expression?` (TS6212) or `Did you mean to use 'new' with this expression?`
 (`'x' is declared here.` under TS2741). The port's doc comment had said
 "the suite does not compare" related information. The exact oracle does,
 so the hint is now attached.
+
+## 44. TS7010 at a method signature spans the signature
+
+`GetErrorRangeForNode` (`scanner.go:2604`) narrows a function or method
+declaration, accessors, and property declarations and signatures to the
+name. `MethodSignature` is not on that list, so `foo(); // error` in an
+interface reports across `foo();`, semicolon included. The rank has 10
+`diag:span-only` cases (`implicitAnyAmbients`,
+`implicitAnyDeclareMemberWithoutType`, …). The shared `error_span` names a
+method signature by its name, and other report sites read it. So the fix
+is local to TS7010's report in `implicit_any.rs`, not a change to
+`error_span`. Whether `error_span` should drop `MethodSignature` for every
+caller is a question for its owner; it is proposed rather than changed.
