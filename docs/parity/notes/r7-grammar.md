@@ -1196,3 +1196,15 @@ The variable/property arms then run as written. The property arm reads
 `target/tsgo-pinned` at es2015 and es2022: `let`/`const`, a multi-declaration
 statement, a parenthesized type, static/instance/`@readonly` class fields, a
 `@param` (still TS1335) and a type-literal member (TS1330).
+
+## §63 TS1326 on `import<T>` as an expression
+
+`checkGrammarExpressionWithTypeArguments` (`grammarchecks.go:885`), reached
+from `checkExpressionWithTypeArguments` and `checkGrammarHeritageClause`,
+reports an `ExpressionWithTypeArguments` whose expression is the `import`
+keyword and which has a type-argument list. The report is TS1326 on the
+node, a grammar error. It had no emitter. It now runs from grammar.rs's
+per-node hook. Converted: `importWithTypeArguments`. Not here:
+`import<T>("./0")`, a call. Its TS1326 is `checkGrammarImportCallExpression`'s,
+import_call_grammar.rs, along with `import<>` (an empty list, which this AST
+cannot tell from none). Routed.
