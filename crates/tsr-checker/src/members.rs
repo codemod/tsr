@@ -270,6 +270,13 @@ impl Checker<'_, '_> {
         if receiver_type == self.intrinsics.native_error {
             return receiver_type;
         }
+        // `isAnyLike` (`checker.go:11266`, `:11314-11321`): a `silentNeverType`
+        // receiver (an incomplete loop pass's `never`) answers itself, with no
+        // lookup and no report.
+        if private_without_lexical_symbol.is_none() && Some(receiver_type) == self.silent_never_type
+        {
+            return receiver_type;
+        }
         // `checkPropertyAccessExpression` hands `checkNonNullExpression(expr)`
         // to the lookup (`checker.go:11258`), and a chain link goes through
         // `checkPropertyAccessChain` (`checker.go:11253`) — the receiver is
