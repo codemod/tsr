@@ -1595,6 +1595,27 @@ TS2559 that `elaborate_error` or the weak-type arm reported on a pair the
 relation calls `Related`. Native never reports one, so a row losing such
 a report would be a fidelity gain to verify, not a loss to restore.
 
+### §33.1 The chain re-gated on main `ad4f76096` (batch 60)
+
+The fourteen commits of §31 and §33 rebase onto `ad4f76096` with no
+conflict. Gates against a freeze of `ad4f76096`:
+
+- `compare`: 0 gained, 0 lost and 0 missing. The types dump is
+  byte-identical. The diagnostics dump moves only §33's
+  `styledComponentsInstantiaionLimitNotReached` row (WRONG, two false
+  reports fewer).
+- jsTyping leg against tsgo-pinned (86 lines): default mode 110 against
+  110, `--singleThreaded` 108 against 108, both identical, so new_false 0
+  and lost_true 0. CLI output is `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,653 → 10,653
+  exact, 0 lost, 0 missing.
+- Callgrind Ir, `--singleThreaded`, release: generic-imports
+  191,383,183 → 190,971,967 (−0.2%); domain-model 859,130,754 →
+  791,042,078 (**−7.9%**); domain-model-large 3,746,920,151 →
+  3,350,716,320 (**−10.6%**).
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,854 passed, 0 failed.
+
 ## §25 The loader prepares the libs beside the roots, and the walk publishes from tickets
 
 This section is numbered after §22–§24, which are on the
