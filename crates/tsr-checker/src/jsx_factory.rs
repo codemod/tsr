@@ -84,6 +84,34 @@ impl Checker<'_, '_> {
         self.jsx_namespace.clone()
     }
 
+    /// `checkJsxPreconditions` (`jsx.go:159`), from
+    /// `checkJsxOpeningLikeElementOrOpeningFragment` for every opening tag and
+    /// opening fragment: without a `jsx` option the element is TS17004, a
+    /// `c.error` over the element, so it stands in a file with parse errors.
+    ///
+    /// Not ported: the second arm, TS7026 under `noImplicitAny` when the
+    /// global `JSX.Element` type does not exist (`getJsxElementTypeAt`).
+    pub(crate) fn check_jsx_preconditions(&mut self, node: NodeId, typed: Node<'_>) {
+        if !matches!(
+            typed,
+            Node::JsxOpeningElement(_)
+                | Node::JsxSelfClosingElement(_)
+                | Node::JsxOpeningFragment(_)
+        ) || self.jsx_emit != tsr_core::JsxEmit::None
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(
+            file,
+            tsr_diagnostics::Diagnostic::new(
+                &tsr_diagnostics::messages::CANNOT_USE_JSX_UNLESS_THE_JSX_FLAG_IS_PROVIDED,
+                span,
+            ),
+        );
+    }
+
     /// `markJsxAliasReferenced` (`checker.go:28502`), called from
     /// `checkJsxOpeningLikeElementOrOpeningFragment` for every opening tag
     /// and opening fragment.
