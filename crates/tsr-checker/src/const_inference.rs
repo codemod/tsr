@@ -35,6 +35,14 @@ impl Checker<'_, '_> {
             return types.into_iter().any(|ty| self.const_context_is_mutable_array_like(ty));
         }
         let base = self.const_literal_context_base(id, &mut Vec::new());
+        // checkArrayLiteral reads `someType(contextualType,
+        // isMutableArrayLikeType)` of the APPARENT contextual type
+        // (`checker.go:8087`), so a type parameter's union constraint is
+        // tested per constituent: `<const T extends string[] | readonly
+        // number[]>` keeps `["hello", "world"]` mutable through `string[]`.
+        if base != id && matches!(self.store.get(base).data, TypeData::Union { .. }) {
+            return self.const_context_is_mutable_array_like(base);
+        }
         if self
             .store
             .get(base)
