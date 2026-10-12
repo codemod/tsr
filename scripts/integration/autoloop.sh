@@ -20,7 +20,11 @@ while true; do
     b=box/r7-$l
     git rev-parse -q --verify origin/$b >/dev/null || continue
     [ "$(git cherry origin/main origin/$b | grep -c '^+')" -gt 0 ] || continue
-    git merge-tree --write-tree origin/main origin/$b >/dev/null 2>&1 && sel="$sel $b"
+    if git merge-tree --write-tree origin/main origin/$b >/dev/null 2>&1; then sel="$sel $b"
+    else
+      conf=$(git merge-tree --write-tree --name-only origin/main origin/$b 2>/dev/null | grep '^CONFLICT' | sed 's/.* in //')
+      echo "$conf" | grep -qv '^docs/parity/notes/' || sel="$sel $b"
+    fi
   done
   if [ -z "$sel" ]; then note "idle"; sleep 600; continue; fi
   m=$((n+1)); name=b$m
