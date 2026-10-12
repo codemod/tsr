@@ -1062,3 +1062,36 @@ annotation. A root with an initializer keeps no `?`, as native does
 Not fixed here: such a default under an initialized root
 (`const { skills: { primary: p = "a" } = { primary: "x" } } = obj`) prints
 `{ primary: "x"; }`, where the projected `obj.skills` context should widen it.
+
+## 36. Const type parameters: per-constituent mutability, and the resolved re-read is no const context
+
+Two `isConstContext`/`checkArrayLiteral` details for `const` type parameters
+(typeParameterConstModifiers 3 → 0 non-RIGHT lines on the verdict dump, no
+loss among the verdict dump's `*onst*` cases):
+
+- `checkArrayLiteral`'s readonly test is `someType(contextualType,
+  isMutableArrayLikeType)` over the *apparent* contextual type
+  (`checker.go:8087`). For a type parameter that is its constraint, tested per
+  union constituent. `const_context_is_mutable_array_like` resolved the
+  parameter to its union constraint but then tested the union whole, so
+  `<const T extends string[] | readonly number[]>` made `["hello", "world"]`
+  readonly. That candidate failed the constraint and `T` fell back to it. A
+  union base now recurses per constituent, so `string[]` keeps the tuple
+  mutable and `fd2(["hello", "world"])` is `["hello", "world"]`.
+- `literal_has_const_contextual_target` read the uninstantiated parameter
+  always. That is right during inference (`instantiateContextualType` without
+  ContextFlagsSignature leaves `T`), but §1's re-read under the resolved
+  signature sees the instantiated parameter natively. Under `readonly
+  [unknown, 2, 3, 4, unknown]` there is no const type variable, so
+  `inners2([1,2,3,4,5])` prints `[number, 2, 3, 4, number]`. When the call's
+  `call_inference_signatures` slot holds an instance (type parameters
+  cleared, as §1 and §31 publish), the target is read instantiated.
+
+Routed while triaging: §142's literal-self `this` mint (expressions.rs)
+prints `this` where native prints the widened literal type
+(thisTypeInObjectLiterals, this_inside-object-literal-getters-and-setters).
+An interface extending a tuple alias (`interface I extends EmptyTuple`,
+`type EmptyTuple = []`) inherits no tuple members (`m.length` is `error`), so
+it is not tuple-like (contextualTypeWithTuple 0:95). An inline conditional
+parameter with function branches instantiates to `error` (`h2<T>(x: T, y: T
+extends E ? (e: 1) => void : (e: 2) => void)`).
