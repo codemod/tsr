@@ -431,7 +431,6 @@ impl Checker<'_, '_> {
                         node,
                         true,
                         statement.label.map(|label| label.text),
-                        ambient,
                     );
                 }
                 ambient
@@ -442,7 +441,6 @@ impl Checker<'_, '_> {
                         node,
                         false,
                         statement.label.map(|label| label.text),
-                        ambient,
                     );
                 }
                 ambient
@@ -562,8 +560,12 @@ impl Checker<'_, '_> {
                         Diagnostic::new(&messages::SETTERS_CANNOT_RETURN_A_VALUE, span),
                     );
                 }
-                self.check_grammar_statement_in_ambient_context(node, ambient);
-                self.check_return_container(node, ambient);
+                // `checkReturnStatement` (`checker.go:4095`): the container
+                // test runs only when the ambient-statement check did not
+                // report, and that reports once per block.
+                if !self.check_grammar_statement_in_ambient_context(node, ambient) {
+                    self.check_return_container(node);
+                }
                 self.check_return_statement(node, ambient);
                 self.check_return_statement_implicit_returns(
                     node,
@@ -766,6 +768,7 @@ impl Checker<'_, '_> {
             Node::CallExpression(call) => {
                 self.resolve_call_before_callback_bodies(node, call.arguments);
                 self.check_call_expression_diagnostics(node);
+                self.check_import_call_type_arguments(node);
                 self.check_import_call_trailing_comma(node);
                 self.check_import_call_specifier(node);
                 ambient
@@ -994,6 +997,7 @@ impl Checker<'_, '_> {
         }
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_intrinsic_tag_exists(node, typed);
+        self.check_jsx_preconditions(node, typed);
         self.mark_jsx_alias_referenced(node, typed);
         self.check_jsx_component_bound(node, typed);
         self.check_jsx_string_literal_tag(node, typed);
@@ -1013,6 +1017,7 @@ impl Checker<'_, '_> {
             for (_, list) in self.jsdoc_template_lists(node) {
                 self.check_type_parameter_list(&list);
             }
+            self.check_jsdoc_import_specifiers(node);
         }
         if self.nodes.kind(node) == SyntaxKind::SwitchStatement {
             self.check_switch_case_comparable(node);
@@ -8882,8 +8887,8 @@ impl Checker<'_, '_> {
     /// is nothing at all. Both branches ported — the static-block one has no
     /// blocked cases and is free, and shipping one branch of a two-branch `if`
     /// is §230's shape. §296.
-    fn check_return_container(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+    fn check_return_container(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
             return;
         }
         let container = self
@@ -8901,10 +8906,59 @@ impl Checker<'_, '_> {
         };
         // `grammarErrorOnFirstToken(node, …)` — the `return` keyword, not the
         // statement (r7-grammar §52).
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let whole = self.nodes.span(node);
-        let span = self.first_token_span(node, whole.start).unwrap_or(whole);
-        self.report(file, Diagnostic::new(message, span));
+        self.grammar_error_on_first_token(node, message);
+    }
+
+    /// The `@augments`/`@extends` arm of `checkGrammarClassDeclarationHeritageClauses`
+    /// (`grammarchecks.go:915`): over the class's eagerly parsed JSDoc, a tag
+    /// whose class name's identifier (`getIdentifierFromEntityNameExpression`)
+    /// differs in text from the `extends` type's is TS8023 on the tag's name,
+    /// and the walk returns. A missing tag name has empty text, so it differs.
+    fn check_jsdoc_augments_matches_extends(
+        &mut self,
+        class: NodeId,
+        target: &tsr_ast::ExpressionWithTypeArguments<'_>,
+    ) -> bool {
+        fn identifier_of(
+            expression: Option<tsr_ast::Expression<'_>>,
+        ) -> Option<&tsr_ast::Identifier<'_>> {
+            match expression? {
+                tsr_ast::Expression::Identifier(identifier) => Some(identifier),
+                tsr_ast::Expression::PropertyAccessExpression(access) => match access.name? {
+                    tsr_ast::MemberName::Identifier(identifier) => Some(identifier),
+                    tsr_ast::MemberName::PrivateIdentifier(_) => None,
+                },
+                _ => None,
+            }
+        }
+        let Some(target_name) = identifier_of(target.expression) else { return false };
+        let Some(docs) = self.jsdoc_entries.get(&class) else { return false };
+        let mut mismatch = None;
+        'docs: for doc in *docs {
+            for tag in doc.tags {
+                if let tsr_ast::JSDocTag::JSDocAugmentsTag(tag) = tag
+                    && let Some(source) = tag.class_name
+                    && let Some(source_name) = identifier_of(source.expression)
+                    && source_name.text != target_name.text
+                {
+                    mismatch = Some((tag.tag_name.text, source_name));
+                    break 'docs;
+                }
+            }
+        }
+        let Some((tag_name, source_name)) = mismatch else { return false };
+        let Some(at) = source_name.node_id else { return false };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::JSDOC_0_1_DOES_NOT_MATCH_THE_EXTENDS_2_CLAUSE,
+                span,
+                [tag_name.to_string(), source_name.text.to_string(), target_name.text.to_string()],
+            ),
+        );
+        true
     }
 
     /// `checkGrammarClassLikeDeclaration` and
@@ -8953,6 +9007,12 @@ impl Checker<'_, '_> {
                                 second.node_id,
                                 &messages::CLASSES_CAN_ONLY_EXTEND_A_SINGLE_CLASS,
                             );
+                            return;
+                        }
+                        if let Some(first) = clause.types.first()
+                            && let Some(class) = typed.node_id()
+                            && self.check_jsdoc_augments_matches_extends(class, first)
+                        {
                             return;
                         }
                     }
@@ -9065,6 +9125,45 @@ impl Checker<'_, '_> {
                 );
                 return;
             }
+        }
+        // `checkGrammarArrowFunction` (`grammarchecks.go:772`), the next link
+        // of `checkGrammarFunctionLikeDeclaration`'s `||` chain.
+        self.check_grammar_arrow_line_terminator(owner);
+    }
+
+    /// TS1200 — `Line terminator not permitted before arrow.`
+    /// `checkGrammarArrowFunction`'s tail (`grammarchecks.go:790`): the `=>`
+    /// token's full text, from the previous token's end, holds a line break
+    /// (in its trivia, a block comment's included), reported on the token.
+    fn check_grammar_arrow_line_terminator(&mut self, owner: NodeId) {
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(owner) else { return };
+        let Some(token) = arrow.equals_greater_than_token.and_then(|token| token.node_id) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(token) else { return };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return;
+        };
+        let start = self.nodes.span(token).start as usize;
+        let Some(mut before) = text.get(..start) else { return };
+        let line_break = loop {
+            let trimmed =
+                before.trim_end_matches(|c: char| c.is_whitespace() && !is_line_break_char(c));
+            if trimmed.ends_with(is_line_break_char) {
+                break true;
+            }
+            match trimmed.strip_suffix("*/").and_then(|rest| rest.rfind("/*")) {
+                Some(open) if trimmed[open..].contains(is_line_break_char) => break true,
+                Some(open) => before = &trimmed[..open],
+                None => break false,
+            }
+        };
+        if line_break {
+            self.grammar_error_on_node(
+                token,
+                &messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW,
+            );
         }
     }
 
@@ -11007,6 +11106,7 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §608.
     fn check_rest_element_is_last(&mut self, node: NodeId, typed: Node<'_>) {
+        self.check_rest_element_trailing_comma(node, typed);
         let offenders: Vec<NodeId> = match typed {
             // The binding-pattern form is `checkGrammarBindingElement`'s
             // `grammarErrorOnNode` (`grammarchecks.go:1540`), silent in a file
@@ -11086,6 +11186,76 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// TS1013 — `A rest parameter or binding pattern may not have a trailing
+    /// comma.` for a pattern whose last element is a rest:
+    /// `checkGrammarBindingElement` (`grammarchecks.go:1542`) for `var
+    /// [...a,]`, and the destructuring-assignment arms of
+    /// `checkObjectLiteralDestructuringPropertyAssignment` (`checker.go:12636`)
+    /// and `checkArrayLiteralDestructuringElementAssignment` (`:12690`, not
+    /// when the rest has an `= initializer`). Each is
+    /// `checkGrammarForDisallowedTrailingComma`, so `grammarErrorAtPos` over
+    /// the comma, behind the file's parse errors. The parser flags the list
+    /// (`HAS_TRAILING_COMMA`); the comma is the token after the last element.
+    fn check_rest_element_trailing_comma(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors
+            || !self.nodes.flags(node).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA)
+        {
+            return;
+        }
+        let last = match typed {
+            Node::BindingPattern(pattern) => pattern
+                .elements
+                .last()
+                .filter(|element| element.dot_dot_dot_token.is_some())
+                .and_then(|element| element.node_id),
+            Node::ObjectLiteralExpression(literal) if self.is_assignment_target_literal(node) => {
+                match literal.properties.last() {
+                    Some(tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread)) => {
+                        spread.node_id
+                    }
+                    _ => None,
+                }
+            }
+            Node::ArrayLiteralExpression(literal) if self.is_assignment_target_literal(node) => {
+                match literal.elements.last() {
+                    Some(tsr_ast::Expression::SpreadElement(spread))
+                        if !matches!(
+                            spread.expression,
+                            Some(tsr_ast::Expression::BinaryExpression(binary))
+                                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+                        ) =>
+                    {
+                        spread.node_id
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let Some(last) = last else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(last) else { return };
+        let end = self.nodes.span(last).end;
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(end as usize..))
+        else {
+            return;
+        };
+        let comma = tsr_scanner::Scanner::new(rest).scan();
+        if comma.kind != SyntaxKind::CommaToken {
+            return;
+        }
+        let span = tsr_core::Span::new(end + comma.span.start, end + comma.span.end);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_REST_PARAMETER_OR_BINDING_PATTERN_MAY_NOT_HAVE_A_TRAILING_COMMA,
+                span,
+            ),
+        );
     }
 
     /// Is this array literal the left-hand side of an assignment — a
@@ -11622,23 +11792,12 @@ impl Checker<'_, '_> {
     /// whose own kind is function-like cannot occur and the first iteration is
     /// always a no-op — kept that way because it is upstream's loop and moving
     /// the start is the kind of edit that silently changes a boundary case.
-    fn check_break_or_continue(
-        &mut self,
-        node: NodeId,
-        is_break: bool,
-        label: Option<&str>,
-        ambient: bool,
-    ) {
+    fn check_break_or_continue(&mut self, node: NodeId, is_break: bool, label: Option<&str>) {
         // `checkBreakOrContinueStatement` (`checker.go:4081`) runs this grammar
         // check **only if** `checkGrammarStatementInAmbientContext` did not
-        // report — and in an ambient context that function reports TS1036
-        // `Statements are not allowed in ambient contexts` and short-circuits.
-        // TS1036 is not ported (19 cases of its own on `diaggap.rs`'s board), so
-        // the short-circuit is reproduced as a refusal: silence where upstream
-        // says something else. It was worth exactly the two wrong lines this
-        // rule's first measurement produced, `parserBreakStatement1.d` and
-        // `parserContinueStatement1.d`, both one-line `.d.ts` files.
-        if self.file_has_parse_errors || ambient {
+        // report, which the caller tests; that check reports once per block,
+        // so a later `break` in an ambient block still reaches this one.
+        if self.file_has_parse_errors {
             return;
         }
         let mut current = Some(node);
@@ -14494,4 +14653,9 @@ pub(crate) enum DuplicateMemberKey {
 /// Whether some chain child of `diagnostic`, at any depth, has no file.
 fn chain_lacks_file(diagnostic: &Diagnostic) -> bool {
     diagnostic.message_chain().iter().any(|child| child.file().is_none() || chain_lacks_file(child))
+}
+
+/// `stringutil.IsLineBreak`: LF, CR, LS and PS.
+fn is_line_break_char(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
