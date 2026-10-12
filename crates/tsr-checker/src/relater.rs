@@ -971,6 +971,22 @@ impl Checker<'_, '_> {
         (!compatible).then_some((source, target))
     }
 
+    /// `signaturesRelatedTo` (`relater.go:4441`) for one signature kind of a
+    /// pair, as the report retrace asks it: a kind that relates is passed
+    /// over and the next one explained (r7-reports §96).
+    pub(crate) fn chain_signature_kind_related(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Ternary {
+        let mut relater = Relater::new(self, Relation::Assignable, None);
+        let answer = relater
+            .related_signature_kind(source, target, kind)
+            .map_or(Ternary::Unknown, RelationResult::public_answer);
+        if relater.overflow { Ternary::Unknown } else { answer }
+    }
+
     /// [`Checker::relate_ternary`] as `typeRelatedToEachType` relates each
     /// constituent of a target intersection: `isRelatedToEx(…,
     /// IntersectionStateTarget)`, which nested comparisons inherit

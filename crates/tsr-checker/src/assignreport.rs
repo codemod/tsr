@@ -7288,6 +7288,14 @@ impl Checker<'_, '_> {
             if target_signatures.is_empty() {
                 continue;
             }
+            // A kind whose signatures relate passes on to the next
+            // (`structuredTypeRelatedToWorker` relates call, then construct
+            // signatures; r7-reports §96).
+            match self.chain_signature_kind_related(source, target, kind) {
+                crate::relater::Ternary::Related => continue,
+                crate::relater::Ternary::Unknown => return None,
+                crate::relater::Ternary::NotRelated => {}
+            }
             let source_signatures = self.chain_signatures_of_kind(source, kind)?;
             // An abstract constructor type is not assignable to a
             // non-abstract one (`relater.go:4455`).

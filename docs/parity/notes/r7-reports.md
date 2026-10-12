@@ -2691,3 +2691,17 @@ The retrace had no property list for a tuple target and declined. It now
 takes the relater's `tuple_target_properties` and moves the synthesized
 names (`length` and the numeric names) after the inherited ones. Quick
 oracles over `uple`, `rray`, `rity` and `estructuring`: 0 lost.
+
+## 96. A signature kind that relates passes to the next
+
+`structuredTypeRelatedToWorker` relates call signatures, then construct
+signatures, and reports from the first kind that fails. The retrace returned
+from the first kind with target signatures, whether or not it failed. In
+`interfaceImplementation1`, a function relates `I4`'s call signature and
+lacks its construct signature, so the retrace explained the relating call
+pair, found nothing, and declined. Each kind is now asked of the relater
+first (`chain_signature_kind_related`, `related_signature_kind` on a fresh
+walk). A related kind passes on, so the chain reads *Type '() => C2'
+provides no match for the signature 'new (): I3'.*. An undecided kind
+declines. Quick oracles over `ignature`, `allback`, `unctionType`,
+`nterface` and `onstruct`: 0 lost.
