@@ -354,12 +354,7 @@ impl<'a> Checker<'a, '_> {
                     // A computed key might name this present property. Without
                     // explicit context, do not assume it names an absent slot.
                     let matches = match element.property_name { Some(PropertyName::Identifier(key)) => key.text == name, Some(PropertyName::StringLiteral(key)) => key.text == name, Some(PropertyName::ComputedPropertyName(_)) => true, None => matches!(element.name, Some(BindingName::Identifier(key)) if key.text == name), _ => false };
-                    matches && (matches!(element.name, Some(BindingName::BindingPattern(_)))
-                        || element.initializer.is_some_and(|default| {
-                            matches!(element.property_name, Some(PropertyName::ComputedPropertyName(_)))
-                                || !primitive_binding_literal(default)
-                                || !property.initializer.is_some_and(primitive_binding_literal)
-                        }))
+                    matches && matches!(element.property_name, Some(PropertyName::ComputedPropertyName(_)))
                 })
             }),
             _ => true,
@@ -436,19 +431,6 @@ fn binding_default_is_context_independent(expression: Expression<'_>) -> bool {
         Expression::YieldExpression(node) => node.expression.is_none_or(binding_default_is_context_independent),
         Expression::ArrayLiteralExpression(node) => node.elements.iter().copied().all(binding_default_is_context_independent),
         Expression::ObjectLiteralExpression(node) => node.properties.iter().all(|property| matches!(property, tsr_ast::ObjectLiteralElementLike::PropertyAssignment(property) if property.initializer.is_some_and(binding_default_is_context_independent))),
-        _ => false,
-    }
-}
-
-fn primitive_binding_literal(expression: Expression<'_>) -> bool {
-    match expression {
-        Expression::StringLiteral(_) | Expression::NumericLiteral(_) => true,
-        Expression::KeywordExpression(keyword) => {
-            matches!(keyword.kind, SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
-        }
-        Expression::ParenthesizedExpression(node) => {
-            node.expression.is_some_and(primitive_binding_literal)
-        }
         _ => false,
     }
 }
@@ -736,7 +718,6 @@ mod tests {
         with_checker(true, |c, queries| {
             for name in [
                 "unsupported",
-                "unsupportedObject",
                 "unsupportedArray",
                 "unsupportedComputed",
                 "unsupportedParenthesized",
@@ -761,6 +742,11 @@ mod tests {
                     c.intrinsics.error
                 );
             }
+            // A plain matching default element needs no explicit context:
+            // native copies its optionality onto the literal's property.
+            let parameter = parameter(c, &queries, "unsupportedObject");
+            let ty = c.get_widened_type_for_variable_like_declaration(parameter);
+            assert_eq!(c.type_to_string(ty), "{ inner?: { present?: \"indigo\"; } | undefined; }");
         });
     }
 }

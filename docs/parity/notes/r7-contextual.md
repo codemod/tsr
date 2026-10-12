@@ -732,3 +732,19 @@ generic-mapped arm substitutes the key (`substituteIndexedMappedType`), so
 `(() => T["1"]) | Definition<T["1"]>`, a homomorphic mapped constituent and
 so a tuple context (`reverseMappedTupleContext`). The element road answered
 `None` for a generic mapped context.
+
+## 22. `contextualTypeHasPattern` for literals with nested patterns and non-primitive defaults
+
+An object literal whose contextual type is a binding pattern's implied
+type copies each implied property's optionality (`checkObjectLiteral`,
+`checker.go:13253`; §489 ported it syntactically through
+`contextual_binding_pattern`). The parameter-default arm gated it with
+`binding_default_pattern_context_available`, which refused a pattern
+element with a nested pattern name or a non-primitive default, because no
+nested pattern context was available for the property value. Since §10, the
+initializer contextual road supplies that context (the value `[2, 4, 6, 8]`
+of `y: [a, b, c, d] = [1, 2, 3, 4]` already types as a tuple), so the
+refusal cost only the optional flags. `function f({x = 10, y: [a, b, c, d] =
+[1, 2, 3, 4]} = { x: 10, y: [2, 4, 6, 8] })` now prints
+`{ x?: number; y?: [number, number, number, number]; }`. The certifier keeps
+its other refusals: a computed key, non-property members, and the array arm.
