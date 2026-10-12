@@ -6018,9 +6018,27 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        let circular = match &target_type.data {
-            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
-                types.contains(&source)
+        // Except that instantiating `T & P` (P a primitive, `object` or `{}`)
+        // asks `getBaseConstraintOfType` of the clone before its constraint
+        // is set (`getIntersectionType`'s constraint reduction,
+        // `checker.go:26131`), which caches "no constraint": that clone is
+        // not circular (`NonNullable<T>`, `conditionalTypes1`; r7-reports §79).
+        let circular = match target_type.data.clone() {
+            TypeData::Union { types, .. } => types.contains(&source),
+            TypeData::Intersection { types, .. } => {
+                if let [first, second] = types[..]
+                    && (first == source || second == source)
+                {
+                    let other = if first == source { second } else { first };
+                    let flags = self.type_of(other).flags;
+                    if flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING) {
+                        return None;
+                    }
+                    !(flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE)
+                        || self.is_empty_anonymous_object_type(other))
+                } else {
+                    types.contains(&source)
+                }
             }
             _ => false,
         };
@@ -6177,17 +6195,34 @@ impl Checker<'_, '_> {
         // first constituent that fails. When every one relates, `isRelatedTo`'s
         // extra `propertiesRelatedTo` over the intersection as one object
         // (`relater.go:2770`) is what failed.
+        // An unconstrained type-parameter source fails here too, and its
+        // fallthrough to the type-variable arm relates `unknown` without
+        // reporting (`relater.go:3672`), so this arm's report is the chain.
+        // A type-parameter constituent of the target is related as itself;
+        // other instantiable or union constituents are normalized first, and
+        // decline (r7-reports §79).
+        let unconstrained_type_parameter = source_flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !self.this_types.values().any(|&this| this == source)
+            && !self.this_type_nodes.values().any(|&this| this == source)
+            && self
+                .type_parameter_constraint(source)
+                .is_none_or(|constraint| constraint == self.intrinsics.unknown);
         if let TypeData::Intersection { types, .. } = self.type_of(target).data.clone()
-            && source_flags.intersects(
+            && (source_flags.intersects(
                 TypeFlags::OBJECT
                     | TypeFlags::INTERSECTION
                     | TypeFlags::PRIMITIVE
                     | TypeFlags::UNKNOWN,
-            )
-            && !source_flags.intersects(TypeFlags::INSTANTIABLE)
+            ) && !source_flags.intersects(TypeFlags::INSTANTIABLE)
+                || unconstrained_type_parameter)
             && !(source_flags.contains(TypeFlags::INTERSECTION)
                 && self.intersection_has_instantiable(source))
-            && !self.intersection_has_instantiable(target)
+            && !types.iter().any(|&part| {
+                let flags = self.type_of(part).flags;
+                flags.contains(TypeFlags::UNION)
+                    || flags.intersects(TypeFlags::INSTANTIABLE)
+                        && !flags.contains(TypeFlags::TYPE_PARAMETER)
+            })
         {
             let previous = std::mem::replace(&mut stack.intersection_target, true);
             for part in types {
