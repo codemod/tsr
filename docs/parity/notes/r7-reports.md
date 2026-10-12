@@ -2065,3 +2065,29 @@ indexed accesses and falls back to creation order. Measured on
 `indexedAccessConstraints`, then reverted. Reopen when union ordering
 compares indexed accesses by object and then index (`CompareTypes`,
 `utilities.go`); that is not this lane's file.
+
+## 70. JSX overload failures carry TS2769's chain; children over several array-likes
+
+- **TS2769 on a JSX tag** (`reportCallResolutionErrors`,
+  `checker.go:9649`). With several argument-error candidates, each report
+  of the last candidate is wrapped as `No overload matches this call.` →
+  `The last overload gave the following error.` → the report, with `The
+  last overload is declared here.`. The JSX road rewrote the head's
+  message in place and dropped the rest. It now calls the call road's
+  `chain_overload_failure` (made `pub(crate)` in `calls.rs`, a visibility
+  change only). The tuple element there is read as the tuple's property
+  `"0"`. Under an optional element its `undefined` is removed
+  (`removeMissingType`), so `jsxChildrenWrongType` reads `Type 'string' is
+  not assignable to type 'number | boolean'.`.
+- **Children against a union of array-likes.**
+  `getBestMatchIndexedAccessTypeOrUndefined` first tries
+  `getIndexedAccessTypeOrUndefined` on the union itself. That indexes every
+  constituent and answers their union when all have the element; only
+  otherwise does it need `getBestMatchingType`. The elementwise
+  elaboration declined for any second array-like part. It now unions the
+  parts' elements, and declines only when one has none
+  (`jsx_children_element_at`).
+- **Not reached:** `jsxChildrenArrayWrongType` (ES2015) reports nothing,
+  because the JSX overload resolution finds a candidate applicable before
+  any elaboration runs. That is a verdict on `{ children: [unknown,
+  string] }` against `[string, number] | boolean[]`, not a report.
