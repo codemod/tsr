@@ -1832,3 +1832,29 @@ not compared, as upstream does.
   `strictFunctionTypesErrors`, does not reach this arm yet: the port's
   type for the instantiation prints expanded (`(x: string) => Object`),
   with no alias to relate by.
+
+## 55. Written property names; no retraced chain under a type-parameter head
+
+- **`symbolToString` keeps a string-literal name as written.**
+  `Property ''ry'' is incompatible with index signature.`,
+  `Types of property ''a'' are incompatible.`, `Property '"e"'…`: a
+  property declared with a quoted name prints with its own quotes. The
+  rank has about 100 such lines. `chain_property_symbol_display` reads the
+  property's first declaration (assignment, signature, declaration or
+  method). A `StringLiteral` name keeps its quote style (`TokenFlags::
+  SINGLE_QUOTE`); anything else is `chain_property_display` as before.
+- **A type-parameter head target.** `reportRelationError` either resets
+  the chain ("only report this error once", TS5082) or puts TS5075 above
+  it. The head's report adds that message itself, so a retraced chain
+  under it was wrong in both cases. `doNotElaborateAssignabilityToTypeParameters`
+  showed `Yadda | Awaited<T> → T` with the union member's levels after
+  TS5082. `relation_failure_chain` now declines for a type-parameter
+  target.
+- **Refused: an indexed-access source arm.** Relating `T[K]`'s constraint
+  (`relater.go:3665`) needs `getConstraintOfIndexedAccess` to distribute
+  over a union index: `T[keyof T]` → `T[string] | T[number] | T[symbol]`.
+  The port's `constraint_of_type` answers `T[string | number | symbol]`,
+  so the retraced level reads differently from native
+  (`indexedAccessConstraints`). Through a conditional target
+  (`deepComparisons`) it is undecided. Measured on those two files, then
+  reverted; not in this commit.

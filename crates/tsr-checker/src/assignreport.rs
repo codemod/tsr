@@ -5622,6 +5622,15 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<Diagnostic> {
+        // A type-parameter target's `reportRelationError` either drops the
+        // chain below ("only report this error once", TS5082) or puts its
+        // TS5075 above it; the head's own report adds that message, so the
+        // retraced chain has no place under it (r7-reports §55).
+        if self.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !self.variance_marker_types.contains(&target)
+        {
+            return None;
+        }
         let mut stack = ChainStack::default();
         stack.assumed.push((source, target, false));
         self.explain_relation(&mut stack, source, target, 0)?;
@@ -6194,6 +6203,35 @@ impl Checker<'_, '_> {
         None
     }
 
+    /// `symbolToString` of `owner`'s property `name`: a name written as a
+    /// string literal keeps its quotes as written (`'ry'`, `"e"`); any
+    /// other is [`chain_property_display`] (r7-reports §55).
+    fn chain_property_symbol_display(&mut self, owner: TypeId, name: &str) -> String {
+        let written = self.get_property_of_type(owner, name).and_then(|symbol| {
+            let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+            let written = match self.node_map.get(declaration)? {
+                Node::PropertyAssignment(node) => node.name,
+                Node::PropertySignatureDeclaration(node) => node.name,
+                Node::PropertyDeclaration(node) => node.name,
+                Node::MethodSignatureDeclaration(node) => node.name,
+                Node::MethodDeclaration(node) => node.name,
+                _ => return None,
+            };
+            match written {
+                tsr_ast::PropertyName::StringLiteral(literal) => {
+                    let quote = if literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) {
+                        '\''
+                    } else {
+                        '"'
+                    };
+                    Some(format!("{quote}{}{quote}", literal.text))
+                }
+                _ => None,
+            }
+        });
+        written.unwrap_or_else(|| chain_property_display(name))
+    }
+
     /// `relateVariances` for two references to one class or interface
     /// (`relater.go:3266`, `typeArgumentsRelatedTo` at `:3903`): the first
     /// type argument that fails under its variance is the explanation.
@@ -6319,10 +6357,11 @@ impl Checker<'_, '_> {
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
                     self.explain_pair(stack, source_member, target_member, depth)?;
+                    let display = self.chain_property_symbol_display(target, name);
                     chain_report(
                         stack,
                         &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE,
-                        vec![chain_property_display(name)],
+                        vec![display],
                     );
                     return Some(());
                 }
@@ -6342,7 +6381,11 @@ impl Checker<'_, '_> {
                 let target_text = self.type_to_string(target);
                 stack.push(ChainEntry {
                     message: &messages::PROPERTY_0_IS_OPTIONAL_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
-                    args: vec![chain_property_display(name), source_text, target_text],
+                    args: vec![
+                        self.chain_property_symbol_display(target, name),
+                        source_text,
+                        target_text,
+                    ],
                 });
                 return Some(());
             }
@@ -6455,7 +6498,7 @@ impl Checker<'_, '_> {
                         self.explain_pair(stack, member, info.value, depth)?;
                         stack.push(ChainEntry {
                             message: &messages::PROPERTY_0_IS_INCOMPATIBLE_WITH_INDEX_SIGNATURE,
-                            args: vec![chain_property_display(&name)],
+                            args: vec![self.chain_property_symbol_display(source, &name)],
                         });
                         return Some(());
                     }
