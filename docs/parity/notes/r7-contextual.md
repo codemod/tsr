@@ -748,3 +748,19 @@ refusal cost only the optional flags. `function f({x = 10, y: [a, b, c, d] =
 [1, 2, 3, 4]} = { x: 10, y: [2, 4, 6, 8] })` now prints
 `{ x?: number; y?: [number, number, number, number]; }`. The certifier keeps
 its other refusals: a computed key, non-property members, and the array arm.
+
+## 23. A non-const assertion default is context-independent
+
+`binding_default_is_context_independent` gates the binding-pattern
+implied type (`getTypeFromBindingElement`, which checks the default with
+no context). A default whose type does not depend on the outer contextual
+type can be checked through the shared `node_types` memo without poisoning
+a later contextual check. `getContextualType` (`checker.go:29368`) gives an
+`as`/`<T>` operand the asserted type, and the assertion's type is that type,
+so neither depends on the outer context. Only `as const` forwards the outer
+context to its operand, so it stays refused. `let { b = "foo" as "foo" } = {
+b: "bar" }` now reads the implied `{ b?: "foo" }`: the literal `"bar"` keeps
+its literal type under the literal context, and `b : "bar" | "foo"`
+(literalTypesAndTypeAssertions). `satisfies` also takes its operand's
+context from its own type (`:29396`) but is not admitted: it has no corpus
+line and has not been measured.
