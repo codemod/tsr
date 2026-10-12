@@ -3886,6 +3886,23 @@ impl<'a, 'n> Checker<'a, 'n> {
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
+        // r7-printer §56: a namespace its file module's `export =` names is
+        // one of the symbol's containers twice over: as itself, and as the
+        // module (`getFileSymbolIfFileSymbolExportEqualsContainer`).
+        // `sortByBestName` falls back to `compareSymbols`, which puts the
+        // module (declared at position 0) first, so the chain is
+        // `[module, symbol]` even where the namespace is in scope:
+        // `new m.c()` prints `import("./a").c` beside `export = m`.
+        if self.module_host.is_some()
+            && let Some((root, leaf)) = self.module_rooted_chain_at(symbol, reference, meaning)
+            && self.binder.symbols().get(leaf).name == name
+            && let Some(&exported) = self.binder.symbols().get(root).exports.get("export=")
+            && self.binder.merged_symbol(self.resolve_symbol(exported)) == parent
+        {
+            let specifier = self.module_specifier_for_symbol(root, reference)?;
+            self.track_unsafe_import(&specifier, symbol, root);
+            return Some(format!("import({specifier})."));
+        }
         // r7-printer §14, §18: a namespace segment declared in a file module
         // (as its parent, or as a top-level local that `getContainersOfSymbol`'s
         // fallback offers, `symbolaccessibility.go:288`) takes the resolver's

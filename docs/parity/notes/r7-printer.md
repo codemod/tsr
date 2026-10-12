@@ -1950,3 +1950,27 @@ the same answer.
 `chain_needs_qualification` still asks `shadow_walk` (the transcribed table
 walk) and qualifies when a table holds another symbol first. The same-spelling
 arm keeps the bare name only when `is_shadowed_at` agrees. No cache or table.
+
+## 56. A member of a namespace its module's `export =` names is spelled through the module
+
+**Forcing constraint.** `declarationEmitImportInExportAssignmentModule`:
+`namespace m { export namespace c { export class c {} } … } export = m;` prints
+the namespace `c` natively as `typeof import("./declarationEmitImportInExportAssignmentModule").c`;
+the port printed `typeof m.c`. A native-read probe shows the rule is general:
+beside `export = m`, `new m.c()` prints `import("./a").c` and
+`typeof import("./a").c` even though `m` is in scope.
+
+**Cause.** When the member needs a qualifier, `getContainersOfSymbol` gives
+`[m, file]`: `getWithAlternativeContainers` adds the file module whose
+`export =` is `m` (`getFileSymbolIfFileSymbolExportEqualsContainer`).
+`getSymbolChain` sorts them with `sortByBestName`. Only the module has a
+specifier, so it falls back to `compareSymbols`, which puts the module
+(declared at position 0) first. The chain is therefore `[file, c]`, with the
+leaf found by `getAliasForSymbolInContainer` through the module's resolved
+exports. The port's namespace-parent step qualified by the in-scope `m`.
+
+**The port.** At the namespace-parent step, when the resolver's chain for the
+symbol is `[module, leaf]` (`module_rooted_chain_at`), the leaf keeps the
+symbol's name, and the module's `export =` resolves to the parent namespace,
+the segment is `import(<specifier>).`. Portability is reported as in §28. No
+cache or table. This completes §51's left item.
