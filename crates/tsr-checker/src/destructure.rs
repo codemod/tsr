@@ -370,9 +370,14 @@ impl Checker<'_, '_> {
         // facts test is upstream's `hasTypeFacts(.., TypeFactsIsUndefined)`;
         // the strip is `getNonUndefinedType` ([`Checker::get_non_undefined_type`]).
         let element_type = if let Some(default_expression) = element.initializer {
+            // getBindingElementTypeFromParentType's annotated leg reads the
+            // default only for strict mode's IsUndefined facts, which the
+            // ordinary check answers under the annotation's projection; the
+            // implied-pattern padding road is the annotation-less leg's.
             let default_type = if let Some(tsr_ast::BindingName::BindingPattern(pattern)) =
                 element.name
                 && self.nodes.kind(self.root_declaration_of(declaration)) == SyntaxKind::Parameter
+                && !self.binding_root_has_annotation(declaration)
             {
                 self.check_binding_pattern_default(declaration, default_expression, pattern)
                     .unwrap_or(error)

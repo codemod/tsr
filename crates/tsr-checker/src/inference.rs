@@ -5173,14 +5173,24 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<TypeId> {
         use crate::flags::TypeFlags;
         let &(object, index, _) = self.deferred_indexed_access_types.get(&target)?;
-        if depth > 8 || self.store.get(index).flags.intersects(TypeFlags::INSTANTIABLE) {
+        if depth > 8 {
             return None;
         }
+        // getSimplifiedIndexedAccessType distributes the object over the
+        // index only for a non-instantiable index; its generic-mapped arm
+        // (substituteIndexedMappedType) takes any index, so `{ [P in K]: E
+        // }[K]` is `E` with `P := K` (correlatedUnions' `UnionRecord<K>`).
+        let index_instantiable = self.store.get(index).flags.intersects(TypeFlags::INSTANTIABLE);
         let object = if self.deferred_indexed_access_types.contains_key(&object) {
             self.inference_simplified_indexed_access(object, depth + 1).unwrap_or(object)
         } else {
             object
         };
+        if index_instantiable
+            && matches!(self.store.get(object).data, TypeData::Intersection { .. })
+        {
+            return None;
+        }
         if let TypeData::Intersection { types, .. } = &self.store.get(object).data {
             let types = types.clone();
             let defers = types
@@ -5609,16 +5619,13 @@ impl<'a> Checker<'a, '_> {
             } else {
                 source
             };
-        if self.infer_to_mapped_type(source, target, parameters, out, depth) {
-            return;
-        }
-        // inferFromObjectTypes infers from members only when the two types
-        // are possibly related (`typesDefinitelyUnrelated`, `inference.go:715`).
-        if self.object_types_definitely_unrelated(source, target) {
-            return;
-        }
         // invokeOnce (inference.go:335) remembers both completed pairs and
-        // active circularities, preserving the best observed priority.
+        // active circularities, preserving the best observed priority. It
+        // wraps all of inferFromObjectTypes, the mapped-target arm included:
+        // a pair already inferred covariantly (`letter: A` against
+        // `Record<K, …>`) is not inferred again from a contravariant position
+        // (`caller: (a: A) => void` against `(x: Record<K, …>) => void`), so
+        // correlatedUnions' `call(xx)` keeps only the covariant `"A" | "B"`.
         let key = (source, target);
         if let Some(&priority) = self.inference_visited_pairs.get(&key) {
             self.inference_observed_priority = self.inference_observed_priority.min(priority);
@@ -5636,7 +5643,11 @@ impl<'a> Checker<'a, '_> {
             self.is_deeply_nested_type(target, &self.inference_target_stack, 2);
         if self.inference_expanding == (true, true) {
             self.inference_observed_priority = -1;
-        } else {
+        } else if !self.infer_to_mapped_type(source, target, parameters, out, depth)
+            // inferFromObjectTypes infers from members only when the two types
+            // are possibly related (`typesDefinitelyUnrelated`, `inference.go:715`).
+            && !self.object_types_definitely_unrelated(source, target)
+        {
             self.infer_from_members(source, target, original, parameters, out, depth);
         }
         self.inference_source_stack.pop();
