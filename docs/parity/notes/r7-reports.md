@@ -2723,3 +2723,23 @@ arm does. `chain_error_results` pushes TS4104, and
 `chain_report_relation_error` suppresses the pair's message when TS4104
 names it (`contextualTupleTypeParameterReadonly`). Quick oracles over
 `eadonly`, `uple`, `rray` and `ontextualTuple`: 0 lost.
+
+## 84. Indexed accesses sort by object and index (`unions.rs`, moved from held)
+
+(First recorded on `box/r7-reports-held`. It moves here under the
+integrator's default grant for small consumer hunks that share a native
+root cause.)
+
+`CompareTypes` (`utilities.go:544`) orders two indexed accesses by object
+type, then by index type. `getTypeNameSymbol` has no symbol for either, so
+the name comparison leaves them equal. The port compared their printed text
+(`T[number]` before `T[string]`) and then fell back to type ids. With the
+arm, §78's distribution prints as native does: `T[string] | T[number] |
+T[symbol]`.
+
+The change is in `unions.rs`: `compare_type_names` treats two deferred
+indexed accesses without aliases as equal, and `compare_types` gains the
+object-then-index arm before the type-id fallback. Measured with and
+without the hunk on the same tree: quick oracles over `keyof`, `ndexed`,
+`appedType`, `onditional` and `nion` gained `indexedAccessConstraints` and
+lost nothing.
