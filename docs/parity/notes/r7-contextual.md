@@ -1134,3 +1134,17 @@ context answers `error` (`h<T>(fn: T): T` with `h(async () => 1)`, while
 `m<T>(fn: () => T)` is fine; awaitedType 0:163–172; signatures.rs). A JSDoc
 `@satisfies {Object.<string, boolean>}` gives the literal no boolean context
 (checkJsdocSatisfiesTag8; jsdoc_annotations.rs).
+
+## 39. An annotated parameter root reads a nested pattern's default under its projection
+
+`getBindingElementTypeFromParentType` (`checker.go:17782`) returns an annotated
+root's projected element type, and consults the default only for strict
+mode's `IsUndefined` facts. The implied-pattern padding
+(`check_binding_pattern_default`) is the annotation-less leg's road. The port
+sent every parameter-rooted nested pattern's default through that padding
+road. Its certifier refuses a default whose pattern elements carry their own
+initializers, so `function foo3([nameMA = "noName", [primarySkillA = "primary",
+secondarySkillA = "secondary"] = ["noSkill", "noSkill"]]: Robot)` answered
+`error` for both nested names
+(sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2:
+2 → 0 non-RIGHT lines). An annotated root now checks the default ordinarily.
