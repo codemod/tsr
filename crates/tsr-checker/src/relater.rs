@@ -910,6 +910,23 @@ impl Checker<'_, '_> {
         self.relate_with_signature_diagnostic(source, target, relation, false).0
     }
 
+    /// [`Checker::relate_ternary`] as `typeRelatedToEachType` relates each
+    /// constituent of a target intersection: `isRelatedToEx(…,
+    /// IntersectionStateTarget)`, which nested comparisons inherit
+    /// (`relater.go:2879`). For the report retrace (r7-reports §41); an
+    /// overflowing walk answers `Unknown` and publishes nothing.
+    pub(crate) fn relate_ternary_in_intersection_target(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        relation: Relation,
+    ) -> Ternary {
+        let mut relater = Relater::new(self, relation, None);
+        relater.intersection_target = true;
+        let answer = relater.is_related_to(source, target).public_answer();
+        if relater.overflow { Ternary::Unknown } else { answer }
+    }
+
     /// Native signatureRelatedTo/compareSignaturesRelated arity reporting,
     /// collected during the same relation walk that decides the failure.
     /// Direct signature pairs only; recursive property/signature error contexts

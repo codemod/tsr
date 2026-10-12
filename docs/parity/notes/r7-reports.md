@@ -1457,3 +1457,147 @@ Two `diag:related-info` classes in this lane's reports.
 **Measured** (exact oracle, against batch 45, with §36–§37 and main's
 batch 46 in the tree): 9813 → 10138, 0 lost. A clean batch-46 base is
 measured with the gate.
+
+## 39. Related information on the excess-property path and under arrow returns
+
+- **TS6500 on `check_excess_properties`' member check.** Most object
+  literals against a non-union target never reach
+  `elaborate_object_literal_members`. `check_excess_properties` relates
+  each known member first (§23, its stand-in for `elaborateObjectLiteral`),
+  and its TS2322 is the one that lands. §38 attached the expected-type
+  origin only on the other path, so `foo({ id: 1, name: false })` lacked
+  it. Both of `check_object_literal_member`'s report sites, the single and
+  the duplicated name, now call `add_expected_type_related_info`. The rule
+  is unchanged: one new diagnostic, on the member's own span.
+- **TS6502 / TS1356 under an arrow return** (`elaborateArrowFunction`,
+  `relater.go:641`). Upstream first tries `elaborateError` on the returned
+  expression; an inner elaboration gets no related information. Only when
+  that declines does it relate the returns at the expression and add `The
+  expected type comes from the return type of this signature.` at the
+  target's first declaration. A union or intersection target has no
+  symbol, and so gets none. For a non-async arrow whose return has no
+  `then`, it also adds `Did you mean to mark this function as 'async'?`
+  at the arrow when `Promise<return>` would have been assignable. The port
+  follows that order. `target.symbol` is `Anonymous.symbol` or
+  `Named.members`. `createPromiseType` is `Promise<Awaited<T>>`, which is
+  `Promise<T>` for a non-generic, non-thenable `T`. The hint declines for a
+  generic return rather than building the `Awaited` alias.
+- **The member report is the relation's, wherever it lands.** §38
+  required the single new diagnostic to sit on the member's span with no
+  related information. Upstream adds the origin to `diags[0]` of
+  `elaborateElement`'s own `checkTypeRelatedToEx(…, prop, …)` (`relater.go:584`).
+  That diagnostic may already carry `'a' is declared here.` (TS2741 under
+  a property: the origin follows it). It may also have moved to a direct
+  member of the value literal: the relation's excess-property check reports
+  there (TS2353/TS2561). `is_member_relation_report` accepts both. An inner
+  elaboration's report is at neither place, so it gets none, as upstream.
+- **Generic signature pairs in the chain.** `explain_signature` declined
+  every generic signature. `compareSignaturesRelated` (`relater.go:1462`)
+  instantiates a generic source whose type parameters are not the
+  target's in the context of the target's canonical signature. The
+  verdict already does this (`one_signature_related_to`), and the retrace
+  now does the same through the same two functions. The callback test
+  also read `signatures_of_type_kind(…).is_none_or(…)`: a type parameter
+  has no answer there, so it was treated as callable and declined. It now
+  reads `getSingleCallSignature` of each non-nullable side, as upstream.
+- **Type-parameter source** (`structuredTypeRelatedToWorker`,
+  `relater.go:3665`). The constraint is related with `reportErrors` only
+  when it is not `unknown` and the target is not a type parameter too.
+  An unconstrained `T` therefore reports nothing below its relation
+  error, and a constrained one explains `constraint → target`. A
+  polymorphic `this` would need `getTypeWithThisArgument` and declines.
+- **`This type parameter might need an \`extends X\` constraint.`**
+  (`reportErrorResults`, `relater.go:4741`). An unconstrained, declared
+  type-parameter source adds this related information at every failing
+  level, unless constraining a clone to the target would be circular.
+  The port decides circularity only for a non-instantiable target (a
+  union or intersection with the source as a constituent) or a
+  type-parameter target (never circular). Any other instantiable target
+  declines. The head pair's hint is appended after the inner levels',
+  because the outermost `reportErrorResults` runs last.
+- **Not this lane: optional members print without `| undefined`.** 22
+  cases print `{ id: number; name?: string; }` where native prints
+  `name?: string | undefined` under `strictNullChecks`. The difference is
+  in the property-type printing arm of `printing.rs`
+  (`reused_property_type_text`). It is proposed as an issue, not fixed
+  here.
+- **Not this lane: a fresh literal's duplicated member relates its first
+  value.** `test({ thunk: (num: number) => {}, thunk: (str: string) => {} })`
+  prints the literal as `{ thunk: (str: string) => void; }`, but the
+  relation to `Thing` fails. A regular copy (`const o = {…}; const u: Thing
+  = o`) relates. §35 made the member check read the last value, as
+  upstream does, so the per-member TS2322 is gone. That exposes the
+  relation's verdict as a TS2345 head (`lastPropertyInLiteralWins`, WRONG
+  → WRONG, 3 lines fixed and 1 new). The member type the relater reads
+  comes from `objects.rs` / `members.rs`, so it is proposed as an issue.
+
+## 40. Overloaded signature sets in the chain
+
+`signaturesRelatedTo`' N×M arm (`relater.go:4495`) handles every pair that
+is not 1:1 and not two instantiations of one anonymous type or reference
+target. It walks the target signatures in order. For the first target
+signature that no source signature matches (both erased), only the first
+source signature's failure is elaborated (`shouldElaborateErrors` is then
+cleared). So with any source signature present, no `provides no match`
+follows. `explain_signature_sets` does the same: verdicts come from
+`compare_signature_ternary` on erased signatures, and the explanation from
+`explain_signature`. The pairwise arm declines rather than guess its erased
+pairing. `getErasedSignature` is re-implemented here
+(`chain_erased_signature`) rather than exposed from `check.rs`, which this
+lane does not own.
+
+A function declaration's own overload set (`typeof f`) still declines.
+`get_property_names_of_type` has no answer for it, and the unmatched-
+property step needs one.
+
+## 41. Common properties, intersection targets and the elaborated source
+
+- **The common-property check in the chain** (`isRelatedTo`,
+  `relater.go:2731`). A weak target that shares no property with the
+  source fails before any structural step. It reports TS2559, or TS2560
+  when the source's first call/construct return relates, and there is no
+  relation error under it. `explain_pair` checks it first, sharing
+  `weak_type_message` with `report_weak_type_failure`.
+- **Intersection target.** `typeRelatedToEachType` relates the source to
+  each constituent under `IntersectionStateTarget`. Every nested pair
+  inherits that state, and it skips the common-property and
+  excess-property checks. When every constituent relates, `isRelatedTo`'s
+  extra `propertiesRelatedTo` over the intersection as one object is what
+  failed (`relater.go:2770`); under the target state that pass is skipped.
+  The chain mirrors this with `ChainStack::intersection_target`.
+  `chain_relate` reads verdicts through the new
+  `relate_ternary_in_intersection_target`, which runs a verdict-only walk
+  with the relater's existing `intersection_target` flag. Without the
+  state, `C1 → A1` in `nestedExcessPropertyChecking` fails on a nested weak
+  check that upstream never makes. The retrace then explains a constituent
+  native relates.
+- **`specificSource`** (`elaborateElement`, `relater.go:565`). The member's
+  report relates the expression's own type, checked against the source
+  member's type as contextual type, and falls back to the member's type
+  when that relates. For a literal, `false` against `boolean` stays `false`.
+  So TS2559 names `'false'`, as upstream does. TS2322's display
+  generalizes it back to `boolean` through `reportRelationError`'s literal
+  generalization. Only a literal-typed expression is re-read; any other
+  keeps the member type, since re-checking under a contextual type is not
+  free here.
+- **`This type parameter might need…` on every head.** The hint now
+  attaches in `report_relation_head` (both of its report sites). Before,
+  it attached only in the final branch, and a missing-property `Kept` head
+  lacked it. `createDiagnosticChainFromErrorChain` gives every chain level
+  the walk's related information, so the head pair's hint is appended at
+  every level, not only the head.
+- **Arrow-return related information appends.** §39 attached TS6502 /
+  TS1356 only to a diagnostic with no related information, and replaced
+  the list. `AddRelatedInfo` appends: a TS2741 under an arrow return reads
+  `'z' is declared here.` and then `The expected type comes from the
+  return type of this signature.`
+
+**Not done: `mappedTypeAsClauseRelationships`' `Modify<T>`.** Native fails
+`T → { [P in keyof T as P extends string ? \`bool${P}\` : P]: T[P] }`
+because the name type's constraint `` `bool${P}` | P `` does not relate to
+`keyof T`. The port's generic-mapped-target arm has no `keyof T` for a
+type-parameter source (`keyof_without_index_signatures` reads index
+infos). With that supplied, `` `bool${P}` → keyof T `` is still `Unknown`
+in the port. That needs the index-target arm's `getSimplifiedTypeOrConstraint`
+and the template-source arm against an instantiable target. It was tried
+and reverted in this commit. The case's verdict stays as it was.
