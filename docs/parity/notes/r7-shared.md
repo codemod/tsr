@@ -1044,3 +1044,48 @@ that is itself a unique symbol, which is the only unit case it changes.
 `is_literal_of_contextual_type` already carries native's
 `UniqueESSymbol` arm, so a symbol-typed context still keeps it. A union
 return is not a unit type and keeps its unique symbols, as natively.
+
+## 35. A duplicate declaration's related information (`declareSymbolEx`'s TS2528 chain)
+
+`declareSymbolEx` (binder.go:249-277) builds the new declaration's
+diagnostic first and adds it last, after one diagnostic per earlier
+declaration. For multiple default exports, each earlier diagnostic relates
+"Another export default is here" (then "and here") at the new declaration,
+and the new one relates "The first export default is here" at each earlier
+one. This binder reported codes and positions only. Its comment said
+`Diagnostic` had no related information; that stopped being true when other
+lanes began attaching it, and the exact oracle ranks the gap
+(`multipleExportDefault1/3/6`, `exportDefaultTypeAndClass`,
+`multipleDefaultExports03`, `plainJSBinderErrors`).
+
+The chain is now built in native's order. A related diagnostic names its
+file through an image (`DiagnosticFile`) of the binder's own `FileInfo`,
+built on the first related diagnostic of the file only (the copy of the
+text is paid by files that have a default-export conflict). Not ported:
+`binder.go:255`'s `Did you mean 'export type { T }'` on a type-less `export
+type T;`, which needs the declaration node and not only its id.
+
+## 36. TS2305 on an `export =` module whose target is a variable or a type
+
+`errorNoModuleMemberSymbol` runs whenever `getExternalModuleMember` finds
+nothing. For an `export =` module that lookup is `getPropertyOfType(
+getTypeOfSymbol(target), name, skipObjectFunctionPropertyAugment)`, then
+`getExportOfModule(target, name)`. `report_missing_module_export` decided
+only declaration-shaped targets (namespace, class, function, enum) and
+declined the rest. Its stated reason was that a variable's
+`getPropertyOfType` misses in this port (unions, augmented interfaces) are
+not proof of absence. Two shapes are now decided:
+
+- **A type-only target** (`export = I` of an interface): it has no value
+  and so no property (`getTypeOfSymbol` is `errorType` natively), and only
+  its exports answer (`es6ExportEqualsInterop`'s `"interface"` imports).
+- **A variable target** whose declared type this port computed (not `any`,
+  an error or a gap). The existence test now also asks the type-read road
+  for a union receiver, because `get_property_of_type_ex` routes no union,
+  and native's union property is `createUnionOrIntersectionProperty`
+  (present in every constituent). So `export = x` with `x: { a; c } | { b;
+  c }` exports `c` and neither `a` nor `b`, and `toString` is absent because
+  the augment is skipped (`namedImportNonExistentName`).
+
+An alias target, and any value other than a variable that is not
+declaration-shaped, still decline.
