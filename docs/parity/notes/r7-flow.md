@@ -1513,3 +1513,25 @@ Finding (routed): a widened object literal's arrow member prints its return as
 such receivers carries that text; and a non-strict `[]` is `never[]` here
 where native has `undefined[]` (`downlevelLetConst16`'s `for (let {a: x} of
 [])`).
+
+## §54 TS2683's "An outer value of 'this' is shadowed by this container."
+
+`checkThisExpression` (`checker.go:12117-12125`) adds a related TS2738 at the
+`this` container when `tryGetThisTypeAt(container)` (the container's own
+`this`, answered from its outer container) exists and is not `globalThis`:
+`function inner() { this.y }` inside a method shadows the class's `this`. The
+port reported TS2683 alone. `try_get_this_type_answer` already answers the
+existence question; asked of the container with its outer
+`this_container(container, false, false)`, a `Present` answer adds the
+related at the container's error range. A source-file container never asks.
+
+## §55 TS2801's "Did you forget to use 'await'?"
+
+`checkTruthinessOfType`'s promise arm reports through
+`errorAndMaybeSuggestAwait(location, true, …)` (`checker.go:14015`), which
+adds the related TS2773 at the same node. `report_known_truthy` now takes
+whether to add it; only the promise arm does.
+
+Measured (§54 with §55) on `45fdd504`: legacy verdicts unchanged (related
+rows are not compared there); exact oracle 10889 → 10896 (+7), 0 lost;
+jsTyping gap 25 → 25, new_false 0, lost_true 0; Ir gi 0.9998, dm 0.9999.
