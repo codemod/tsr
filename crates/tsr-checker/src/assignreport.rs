@@ -5677,6 +5677,11 @@ struct ChainStack {
     /// The pairs being explained, outermost first, with their intersection
     /// state: the walk's maybe stack when a member relation is asked.
     assumed: Vec<(TypeId, TypeId, bool)>,
+    /// Per `assumed` pair: entered as a constraint descent, which pushes
+    /// its source only (`RecursionFlagsSource`).
+    assumed_source_only: Vec<bool>,
+    /// The next pair `explain_pair` enters is a constraint descent.
+    source_only_next: bool,
 }
 
 impl std::ops::Deref for ChainStack {
@@ -5759,8 +5764,10 @@ impl Checker<'_, '_> {
     ) -> Option<Diagnostic> {
         let mut stack = ChainStack::default();
         stack.assumed.push((source, target, false));
+        stack.assumed_source_only.push(false);
         self.explain_relation(&mut stack, source, target, 0)?;
         stack.assumed.pop();
+        stack.assumed_source_only.pop();
         self.chain_error_results(&mut stack, source, target);
         let related = std::mem::take(&mut stack.related);
         let entries: Vec<ChainEntry> = stack
@@ -5910,9 +5917,12 @@ impl Checker<'_, '_> {
             stack.push(ChainEntry { message, args });
             return Some(());
         }
+        let source_only = std::mem::take(&mut stack.source_only_next);
         stack.assumed.push((source, target, stack.intersection_target));
+        stack.assumed_source_only.push(source_only);
         let explained = self.explain_relation(stack, source, target, depth + 1);
         stack.assumed.pop();
+        stack.assumed_source_only.pop();
         explained?;
         self.chain_error_results(stack, source, target);
         self.chain_report_relation_error(stack, source, target)?;
@@ -6046,7 +6056,13 @@ impl Checker<'_, '_> {
         target: TypeId,
     ) -> crate::relater::Ternary {
         if !stack.assumed.is_empty() {
-            self.relate_ternary_assuming(source, target, &stack.assumed, stack.intersection_target)
+            self.relate_ternary_assuming(
+                source,
+                target,
+                &stack.assumed,
+                &stack.assumed_source_only,
+                stack.intersection_target,
+            )
         } else if stack.intersection_target {
             self.relate_ternary_in_intersection_target(
                 source,
@@ -6055,6 +6071,36 @@ impl Checker<'_, '_> {
             )
         } else {
             self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+        }
+    }
+
+    /// [`Self::chain_relate`] for a type variable's constraint against the
+    /// pair's target (`isRelatedToEx(constraint, target,
+    /// RecursionFlagsSource)`, `relater.go:3672`), then the explanation of
+    /// that pair when it fails, entered the same way (r7-reports §78).
+    fn explain_constraint_descent(
+        &mut self,
+        stack: &mut ChainStack,
+        constraint: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        let mut source_only = stack.assumed_source_only.clone();
+        source_only.push(true);
+        let answer = self.relate_ternary_assuming(
+            constraint,
+            target,
+            &stack.assumed,
+            &source_only,
+            stack.intersection_target,
+        );
+        match answer {
+            Ternary::NotRelated => {
+                stack.source_only_next = true;
+                self.explain_pair(stack, constraint, target, depth)
+            }
+            _ => None,
         }
     }
 
@@ -6161,13 +6207,54 @@ impl Checker<'_, '_> {
             return self.explain_object_relation(stack, source, target, depth, true);
         }
         // An intersection source failed every constituent silently; the
-        // structural pass over its combined members reports.
+        // structural pass over its combined members reports. A primitive
+        // constituent makes that pass read `getApparentType` of the
+        // intersection (`Number & { __brand: T }`), which this arm does not
+        // build, so it declines (r7-reports §78).
         if source_flags.contains(TypeFlags::INTERSECTION)
             && target_flags.contains(TypeFlags::OBJECT)
             && !target_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
             && !self.intersection_has_instantiable(source)
         {
+            if let TypeData::Intersection { types, .. } = &self.type_of(source).data
+                && types
+                    .iter()
+                    .any(|&part| self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE))
+            {
+                return None;
+            }
             return self.explain_object_relation(stack, source, target, depth, false);
+        }
+        // An indexed-access source (the same type-variable case,
+        // `relater.go:3665`) relates `getConstraintOfType`, reporting when
+        // that is not `unknown` (a nil constraint reports nothing). Against
+        // an indexed-access target the object/index arm owns the relation; a
+        // mapped object (`isMappedTypeGenericIndexedAccess` explores a second
+        // constraint) or an undecided constraint declines (r7-reports §78).
+        if let Some(&(object, _, _)) = self.deferred_indexed_access_types.get(&source)
+            && !target_flags.intersects(TypeFlags::INDEXED_ACCESS | TypeFlags::INTERSECTION)
+        {
+            self.ensure_mapped_type_info(object);
+            if self.mapped_types.contains_key(&object)
+                || self.type_reference_targets.contains_key(&object)
+            {
+                return None;
+            }
+            return match self.constraint_of_type(source) {
+                crate::constraints::ConstraintOfType::Nil => Some(()),
+                crate::constraints::ConstraintOfType::Constraint(constraint)
+                    if constraint != source && constraint != self.intrinsics.unknown =>
+                {
+                    let constraint = self.chain_simplified_indexed_access(constraint);
+                    self.explain_constraint_descent(stack, constraint, target, depth)
+                }
+                crate::constraints::ConstraintOfType::Constraint(constraint)
+                    if constraint == self.intrinsics.unknown =>
+                {
+                    Some(())
+                }
+                _ => None,
+            };
         }
         // A type-parameter source (`structuredTypeRelatedToWorker`,
         // `relater.go:3665`) relates its constraint, reporting only when that
@@ -6192,10 +6279,9 @@ impl Checker<'_, '_> {
                 {
                     Some(())
                 }
-                Some(constraint) => match self.chain_relate(stack, constraint, target) {
-                    Ternary::NotRelated => self.explain_pair(stack, constraint, target, depth),
-                    _ => None,
-                },
+                Some(constraint) => {
+                    self.explain_constraint_descent(stack, constraint, target, depth)
+                }
             };
         }
         // A type-parameter target (`structuredTypeRelatedToWorker`'s target
