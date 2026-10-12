@@ -16,6 +16,7 @@ while true; do
   git fetch -q origin
   sel=""
   for l in $lanes; do
+    grep -qx "$l" /tmp/integ/autoloop.exclude 2>/dev/null && continue
     b=box/r7-$l
     git rev-parse -q --verify origin/$b >/dev/null || continue
     [ "$(git cherry origin/main origin/$b | grep -c '^+')" -gt 0 ] || continue
