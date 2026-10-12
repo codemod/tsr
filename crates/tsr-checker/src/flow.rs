@@ -3243,16 +3243,63 @@ impl Checker<'_, '_> {
             let statement = self.nodes.parent(node).and_then(|list| self.nodes.parent(list))?;
             return self.for_in_or_of_assigned_type(statement);
         }
+        self.assigned_type(node)
+    }
+
+    /// `getAssignedType` (`flow.go:2288`): the type an assignment target
+    /// `node` receives from its parent — a `for..in`/`for..of` head, `delete`,
+    /// an assignment's right operand, and the destructuring arms (an array
+    /// literal element, a spread, a property assignment, a shorthand
+    /// property). `None` where this port cannot decide it (upstream's
+    /// `errorType`, which the declared type stands in for).
+    fn assigned_type(&mut self, node: NodeId) -> Option<TypeId> {
         let parent = self.nodes.parent(node)?;
-        // `getAssignedType` (`flow.go:2288`): the `for..in`, `for..of` and
-        // `delete` arms. The destructuring arms (array/object literal
-        // elements, spreads, property assignments) stay unported and answer
-        // `None` — the declared type, as upstream's `errorType` reduces to.
         match self.nodes.kind(parent) {
             SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement => {
                 return self.for_in_or_of_assigned_type(parent);
             }
             SyntaxKind::DeleteExpression => return Some(self.intrinsics.undefined),
+            // `getAssignedTypeOfArrayLiteralElement` (`flow.go:2324`).
+            SyntaxKind::ArrayLiteralExpression => {
+                let Some(Node::ArrayLiteralExpression(literal)) = self.node_map.get(parent) else {
+                    return None;
+                };
+                let index = literal.elements.iter().position(|e| e.node_id() == Some(node))?;
+                let source = self.assigned_type(parent)?;
+                return self.type_of_destructured_array_element(source, index);
+            }
+            // `getAssignedTypeOfSpreadExpression` (`flow.go:2354`).
+            SyntaxKind::SpreadElement => {
+                let literal = self.nodes.parent(parent)?;
+                let source = self.assigned_type(literal)?;
+                let element = self.iterated_element_type(source)?;
+                let array = self.global_type_symbol_with_arity("Array", 1)?;
+                return Some(self.create_type_reference(array, vec![element]));
+            }
+            // `getAssignedTypeOfPropertyAssignment` (`flow.go:2366`).
+            SyntaxKind::PropertyAssignment => {
+                let Some(Node::PropertyAssignment(assignment)) = self.node_map.get(parent) else {
+                    return None;
+                };
+                let name = assignment.name;
+                let literal = self.nodes.parent(parent)?;
+                let source = self.assigned_type(literal)?;
+                return self.type_of_destructured_property(source, name);
+            }
+            // `getAssignedTypeOfShorthandPropertyAssignment` (`flow.go:2379`).
+            SyntaxKind::ShorthandPropertyAssignment => {
+                let Some(Node::ShorthandPropertyAssignment(shorthand)) = self.node_map.get(parent)
+                else {
+                    return None;
+                };
+                let name = shorthand.name;
+                let literal = self.nodes.parent(parent)?;
+                let source = self.assigned_type(literal)?;
+                let property = self.type_of_destructured_property(source, name)?;
+                return Some(
+                    self.type_with_default(property, shorthand.object_assignment_initializer),
+                );
+            }
             _ => {}
         }
         // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`) for an
@@ -3262,9 +3309,7 @@ impl Checker<'_, '_> {
         // evaluates `e` (`bindLogicalLikeExpression`), and upstream answers
         // `getTypeOfExpression(right)` for every operator that reaches here.
         // Compound operators (`+=`) never do: `getTypeAtFlowAssignment`
-        // returns the antecedent's type for them first. A destructuring
-        // default (`[x = 1] = y`) reaches the same upstream function by a
-        // different route and is not handled.
+        // returns the antecedent's type for them first.
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return None };
         if !matches!(
             binary.operator_token?.kind,
@@ -3278,7 +3323,107 @@ impl Checker<'_, '_> {
         if binary.left.and_then(|left| Node::from(left).node_id()) != Some(node) {
             return None;
         }
+        // A destructuring default (`[x = d] = …`, `{ p: x = d } = …`) is
+        // `getTypeWithDefault(getAssignedType(binary), d)`.
+        let holder = self.nodes.parent(parent);
+        let default_target = holder.is_some_and(|holder| match self.nodes.kind(holder) {
+            SyntaxKind::ArrayLiteralExpression => self.is_destructuring_assignment_target(holder),
+            SyntaxKind::PropertyAssignment => self
+                .nodes
+                .parent(holder)
+                .is_some_and(|literal| self.is_destructuring_assignment_target(literal)),
+            _ => false,
+        });
+        if default_target {
+            let assigned = self.assigned_type(parent)?;
+            return Some(self.type_with_default(assigned, binary.right));
+        }
         Some(self.check_expression(binary.right?))
+    }
+
+    /// `isDestructuringAssignmentTarget` (`flow.go:2384`): `parent` is the
+    /// left operand of an assignment or a `for..of` head's initializer.
+    fn is_destructuring_assignment_target(&self, parent: NodeId) -> bool {
+        let Some(grand) = self.nodes.parent(parent) else { return false };
+        match self.node_map.get(grand) {
+            Some(Node::BinaryExpression(binary)) => {
+                binary.left.and_then(|left| Node::from(left).node_id()) == Some(parent)
+            }
+            Some(Node::ForInOrOfStatement(statement))
+                if self.nodes.kind(grand) == SyntaxKind::ForOfStatement =>
+            {
+                statement.initializer.and_then(|initializer| Node::from(initializer).node_id())
+                    == Some(parent)
+            }
+            _ => false,
+        }
+    }
+
+    /// `getTypeWithDefault` (`flow.go:2389`).
+    fn type_with_default(&mut self, t: TypeId, default: Option<tsr_ast::Expression<'_>>) -> TypeId {
+        let Some(default) = default else { return t };
+        let non_undefined = self.get_non_undefined_type(t);
+        let default_type = self.check_expression(default);
+        self.get_union_type(&[non_undefined, default_type])
+    }
+
+    /// `getTypeOfDestructuredArrayElement` (`flow.go:2328`): a tuple-like
+    /// source's element at `index`, else the iterated element (with
+    /// `undefined` under `noUncheckedIndexedAccess`).
+    fn type_of_destructured_array_element(
+        &mut self,
+        source: TypeId,
+        index: usize,
+    ) -> Option<TypeId> {
+        let key = self.store.intern_literal(
+            TypeFlags::NUMBER_LITERAL,
+            TypeData::NumberLiteral(index.to_string()),
+            false,
+        );
+        let tuple_like = self.every_type(source, |checker, part| {
+            checker.tuple_element_lists.contains_key(&part)
+                || checker.variadic_tuple_elements.contains_key(&part)
+        });
+        if tuple_like && let Some(element) = self.tuple_index_type(source, key, false) {
+            return Some(element);
+        }
+        let element = self.iterated_element_type(source)?;
+        Some(if self.no_unchecked_indexed_access {
+            self.get_union_type(&[element, self.intrinsics.missing])
+        } else {
+            element
+        })
+    }
+
+    /// `getTypeOfDestructuredProperty` (`flow.go:2370`): the property's type,
+    /// else an applicable index signature's value (with `undefined` under
+    /// `noUncheckedIndexedAccess`).
+    fn type_of_destructured_property(
+        &mut self,
+        source: TypeId,
+        name: tsr_ast::PropertyName<'_>,
+    ) -> Option<TypeId> {
+        let text = match name {
+            tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                let key = self.check_expression(computed.expression?);
+                self.property_name_from_index(key)?
+            }
+            name => crate::objects::written_property_name(&name)?,
+        };
+        if let Some(property) = self.get_type_of_property_of_type(source, &text) {
+            return Some(property);
+        }
+        let key_type = self.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral(text),
+            false,
+        );
+        let info = self.get_applicable_index_info(source, key_type)?;
+        Some(if self.no_unchecked_indexed_access {
+            self.get_union_type(&[info.value, self.intrinsics.missing])
+        } else {
+            info.value
+        })
     }
 
     /// The `for..in` / `for..of` arms of `getInitialTypeOfVariableDeclaration`
