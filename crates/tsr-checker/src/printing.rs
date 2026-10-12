@@ -176,6 +176,13 @@ impl Checker<'_, '_> {
         enclosing: tsr_ast::NodeId,
         excluded: Option<&str>,
     ) -> String {
+        // r7-printer §43: a message prints through `TypeToString`, whose
+        // flags lack `GenerateNamesForShadowedTypeParams` (`printer.go:177`),
+        // so `typeParameterToName` (`nodebuilderimpl.go:1404`) neither caches
+        // nor renames: every type parameter keeps its own name.
+        if self.print_without_enclosing {
+            return self.type_to_string(id);
+        }
         if let Some((_, name)) =
             self.render_type_parameter_names.allocations.iter().find(|(owner, _)| *owner == id)
         {
@@ -253,6 +260,7 @@ impl Checker<'_, '_> {
         self.certified_object_literal_text_at(id, reference, visit_identity)
             .or_else(|| self.deferred_member_text_at(id, reference))
             .or_else(|| self.spread_object_text_at(id, reference))
+            .or_else(|| self.signature_object_text_at(id, reference))
     }
 
     /// r7-printer §35: an object literal with a spread (`{ ...stuff }`) has
@@ -311,7 +319,22 @@ impl Checker<'_, '_> {
             return None;
         }
         self.rendering_composites.insert(id);
-        for (group, property) in groups.iter_mut().zip(&properties) {
+        self.reprint_property_slots_at(&mut groups, &properties, reference);
+        self.rendering_composites.remove(&id);
+        let members: Vec<_> = groups.into_iter().flatten().collect();
+        Some(crate::objects::render_object_type(&members))
+    }
+
+    /// §35's slot rule, shared with §38: each property that yields one plain
+    /// property member is re-printed at the site; methods, accessors, literal
+    /// and intrinsic slots keep their print.
+    fn reprint_property_slots_at(
+        &mut self,
+        groups: &mut [Vec<crate::objects::Member>],
+        properties: &[crate::objects::AnonymousProperty],
+        reference: tsr_ast::NodeId,
+    ) {
+        for (group, property) in groups.iter_mut().zip(properties) {
             let [crate::objects::Member::Property { printed, .. }] = group.as_mut_slice() else {
                 continue;
             };
@@ -338,8 +361,80 @@ impl Checker<'_, '_> {
                 *printed = text;
             }
         }
+    }
+
+    /// r7-printer §38: an instantiation expression's image
+    /// (`getInstantiatedTypePart`, `checker.go:10660`:
+    /// `newAnonymousType(nil, resolved.members, callSignatures,
+    /// constructSignatures, resolved.indexInfos)`) is an anonymous object
+    /// that native serializes member by member at the print site
+    /// (`createTypeNodeFromObjectType` → `createTypeNodesFromResolvedType`):
+    /// `a?.b<c>` prints `{ new (x: unknown): A.b<unknown>; …; prototype:
+    /// A.b<any>; }` where `b` is not in scope. The port mints it with its
+    /// braces text baked (`mint_instantiation_expression_type`) and marks it
+    /// `alias_named_signature_types`, which keeps it off the callable-expando
+    /// road.
+    ///
+    /// As §35, the baked member list is rebuilt (signatures, then index rows,
+    /// then properties, `createTypeNodesFromResolvedType`'s order) and must
+    /// reproduce the baked text exactly, or this declines. Then each signature
+    /// is printed at the site as the multi-signature road prints one (its own
+    /// `enterNewScope`), index rows keep their print, and properties follow
+    /// §35's slot rule. No cache or table.
+    fn signature_object_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        if !self.alias_named_signature_types.contains(&id)
+            || self.rendering_composites.contains(&id)
+            || self.mapped_types.contains_key(&id)
+        {
+            return None;
+        }
+        let signatures = self.signature_types.get(&id)?.clone();
+        let (properties, complete) = self.anonymous_properties.get(&id)?.clone();
+        if signatures.is_empty() || !complete {
+            return None;
+        }
+        let indexes = self.object_literal_index_infos.get(&id).cloned().unwrap_or_default();
+        let mut index_members = Vec::new();
+        for index in &indexes {
+            index_members.extend(self.index_info_members(index)?);
+        }
+        let mut groups = Vec::with_capacity(properties.len());
+        for property in &properties {
+            groups.push(self.anonymous_property_members(std::slice::from_ref(property))?);
+        }
+        let mut baked: Vec<_> = signatures
+            .iter()
+            .map(|signature| crate::objects::Member::Signature {
+                printed: crate::objects::signature_member_text(self, signature),
+            })
+            .collect();
+        baked.extend(index_members.iter().cloned());
+        baked.extend(groups.iter().flatten().cloned());
+        if crate::objects::render_object_type(&baked) != self.type_to_string(id) {
+            return None;
+        }
+        self.rendering_composites.insert(id);
+        let mut members = Vec::with_capacity(baked.len());
+        let mut claimed = rustc_hash::FxHashSet::default();
+        for signature in &signatures {
+            let names_depth = self.render_type_parameter_names.allocations.len();
+            let rendered =
+                self.rename_type_parameters_for_site(signature.clone(), reference, &mut claimed);
+            let scope_depth = self.render_type_parameter_scope.len();
+            self.push_render_type_parameter_scope(&rendered);
+            let printed = self.signature_member_text_at(&rendered, reference);
+            self.render_type_parameter_scope.truncate(scope_depth);
+            self.render_type_parameter_names.allocations.truncate(names_depth);
+            members.push(crate::objects::Member::Signature { printed });
+        }
+        members.extend(index_members);
+        self.reprint_property_slots_at(&mut groups, &properties, reference);
         self.rendering_composites.remove(&id);
-        let members: Vec<_> = groups.into_iter().flatten().collect();
+        members.extend(groups.into_iter().flatten());
         Some(crate::objects::render_object_type(&members))
     }
 
@@ -939,7 +1034,22 @@ impl Checker<'_, '_> {
                 // and the producer's written-node precedence, read from the
                 // declaration rather than by comparing two rendered strings
                 // (an unresolved annotation keeps its published spelling).
-                let printed = if let Some(text) = property.origin.and_then(|symbol| {
+                let printed = if self.print_without_enclosing {
+                    // §44: with no enclosing declaration nothing is reused,
+                    // and `addPropertyToElementList` serializes
+                    // `getNonMissingTypeOfSymbol`, an optional property's
+                    // `undefined` included (`nodebuilderimpl.go:2492`).
+                    let shown = if property.optional
+                        && self.strict_null_checks
+                        && !self.exact_optional_property_types
+                    {
+                        self.get_optional_type(property_type, false)
+                    } else {
+                        property_type
+                    };
+                    self.type_to_string_at(shown, reference)
+                        .unwrap_or_else(|| self.property_printed_type(&property).into_owned())
+                } else if let Some(text) = property.origin.and_then(|symbol| {
                     self.reused_property_type_text(symbol, property_type, Some(reference))
                 }) {
                     text
@@ -1005,9 +1115,9 @@ impl Checker<'_, '_> {
     /// `tsr_parser::collect_external_module_references`). The dynamic half
     /// is a tree walk, taken only when no statement-level import matched; no
     /// cache, since the question is asked only for a module the reference
-    /// cannot name through an alias. JS `require()` calls and JSDoc import
-    /// types are not read (a JS target reached only that way falls through to
-    /// the computed specifier). r5-modules §4.
+    /// cannot name through an alias. In a JavaScript file a `require("…")`
+    /// call is read with them (r7-printer §42); JSDoc import types are not
+    /// read. r5-modules §4.
     pub(crate) fn existing_import_specifier(
         &self,
         importing: tsr_ast::NodeId,
@@ -1037,12 +1147,31 @@ impl Checker<'_, '_> {
             let usage = literal.node_id?;
             resolves(usage, literal.text).map(|mode| (literal.text, mode))
         });
+        // `ForEachDynamicImportOrRequireCall` (`ast/utilities.go:2715`): in
+        // a JavaScript file a `require("…")` call is an import too.
+        let javascript = self.in_js_file(importing);
         let found = statement_level.or_else(|| {
             let mut dynamic: Vec<(u32, tsr_ast::NodeId, &str)> = Vec::new();
             let mut stack = vec![Node::from(source)];
             let mut children = Vec::new();
             while let Some(node) = stack.pop() {
                 let literal = match node {
+                    Node::CallExpression(call)
+                        if javascript
+                            && call.arguments.len() == 1
+                            && matches!(call.expression,
+                                Some(Expression::Identifier(callee)) if callee.text == "require") =>
+                    {
+                        match Node::from(call.arguments[0]) {
+                            Node::StringLiteral(literal) => {
+                                literal.node_id.map(|id| (id, literal.text))
+                            }
+                            Node::NoSubstitutionTemplateLiteral(literal) => {
+                                literal.node_id.map(|id| (id, literal.text))
+                            }
+                            _ => None,
+                        }
+                    }
                     Node::CallExpression(call)
                         if matches!(call.expression,
                             Some(Expression::KeywordExpression(keyword))
@@ -2007,6 +2136,36 @@ mod tests {
         assert_eq!(
             checker.type_names_for_error_display(mc, md, root),
             ("C".to_string(), "D".to_string())
+        );
+    }
+
+    /// A message prints with `TypeToString`'s flags: no
+    /// `GenerateNamesForShadowedTypeParams`, so a type parameter keeps its
+    /// own name inside a scope that declares the same name, and no written
+    /// annotation is reused, so an optional property shows its `undefined`
+    /// under `strictNullChecks` (r7-printer §43, §44).
+    #[test]
+    fn a_message_print_renames_nothing_and_reuses_nothing() {
+        let source = "class K<T> { f!: { g<T>(x: T): T; o?: number }; }";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.strict_null_checks = true;
+        let class = checker.binder.lookup_local(root, "K").unwrap();
+        let member = *checker.binder.symbols().get(class).members.get("f").unwrap();
+        let declaration = checker.binder.symbols().get(member).declarations[0];
+        let ty = checker.get_type_of_symbol(member);
+        assert_eq!(
+            checker.type_to_string_for_message(ty, declaration),
+            "{ g<T>(x: T): T; o?: number | undefined; }"
         );
     }
 

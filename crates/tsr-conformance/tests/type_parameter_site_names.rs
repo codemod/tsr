@@ -1,5 +1,5 @@
 //! Type-parameter names at a print site (`typeParameterToName`,
-//! `nodebuilderimpl.go:1404`; `docs/parity/notes/r7-printer.md` §33, §34).
+//! `nodebuilderimpl.go:1404`; `docs/parity/notes/r7-printer.md` §33, §34, §46).
 //! Every expected line was read from pinned native tsgo 5b1047d on the same
 //! source.
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
@@ -98,4 +98,35 @@ const f = <T extends object>(obj: T): T => {
             "Reflect.set : { <T_1 extends object, P extends PropertyKey>(target: T_1, propertyKey: P, value: P extends keyof T_1 ? T_1[P] : any, receiver?: any): boolean; (target: object, propertyKey: PropertyKey, value: any, receiver?: any): boolean; }",
         ],
     );
+}
+
+/// r7-printer §46: a reused node's own type-parameter declarations are
+/// renamed where the render already holds the name (native-read lines).
+#[test]
+fn a_reused_generic_annotation_renames_a_taken_name() {
+    let lines = lines(
+        r"function foo4<T extends <T>(x: T) => void>(x: T): T { return null as any; }
+function h<T>(cb: <T>(x: T) => T): T { return null as any; }
+",
+    );
+    assert_has(
+        &lines,
+        &[
+            "foo4 : <T extends <T_1>(x: T_1) => void>(x: T) => T",
+            "h : <T>(cb: <T_1>(x: T_1) => T_1) => T",
+        ],
+    );
+}
+
+/// r7-printer §48: a reused indexed access keeps a written type-query
+/// operand unparenthesized (`emitPostfixTypeOperand`; native-read lines).
+#[test]
+fn a_reused_type_query_operand_keeps_its_spelling() {
+    let lines = lines(
+        r"const a = { a: 1 } as const;
+export const o2 = (o: (typeof a)['a']) => {};
+export const o3 = (o:  typeof a['a']) => {};
+",
+    );
+    assert_has(&lines, &["o2 : (o: (typeof a)['a']) => void", "o3 : (o: typeof a['a']) => void"]);
 }
