@@ -1133,3 +1133,30 @@ method (other than a lone `async`) with `grammarErrorOnFirstToken(node, …)`,
 i.e. the whole first modifier. grammar.rs's postfix-token walk reported a
 one-byte span there. Correction of the record: it now goes through
 `grammar_error_on_first_token`. Converted: `objectLiteralMemberWithModifiers1`.
+
+## §59 TS2737 and TS2439
+
+Two arms with no emitter. Both are reached from grammar.rs's per-node
+`check_parser_lane_statement` hook. Both checked with `--pretty true`
+against `target/tsgo-pinned`.
+
+- **TS2737** (`checkGrammarBigIntLiteral`, `grammarchecks.go:2105`, from
+  `checkExpression`'s `KindBigIntLiteral` arm): below ES2020, a bigint
+  literal outside a literal type node (`1n`, or `-1n` as one) and outside an
+  ambient context (`has_ambient_flag`) is a grammar error. Converted:
+  `bigintAmbientMinimal`, `bigintWithoutLib` (es2015 variants).
+- **TS2439** (`checkExternalImportOrExportDeclaration`, `checker.go:5348`):
+  an import or export in a string-named ambient module's block, whose module
+  name is relative (`tspath.IsExternalModuleNameRelative`), is reported at
+  the declaration unless the ambient module is an external module
+  augmentation (`isTopLevelInExternalModuleAugmentation`). It sits beside
+  the same function's TS1141 arm. The TS1147/TS1198 arm between them is
+  check.rs's; the two exclude each other. Converted:
+  `ambientExternalModuleWithRelativeExternalImportDeclaration`.
+
+*Not here.* Native's caller checks the import binding (and so resolves the
+module) only when `checkExternalImportOrExportDeclaration` returns true. A
+TS2439 declaration therefore never draws TS2307. This port's module report
+does not read that answer, so `import * as b from "../y"` in `declare
+module "A"` still gets an extra TS2307 here. That was true before this
+change too. Routed to the import-declaration check's owner.
