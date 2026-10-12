@@ -5047,8 +5047,16 @@ impl Checker<'_, '_> {
             // already reports it, so the not-found rung must not run.
             return;
         }
-        if is_specially_diagnosed_name(text) || (self.in_js_file(node) && self.names_in_jsdoc(node))
-        {
+        if is_specially_diagnosed_name(text) {
+            return;
+        }
+        // **A JSDoc name still reaches the meaning cascade.** The TS2304 half
+        // of the JSDoc decline stays (r6-names §6), but a name that resolves
+        // only as a value is TS2749 natively — tsgo dropped Strada's
+        // value-as-type fallback, so `@param {Image}` or an `@enum` const is
+        // `checkAndReportErrorForUsingValueAsType`. r7-calls §43.
+        if self.in_js_file(node) && self.names_in_jsdoc(node) {
+            self.report_jsdoc_meaning_mismatch(node, text);
             return;
         }
         // **A duplicate heritage clause is recovered syntax.** `class C
@@ -13266,7 +13274,11 @@ impl Checker<'_, '_> {
     /// One helper rather than one per caller: §675 split this test across two
     /// branches of one upstream function and the halves drifted for fourteen
     /// builds. §693.
-    fn alias_chain_carries(&mut self, symbol: tsr_binder::SymbolId, meaning: SymbolFlags) -> bool {
+    pub(crate) fn alias_chain_carries(
+        &mut self,
+        symbol: tsr_binder::SymbolId,
+        meaning: SymbolFlags,
+    ) -> bool {
         let mut at = Some(symbol);
         for _ in 0..MAX_ALIAS_HOPS {
             let Some(current) = at else { break };
