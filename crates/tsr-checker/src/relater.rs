@@ -2108,8 +2108,11 @@ impl Relater<'_, '_, '_> {
         // upstream: it is `declared.rs`'s print-only mint for a qualified alias
         // reference (`N.Alias`), which may stand for a primitive such as
         // `undefined`. Its flags are not evidence, so it stays undecided.
-        if self.checker.strict_null_checks
-            && s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
+        // Outside strict null checks `undefined` and `null` relate to every
+        // object (`isSimpleTypeRelatedTo`'s non-strict arms), but `void` has
+        // no such arm: it fails against an object either way (r7-reports §76).
+        if (self.checker.strict_null_checks && s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
+            || s == TypeFlags::VOID)
             && t.contains(TypeFlags::OBJECT)
             && (matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
                 || (!self.is_generic_mapped_target(target)
