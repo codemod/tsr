@@ -244,6 +244,7 @@ function whose recovery differed. Each landed as its own commit:
 | `ReScanSlashToken` (`scanner.go:1067`) | an unterminated regex ran to the line end | parserRegularExpressionDivideAmbiguity4 |
 | `parseVariableDeclarationList` (`:1563`) | `await using` flagged `Using` alone | awaitUsingDeclarationsInForIn, awaitUsingDeclarationsWithImportHelpers |
 | `checkJSDecoratorSyntax` (`:6657`) | no TS1206/TS8038 decorator placement in `.js` | esDecorators-classDeclaration-exportModifier |
+| `checkJSDecoratorSyntax`'s related TS1486 (`:6657`) with `attachFileToDiagnostics`' file | the related `Decorator used before 'export' here.` had no file, so it printed with no position (`check.rs::check_js_syntax`, the earlier grant) | esDecorators-classDeclaration-exportModifier |
 | `parseFunctionOrConstructorType` (`:2731`) | speculative function type fell back to a parenthesized one | functionTypesLackingReturnTypes, parseErrorIncorrectReturnToken |
 | `parseElementAccessExpressionRest` (`:5436`) | `x[]` reported TS1109, not TS1011 | badArrayIndex, objectLitArrayDeclNoNew |
 | `nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine` (`:6324`) | `for (using of …)` read as a declaration | usingDeclarationsInForOf.2 |

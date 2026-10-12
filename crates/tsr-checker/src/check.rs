@@ -11066,10 +11066,14 @@ impl Checker<'_, '_> {
                 &messages::DECORATORS_MAY_NOT_APPEAR_AFTER_EXPORT_OR_EXPORT_DEFAULT_IF_THEY_ALSO_APPEAR_BEFORE_EXPORT,
                 self.nodes.span(trailing),
             );
+            // `createDiagnosticForNode`, with the file `attachFileToDiagnostics`
+            // sets on a parse diagnostic's related information.
             let related = modifiers[decorator_index].node_id().map(|first| {
-                Diagnostic::new(
+                self.related_diagnostic_at(
+                    first,
                     &messages::DECORATOR_USED_BEFORE_EXPORT_HERE,
                     self.nodes.span(first),
+                    Vec::new(),
                 )
             });
             diagnostic.add_related_information(related);
