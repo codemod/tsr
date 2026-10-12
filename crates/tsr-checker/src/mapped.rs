@@ -998,8 +998,10 @@ impl<'a> Checker<'a, '_> {
         // with the constraint's own constituents is the constraint, which
         // keeps its alias or origin (`keyof O` for `{ [K in keyof O as K]:
         // … }`; r7-declared §54).
-        if let (crate::types::TypeData::Union { types: result_types, .. }, crate::types::TypeData::Union { types, .. }) =
-            (&self.store.get(result).data, &self.store.get(info.constraint).data)
+        if let (
+            crate::types::TypeData::Union { types: result_types, .. },
+            crate::types::TypeData::Union { types, .. },
+        ) = (&self.store.get(result).data, &self.store.get(info.constraint).data)
             && result_types == types
         {
             return Some(info.constraint);
