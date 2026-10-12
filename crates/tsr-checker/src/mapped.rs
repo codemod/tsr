@@ -993,7 +993,18 @@ impl<'a> Checker<'a, '_> {
                 names.push(self.intrinsics.number);
             }
         }
-        Some(self.get_union_type(&names))
+        let result = self.get_union_type(&names);
+        // getIndexTypeForMappedType's last step (checker.go:26918): a result
+        // with the constraint's own constituents is the constraint, which
+        // keeps its alias or origin (`keyof O` for `{ [K in keyof O as K]:
+        // … }`; r7-declared §54).
+        if let (crate::types::TypeData::Union { types: result_types, .. }, crate::types::TypeData::Union { types, .. }) =
+            (&self.store.get(result).data, &self.store.get(info.constraint).data)
+            && result_types == types
+        {
+            return Some(info.constraint);
+        }
+        Some(result)
     }
 
     /// getIndexTypeForMappedType (checker.go:26871) over a generic key
@@ -1084,7 +1095,21 @@ impl<'a> Checker<'a, '_> {
             } else if composite {
                 self.composite_modifiers_property_names(source)
             } else {
-                self.property_names_of(source)
+                // A late-bound member (`[sym]: any`) is no binder member, so
+                // the declared walk misses it; getPropertiesOfType has it
+                // (forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType
+                // reads every property, checker.go:22731). Its key is the
+                // computed name's type (`literal_type_of_property`), and the
+                // member order is §47's (r7-declared §54).
+                let mut names = self.property_names_of(source);
+                if let Some(all) = self.get_property_names_of_type(source) {
+                    for name in all {
+                        if name.starts_with('[') && !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                }
+                names
             };
             for name in names {
                 // getLiteralTypeFromProperty (checker.go:26746) answers never
@@ -1569,7 +1594,15 @@ impl<'a> Checker<'a, '_> {
             .map(|(created, property)| {
                 let position =
                     property.origin.and_then(|origin| self.compare_symbols_key(origin).1);
-                ((position.is_none(), position, property.name.clone(), created), property)
+                // A unique-symbol key's escaped name starts with native's
+                // InternalSymbolNamePrefix "\xFE", which sorts after every
+                // printable name; this port spells the prefix `__@`
+                // (`crate::unique_symbol_keys`; r7-declared §54).
+                let symbol_named = property.name.starts_with("__@");
+                (
+                    (position.is_none(), position, symbol_named, property.name.clone(), created),
+                    property,
+                )
             })
             .collect();
         keyed.sort_by(|left, right| left.0.cmp(&right.0));
