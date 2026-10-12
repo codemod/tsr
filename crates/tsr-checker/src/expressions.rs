@@ -1861,6 +1861,16 @@ impl Checker<'_, '_> {
         let Some(first) = parameters.first().filter(|first| {
             matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
         }) else {
+            // `getSignatureOfFullSignatureType(container)` before the
+            // declaration's own signature (`checker.go:12152`): a JS
+            // function's `@type` signature supplies its `this` (r7-flow §72).
+            if let Some(this_type) = self
+                .jsdoc_full_signature(container)
+                .and_then(|signature| signature.this_parameter)
+                .map(|parameter| self.parameter_type(&parameter))
+            {
+                return Some(this_type);
+            }
             return self.jsdoc_this_parameter_type(container);
         };
         let Some(annotation) = first.r#type else {
