@@ -159,7 +159,12 @@ impl Checker<'_, '_> {
             // `@this` in a JS file.
             if self.has_this_parameter(container)
                 || (self.in_js_file(container)
-                    && self.jsdoc_this_parameter_type(container).is_some())
+                    && (self.jsdoc_this_parameter_type(container).is_some()
+                        // `getSignatureOfFullSignatureType` (`checker.go:12152`):
+                        // a JS function's `@type` signature (§72).
+                        || self
+                            .jsdoc_full_signature(container)
+                            .is_some_and(|signature| signature.this_parameter.is_some())))
             {
                 return ThisTypeAnswer::Present;
             }
