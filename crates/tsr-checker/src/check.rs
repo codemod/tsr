@@ -1755,7 +1755,7 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
         let span = self.error_span(id);
-        let printed = self.type_to_string(base_type);
+        let printed = self.type_to_string_for_message(base_type, id);
         self.report(
             file,
             Diagnostic::with_args(
