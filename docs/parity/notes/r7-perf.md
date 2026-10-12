@@ -1511,6 +1511,90 @@ the chain, dm and dml are under 0.50 in dist, and `diagnostics_match`
 is true on both. generic-imports is front-end bound (§12, ADR-0056).
 jsTyping is still not equivalent work: 122 lines against 86.
 
+## §33 Two more success-path fixes on the chain: inference's property order and the relation-first report
+
+This section is placed before §25, after §31, for the same reason as §31.
+Both fixes are in other lanes' files (`inference.rs`, `assignreport.rs`)
+and are proposed on `box/r7-perf-proposed` on top of §31.
+
+**Forcing measurement.** Callgrind on dml with the chain (main
+`bacf0918` plus §31, `--singleThreaded`, profiling build, 3.50 G Ir)
+shows a flat profile: no checker function above 1.7% self. Two
+inclusive costs are on paths native takes only after a failure, or not
+at all:
+
+1. **`infer_from_members`** cost 116 M Ir inclusive over 4,376 calls.
+   200 of those calls come from `DeepReadonly<ModelNNN>`'s
+   `T extends (infer U)[]`, which infers from an interface to `Array<U>`
+   at about 270 K Ir each. For every one of `Array`'s members the port
+   asked `get_type_of_property_of_type(target, name)` before
+   `get_type_of_property_of_type(source, name)`. That instantiates the
+   target member's type even when the source has no such property.
+   Native's `inferFromProperties` (`inference.go:828`) looks up the
+   source property first and reads the target's type only when the
+   source has one.
+2. **`report_relation_failure`** (reached from `check_return_expression`
+   and `check_variable_like_declaration`, 5,032 calls on dml) ran
+   `elaborate_error`, the union-literal and excess-property arms and
+   `report_weak_type_failure` before it related the pair. That is about
+   76 M Ir inclusive, almost all of it on assignable pairs. Native's
+   `checkTypeRelatedToAndOptionallyElaborate` (`relater.go:430`) returns
+   at a successful `isTypeRelatedTo` before any elaboration.
+
+**Changes.**
+
+1. `infer_from_members` reads the source member's type first and skips
+   the name when the source has none. This is native's order.
+2. `report_relation_failure` computes the reporting relation
+   (`relate_with_signature_diagnostic(…, true)`) first and returns at
+   `Related`. The answer is kept and used where the road used to compute
+   it, so no relation runs twice. A source whose node is an object literal,
+   or which is a fresh object literal type, keeps the old order, because
+   its excess-property arms run in this function rather than inside the
+   relation.
+
+Neither is a cache, side table or traversal, so the checker-port record
+does not apply.
+
+**Refused first cut of change 2.** A separate silent relation
+(`report_errors = false`) in front of the old road changed
+`compiler/relationComplexityError` from TS2859 to TS2322. The silent
+relation overflowed first and published `ComplexityOverflow`, and the
+reporting relation that followed read that entry and answered
+`NotRelated`. Computing the reporting relation once, as landed, keeps
+that case byte-identical.
+
+**Measured** against the freeze of `bacf0918`, as cumulative Ir on top of
+§31 (`--singleThreaded`, release):
+
+| project | §31 chain | + change 1 | + change 2 |
+|---|---:|---:|---:|
+| generic-imports | 191,226,759 | 191,194,704 | 191,232,721 |
+| domain-model | 797,721,649 | 793,080,069 (−0.6%) | 789,713,136 (−1.0%) |
+| domain-model-large | 3,371,628,608 | 3,357,742,886 (−0.4%) | 3,341,605,125 (−0.9%) |
+
+- `compare`: 0 gained, 0 lost and 0 missing. The diagnostics dump differs
+  from the base in one row, a WRONG case:
+  `compiler/styledComponentsInstantiaionLimitNotReached` loses its two
+  false reports (TS2577 at 171:8 and TS2456 at 182:13). Native expects two
+  TS2344, so the case stays WRONG. Change 1 alone causes this (checked
+  with change 1 built without change 2). The only thing it removes is the
+  instantiation of target members the source lacks, so the case depends
+  on that order. It was not reduced. The types dump is byte-identical.
+- jsTyping leg: 122 against 122 lines, identical. CLI output is
+  `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,458 → 10,458
+  exact, 0 lost, 0 missing.
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,841 passed, 0 failed.
+
+**How we would know these were wrong.** For change 1: an inference
+that depended on instantiating a target member the source lacks, which
+would show as a changed type row. For change 2: a TS2322, TS2353 or
+TS2559 that `elaborate_error` or the weak-type arm reported on a pair the
+relation calls `Related`. Native never reports one, so a row losing such
+a report would be a fidelity gain to verify, not a loss to restore.
+
 ## §25 The loader prepares the libs beside the roots, and the walk publishes from tickets
 
 This section is numbered after §22–§24, which are on the
