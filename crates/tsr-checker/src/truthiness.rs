@@ -213,6 +213,7 @@ impl Checker<'_, '_> {
                 location,
                 &messages::THIS_CONDITION_WILL_ALWAYS_RETURN_0,
                 vec![if truthy { "true" } else { "false" }.to_string()],
+                false,
             );
             return;
         }
@@ -264,17 +265,21 @@ impl Checker<'_, '_> {
             return;
         }
         if is_promise {
+            // `errorAndMaybeSuggestAwait` (`checker.go:14015`): the related
+            // "Did you forget to use 'await'?" at the same node.
             let text = self.type_to_string(tested_type);
             self.report_known_truthy(
                 location,
                 &messages::THIS_CONDITION_WILL_ALWAYS_RETURN_TRUE_SINCE_THIS_0_IS_ALWAYS_DEFINED,
                 vec![text],
+                true,
             );
         } else {
             self.report_known_truthy(
                 location,
                 &messages::THIS_CONDITION_WILL_ALWAYS_RETURN_TRUE_SINCE_THIS_FUNCTION_IS_ALWAYS_DEFINED_DID_YOU_MEAN_TO_CALL_IT_INSTEAD,
                 Vec::new(),
+                false,
             );
         }
     }
@@ -287,6 +292,7 @@ impl Checker<'_, '_> {
         at: NodeId,
         message: &'static tsr_diagnostics::Message,
         args: Vec<String>,
+        suggest_await: bool,
     ) {
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
@@ -297,7 +303,16 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
-        self.report(file, Diagnostic::with_args(message, span, args));
+        let mut diagnostic = Diagnostic::with_args(message, span, args);
+        if suggest_await {
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                at,
+                &messages::DID_YOU_FORGET_TO_USE_AWAIT,
+                span,
+                Vec::new(),
+            )));
+        }
+        self.report(file, diagnostic);
     }
 
     /// Every constituent is a primitive (or `never`). Such a type has no call

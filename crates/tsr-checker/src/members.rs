@@ -1542,13 +1542,26 @@ impl Checker<'_, '_> {
             );
         }
         self.resolve_mapped_type_members(id);
+        // checkObjectLiteral gives each member its own transient symbol and
+        // the last one wins `propertiesTable[name]` (`checker.go:13331`). A
+        // name the literal writes more than once merges into one binder
+        // symbol, whose `getTypeOfSymbol` answers the first declaration, so
+        // the symbol road below would relate the wrong member: the literal's
+        // own resolved entry is the last member's (r7-reports §75).
+        let duplicated_member = |checker: &Self, property: &crate::objects::AnonymousProperty| {
+            property.checked_declaration.is_some()
+                && checker.peek_property_type(property).is_some()
+                && property.origin.is_some_and(|symbol| {
+                    checker.binder.symbols().get(symbol).declarations.len() > 1
+                })
+        };
         if let Some(property) = self
             .anonymous_properties
             .get(&id)
             .and_then(|(properties, instantiated)| {
-                instantiated
-                    .then(|| properties.iter().find(|property| property.name == name))
-                    .flatten()
+                properties.iter().find(|property| {
+                    property.name == name && (*instantiated || duplicated_member(self, property))
+                })
             })
             .cloned()
         {
@@ -3242,6 +3255,36 @@ impl Checker<'_, '_> {
     /// deliberately withholds the prototype road there (TS2748-family, the
     /// §117 fallback's own recorded gate), so `E.toString`'s error-any IS
     /// the established answer (constEnumNoObjectPrototypePropertyAccess 14).
+    /// [`Self::miss_is_established`] for a lookup that skips the Object /
+    /// Function augment (`getPropertyOfTypeEx(…, skipObjectFunctionPropertyAugment
+    /// = true)`, as `getExternalModuleMember` reads an `export =` variable):
+    /// the augment families cannot answer, so their gate does not apply. A
+    /// type-literal owner's members table is filled whole by the binder, so
+    /// its miss is established too, and a union lacks the name when one
+    /// constituent does (`createUnionOrIntersectionProperty`). Everything
+    /// else is the ordinary walk (r7-shared.md §36).
+    pub(crate) fn augment_free_miss_is_established(&mut self, receiver: TypeId) -> bool {
+        if let TypeData::Union { types, .. } = &self.store.get(receiver).data {
+            let constituents = types.clone();
+            return constituents
+                .into_iter()
+                .any(|part| self.augment_free_miss_is_established(part));
+        }
+        if let TypeData::Named { members: Some(owner), .. } = self.store.get(receiver).data
+            && !self.mapped_types.contains_key(&receiver)
+        {
+            let declarations = &self.binder.symbols().get(owner).declarations;
+            if !declarations.is_empty()
+                && declarations.iter().all(|&declaration| {
+                    self.nodes.kind(declaration) == tsr_ast::SyntaxKind::TypeLiteral
+                })
+            {
+                return true;
+            }
+        }
+        self.named_walk_is_complete(receiver)
+    }
+
     pub(crate) fn miss_is_established(&mut self, receiver: TypeId, name: &str) -> bool {
         // §125, re-measured 2026-08-10 as §161 (`checker-notes-narrow.md`):
         // the union per-constituent arm re-refused at 63:213 — the same

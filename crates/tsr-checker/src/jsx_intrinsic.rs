@@ -588,9 +588,21 @@ impl Checker<'_, '_> {
     /// member list (`docs/parity/notes/r4-jsx2.md` §1).
     fn mint_jsx_attributes_chunk(
         &mut self,
-        properties: Vec<crate::objects::AnonymousProperty>,
+        mut properties: Vec<crate::objects::AnonymousProperty>,
         attributes: &tsr_ast::JsxAttributes<'_>,
     ) -> Option<crate::types::TypeId> {
+        // Both `createJsxAttributesType` and `getSpreadType` mint through
+        // `newAnonymousType`, whose `getNamedMembers` (`checker.go:22049`)
+        // sorts by `compareSymbols`: first declaration, so a spread member
+        // keeps its own declaration's place and a later spread's
+        // replacement moves to where it was written. Symbols without
+        // declarations (`children`) sort last (r7-reports §80).
+        properties.sort_by(|left, right| match (left.origin, right.origin) {
+            (Some(left), Some(right)) => self.compare_symbols(left, right),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        });
         let members = self.property_members(&properties);
         let symbol = self.binder.symbol_of(attributes.node_id?);
         let ty = self.store.new_named(

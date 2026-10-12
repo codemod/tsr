@@ -973,3 +973,164 @@ circularInlineMappedGenericTupleTypeNoCrash 0:17–0:18.
 `new Foo<[...Elements, "abc"]>(...this.elements, { bar: "abc" })` read
 `{ bar: "abc" }` where native prints `{ bar: string }`. With the boundary it is
 back to its b57 state (one non-RIGHT line, unchanged).
+
+## 32. A unique-symbol member of an object literal reads its context by the escaped name, then by name type
+
+`getContextualTypeForObjectLiteralElement` (`checker.go:29924`) looks the
+member up by its symbol's name. For a late-bound unique-symbol key that name
+is `__@A@<id>` (`getPropertyNameFromType`), and the lookup carries the key as
+`nameType`. The port spells the literal's member `[A]`
+(`late_bound_symbol_member_name`), but a resolved mapped type over
+unique-symbol keys lists `__@A@<id>`, so `{ [A]: ap => … }` against
+`{ [K in Action["type"]]: (p: K) => void }` (resolved) found no member, and `ap`
+was `any`. The lookup now takes the escaped name
+(`unique_symbol_property_name`) when the context lists only that spelling.
+When no member exists at all, it falls back to the index infos read with the
+name type, as `getTypeFromIndexInfosOfContextualType` (`:30646`) does:
+`const x: { [sym: symbol]: (p: string) => void } = { [A]: s => s.length }` now
+types `s : string`. contextuallyTypedSymbolNamedProperties: 20 → 3 non-RIGHT
+lines on the verdict dump. The last three wait on mapped.rs:
+`generic_mapped_contextual_property_type_of_key` reads the generic
+`{ [K in T["type"]]: … }` with the constraint `T["type"]` unreduced
+(`contextual_mapped_key_base_constraint`). Native's `getBaseConstraintOrType`
+gives `string | symbol`, which admits the key, so during inference the
+`[A]` arrow gets no contextual signature and caches `error`.
+
+## 33. A conditional contextual type is apparent through its default constraint
+
+`getApparentTypeOfContextualType` maps the instantiated contextual type
+through `getApparentType`, which takes an instantiable type's base
+constraint. For a conditional, that is `computeBaseConstraint`'s
+conditional arm: the base of `getConstraintFromConditionalType`, i.e. the
+distributive constraint when the check type is a type parameter, and
+otherwise `getDefaultConstraintOfConditionalType`, the union of the two
+branches (`checker.go:17263`). `base_constraint_of_type` (constraints.rs)
+declines for such a conditional, and `apparent_contextual_type` answered
+`unknown`. `bad<P extends Props>(attrs: string extends keyof P ? { [K in keyof P]: P[K] } : …)`
+called with `{ when: value => false }` had no member context, so the arrow
+answered `error`. `apparent_contextual_type` now falls back to
+`default_constraint_of_conditional_type`, then the apparent type of that
+union, for a conditional whose check type is not a type parameter. A
+distributive conditional keeps `unknown`: its distributive constraint is not
+ported here. So does a default constraint that is itself conditional, so the
+fallback cannot recurse. conditionalTypeContextualTypeSimplificationsSuceeds
+8 → 0 and complicatedIndexesOfIntersectionsAreInferencable 7 → 0 non-RIGHT
+lines on the verdict dump.
+
+## 34. An object binding pattern supplies the return mapper, and an annotated arrow default is context-independent
+
+`inferTypeArguments` (`checker.go:9405`) takes a contextual type that comes
+from a binding pattern into `context.returnMapper` only (isFromBindingPattern),
+which `instantiateContextualType` reads for a context-sensitive argument with
+no inferences yet. `binding_pattern_return_context` computed that slice for
+array patterns of plain identifiers only. An object pattern now answers its
+implied type through `initializer_binding_pattern_context`, the road the
+initializer's own contextual read already takes. The array slice keeps its
+hand-built tuple.
+
+The implied type itself needed one more certified default.
+`getTypeFromBindingElement` checks a default with the `unknown` contextual
+type. An arrow that is not context-sensitive (every parameter annotated, or
+type parameters, and no context-sensitive concise body) reads no contextual
+signature, and its type is its symbol's in both checks. So
+`binding_default_is_context_independent` admits it. A function expression
+without an explicit `this` parameter is context-sensitive natively
+(hasContextSensitiveParameters) and stays refused. A concise body that is
+itself a function, literal, conditional, binary, parenthesized or JSX form
+is refused unless a return type is written, since such a body may be
+context-sensitive. `const { f = (x: string) => x.length } = id({ f: x => x.charAt })`
+now types `x : string`, and `f` is
+`((x: string) => number) | ((x: string) => (pos: number) => string)`
+(objectBindingPatternContextuallyTypesArgument 9 → 0 non-RIGHT lines).
+
+## 35. A for-of head's binding element default copies its pattern's optionality
+
+`getContextualTypeForInitializerExpression` (`checker.go`) gives a binding
+element's default its parent's projected type
+(`getContextualTypeForBindingElement`). That is the root's annotation, else
+its initializer's type (`checkDeclarationInitializer`). Only with neither does
+it fall back to `getTypeFromBindingPattern`, whose optional members the
+literal copies (`contextualTypeHasPattern`). `contextual_binding_pattern`'s
+BindingElement arm certified only a parameter root. A variable root with no
+annotation and no initializer, as in `for (let { skills: { primary: p = "a" }
+= { primary: "x" } } of arr)`, now also yields the element's pattern, so the
+default prints `{ primary?: string; }`
+(sourceMapValidationDestructuringForOfObjectBindingPatternDefaultValues 6 → 0
+non-RIGHT lines). A JS root keeps the old answer, since its JSDoc `@type` is an
+annotation. A root with an initializer keeps no `?`, as native does
+(`declarationsAndAssignments`' `{ x: 10, y: false } : { x: number; y: boolean; }`).
+Not fixed here: such a default under an initialized root
+(`const { skills: { primary: p = "a" } = { primary: "x" } } = obj`) prints
+`{ primary: "x"; }`, where the projected `obj.skills` context should widen it.
+
+## 36. Const type parameters: per-constituent mutability, and the resolved re-read is no const context
+
+Two `isConstContext`/`checkArrayLiteral` details for `const` type parameters
+(typeParameterConstModifiers 3 → 0 non-RIGHT lines on the verdict dump, no
+loss among the verdict dump's `*onst*` cases):
+
+- `checkArrayLiteral`'s readonly test is `someType(contextualType,
+  isMutableArrayLikeType)` over the *apparent* contextual type
+  (`checker.go:8087`). For a type parameter that is its constraint, tested per
+  union constituent. `const_context_is_mutable_array_like` resolved the
+  parameter to its union constraint but then tested the union whole, so
+  `<const T extends string[] | readonly number[]>` made `["hello", "world"]`
+  readonly. That candidate failed the constraint and `T` fell back to it. A
+  union base now recurses per constituent, so `string[]` keeps the tuple
+  mutable and `fd2(["hello", "world"])` is `["hello", "world"]`.
+- `literal_has_const_contextual_target` read the uninstantiated parameter
+  always. That is right during inference (`instantiateContextualType` without
+  ContextFlagsSignature leaves `T`), but §1's re-read under the resolved
+  signature sees the instantiated parameter natively. Under `readonly
+  [unknown, 2, 3, 4, unknown]` there is no const type variable, so
+  `inners2([1,2,3,4,5])` prints `[number, 2, 3, 4, number]`. When the call's
+  `call_inference_signatures` slot holds an instance (type parameters
+  cleared, as §1 and §31 publish), the target is read instantiated.
+
+Routed while triaging: §142's literal-self `this` mint (expressions.rs)
+prints `this` where native prints the widened literal type
+(thisTypeInObjectLiterals, this_inside-object-literal-getters-and-setters).
+An interface extending a tuple alias (`interface I extends EmptyTuple`,
+`type EmptyTuple = []`) inherits no tuple members (`m.length` is `error`), so
+it is not tuple-like (contextualTypeWithTuple 0:95). An inline conditional
+parameter with function branches instantiates to `error` (`h2<T>(x: T, y: T
+extends E ? (e: 1) => void : (e: 2) => void)`).
+
+## 37. A resolved re-read skips the pre-inference tuple-context read
+
+`array_literal_has_a_tuple_contextual_type` has a pre-inference fallback.
+Native's first inference pass reads the written parameter, which
+`instantiateContextualType` maps only through the return mapper, and whose
+apparent type is the constraint, so `all<T extends readonly unknown[] |
+[]>([a, b])` is a tuple context through `[]`. That fallback ran during §1's
+re-read under the resolved signature too, where it re-read the written `T`
+with no live return mapper and found the constraint's `[]`.
+`const f1: F = () => Promise.all([{…}, {…}])` with `F = () => Promise<Player[]>`
+infers `T = Player[]` (the return mapper) natively, and the writer reads the
+literal under the instantiated `(… | …)[]` as an array. The port's last read
+made it a tuple (inferFromGenericFunctionReturnTypes3 0:206). Like §36, the
+fallback no longer runs when the call's `call_inference_signatures` slot
+holds a resolved instance (type parameters cleared). `Promise.all([fa(),
+fb()])` keeps its tuple (its inferred `T` is the tuple itself), and the §31
+gains hold on the verdict dump.
+
+## 38. A dynamic import's options read the arity-0 `ImportCallOptions`
+
+`getContextualTypeForArgumentAtIndex`'s import-call arm (`checker.go:29773`)
+types `import(specifier, options)`'s second argument with
+`getGlobalImportCallOptionsType`, which is an arity-0 global. The port asked
+`global_type_symbol`, the arity-1 lookup, which never matches
+`ImportCallOptions`, so the options literal always read the empty-object
+fallback. `await import("./a", { with: { type: "not-json" } })` under an
+augmented `ImportAttributes { type: "json" }` now keeps `"not-json"` under
+its literal context (importAttributes 5 → 1 non-RIGHT lines on the verdict
+dump).
+
+Routed while triaging: an interface extending a mapped-type instance
+(`interface P extends Pick<R, "mode">`) inherits no members (`p.mode` is
+`error`). The lib's Temporal options are built that way, so their literals
+widen (temporal, 17 lines). An async arrow under a naked type-parameter
+context answers `error` (`h<T>(fn: T): T` with `h(async () => 1)`, while
+`m<T>(fn: () => T)` is fine; awaitedType 0:163–172; signatures.rs). A JSDoc
+`@satisfies {Object.<string, boolean>}` gives the literal no boolean context
+(checkJsdocSatisfiesTag8; jsdoc_annotations.rs).

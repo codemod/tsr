@@ -1665,3 +1665,114 @@ Ir gi 0.9998, dm 1.0000; exact oracle +1 (mappedTypeOverlappingStringEnumKeys),
 **Not reached:** `[q, r]` over `q: [A<T>]` and `r: A<T>` is still `error`.
 Subtype reduction relates the tuple and the conditional-alias mint, and the
 relater answers `Unknown` (relater.rs, routed).
+
+## 52. A generic union body that reduces to one type declares that type
+
+**Forcing constraint.** unknownType1 0:17: `type T23<T> = T | unknown`
+records `>T23 : unknown`; TSR declared `T23<T>`, and a reference `T23<T>`
+stayed the alias name where native reads `unknown`. getDeclaredTypeOfTypeAlias
+is getTypeFromTypeNode of the body, and getUnionTypeEx (checker.go:25672)
+answers `any`/`unknown` for a set that includes one, and the sole survivor
+of a reduced set, before an alias is considered. Only a set that is still a
+union is built with the alias.
+
+**Port.** Three sites in `declared.rs`, each the same rule:
+
+- `get_type_from_union_type_node`'s generic-alias arm, which answered
+  `error` for every body (the alias name could not be printed with its
+  arguments), now answers the reduced type when it is not a union;
+- `get_declared_type_of_type_alias_worker` publishes a union body's
+  resolved type when it is not a union (`DeclaredBody::Union`);
+- `evaluate_union_or_indexed_alias_body` accepts a non-union evaluation of
+  a union body, so a reference answers the reduced type with no alias
+  (`T23<T>` is `unknown`, `type U<T> = T | never` at `string` is `string`).
+
+A union answer keeps every existing road (the mint, and the named union
+over the reference). No state.
+
+**Alternatives.** Admitting only `any`/`unknown` answers is the forcing
+row's slice; the single-survivor half (`T | never`, `T | T`) is the same
+early return in getUnionTypeEx, so splitting them would leave a rule half
+ported.
+
+**Measured with §53, in one commit.** Alone, §52 lost one exact case
+(mappedTypes4, `Extract<keyof T, string>` read as `string`). It
+reached the for-in road's `keyof (T & object)`, which declined on `object`
+until §53. Gated against `6559089e` + §51 (each against its parent, then
+together): types **+12, 0 lost** (8 gap → right, 4 wrong → right; §52
+alone +1, unknownType1); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 0.9998–1.0001, dm 1.0000; exact oracle **+1**
+(extractInferenceImprovement), 0 lost, and keyofAndIndexedAccess2 moved
+from TSR_TIMEOUT to WRONG.
+
+## 53. `keyof object` is `never`
+
+**Forcing constraint.** mappedTypes4 0:13–0:19: `obj[k]` over `obj: T &
+object` and a generic key printed `error` where native reads `(T &
+object)[Extract<keyof T, string>]`. checkIndexedAccessIndexType admits a
+generic key by relating it to `keyof` of the receiver; `keyof (T &
+object)` is `keyof T | keyof object`, and `resolved_keyof_type` answered
+`None` for the `object` constituent, which declined the whole union and so
+the access.
+
+**Port.** `resolved_keyof_type_worker` answers `never` for the
+`non_primitive` intrinsic, beside the `unknown` arm: getIndexTypeEx's
+default arm reads the literal keys of the apparent type, and `object`'s
+apparent type is the empty object type. No state.
+
+**Measured** with §52; see §52.
+
+## 54. A mapped type keeps and reads its unique-symbol keys
+
+**Forcing constraint.** keyRemappingKeyofResult: over `const sym =
+Symbol("")` and `type O2 = { str: any, [sym]: any }`, native's
+`{ [K in keyof O2]: 1 }` is `{ str: 1; [sym]: 1; }`, `keyof { [K in keyof
+O2 as K]: 1 }` is `keyof O2`, `{ [K in "a" | typeof sym]: 1 }` prints
+`{ a: 1; [sym]: 1; }`, and reading `[sym]` from any of them is `1`. TSR
+dropped the `[sym]` member of the homomorphic mapping, answered `"str"` for
+the `keyof`, ordered `[sym]` first, and read `error` through the symbol.
+Three causes, all in this lane's files:
+
+1. The homomorphic key walk (`mapped_member_keys`) listed the modifiers
+   type's names with `property_names_of`, which reads binder members; a
+   late-bound member is bound late and is not among them.
+   forEachMappedTypePropertyKeyTypeAndIndexSignatureKeyType reads every
+   property (checker.go:22731).
+2. getIndexTypeForMappedType (checker.go:26918) ends by answering the
+   constraint itself when the mapped keys are its own constituents, which
+   keeps the constraint's `keyof O2` origin; `mapped_index_type` always
+   built a fresh union.
+3. A unique-symbol key names its member with native's escaped name
+   (`crate::unique_symbol_keys`, spelled `__@name@id` here). Native's prefix
+   is `"\xFE"`, so compareSymbols sorts such a name after every printable
+   one; `__@` sorted first. And `unique_symbol_property_type`
+   (indexed.rs) only scanned written `[…]` members, so the escaped name was
+   never looked up.
+
+**Port.** (1) the late-bound names of `get_property_names_of_type` that
+the binder walk missed are appended; their keys come from
+`literal_type_of_property` (the computed name's type), and §47 orders the
+members. (2) `mapped_index_type` answers `info.constraint` when the result
+union's constituents are the constraint union's. (3) §47's sort key puts a
+`__@` name after the other unlinked names, and `unique_symbol_property_type`
+first reads the escaped name (`unique_symbol_property_name`), as native's
+one-table read does. No state.
+
+**Alternatives.** Renaming every symbol-keyed member to one convention
+(written `[s]` against native's escaped name) is `r6-accessible.md` §4's
+open question and crosses `objects.rs`; the read in (3) bridges the two
+conventions at the one site that needs both.
+
+**Not reached:** `type Remapped = { [K in keyof Orig as {} extends
+Record<K, any> ? never : K]: any }` still keys `"str"` only. The
+`[sym]` key's name type evaluates `{} extends Record<typeof sym, any>` as
+true: `{}` relates to any `Record`/`Pick` instance whose keys include a
+unique symbol (`const x: Record<typeof sym | "a", number> = e` with `e: {}`
+reports nothing, while `Record<"a", number>` reports TS2741). That
+relation is the relater's (routed).
+
+**Measured** (unfiltered against §52–§53 on `6559089e`): types 0 / 0,
+diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 1.0000, dm 1.0002, exact oracle
+0 / 0. No corpus row reaches the three causes alone (keyRemappingKeyofResult
+needs the routed relation); kept for the prints above, which match native,
+and as §56's base.

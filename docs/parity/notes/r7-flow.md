@@ -1254,3 +1254,343 @@ the `satisfies` keyword). Re-measured on `bae795fe` unfiltered: legacy verdicts
 unchanged; exact oracle 9681 → 9686 (the same five; `predicateSemantics`
 gains with §31's diff as well), 0 lost; jsTyping 111 → 111, new_false 0,
 lost_true 0; Ir gi 1.0001, dm 1.0002.
+
+## §47 TS2542 through a `readonly` mapped type with a generic key
+
+`checkIndexedAccessIndexType` (`checker.go:8219`) has a readonly arm the port
+lacked: an element access that is an assignment target, whose type stayed a
+deferred `Object[Index]` with every index constituent assignable to the
+object's keys, and whose object is a mapped type with a `readonly` (or
+`+readonly`) modifier, reports TS2542 "Index signature in type
+'Readonly<T>' only permits reading." at the access, printing the mapped type
+(`y[k] = x[k]` with `y: Readonly<T>`, `k: keyof T`; `mappedTypeRelationships`
+×4). `check_readonly_mapped_index_write` (readonly_target.rs) reads the
+access's own type and this port's deferred mint
+(`deferred_indexed_access_types`) for the object and index, which is native's
+`t.flags&IndexedAccess` test: the mint exists only when
+`getIndexedAccessTypeOrUndefined` deferred. It is entered only when the
+receiver is itself a readonly mapped type, so the common `array[i] = v` does
+not read the access type.
+
+Declined rather than reproduced: a remapping (`as`) mapped object, whose keys
+are `getIndexTypeForMappedType`'s, and the `hasNumberIndexInfo` disjunct (an
+index it alone admits declines; it never reports). Both directions miss
+rather than over-report.
+
+## §48 TS2536/TS4105: the final arms of `checkIndexedAccessIndexType`
+
+TS2536 ("Type '{0}' cannot be used to index type '{1}'.") was not reported
+anywhere. Native reports it, at the access node, for a deferred access whose
+index has a constituent not assignable to the object's `getIndexType`, unless
+the index names a property of the distributed apparent object that is
+non-public, which is TS4105 ("Private or protected member '{0}' cannot be
+accessed on a type parameter.") instead, for a generic object
+(`getConstituentProperty`, `:8257`). Both arms are now
+`check_deferred_access_index_type` (index_access_reports.rs), called from the
+indexed access type node check (native `checkIndexedAccessType`) with this
+port's deferred mint of the node, and from the element access check for a
+generic index (native `checkElementAccessExpression`). The element access
+road cannot use the mint: this port's `deferred_indexed_access` (indexed.rs)
+mints only after the key is admitted, so the receiver (less a written
+`null`/`undefined`, `checkNonNullExpression`) and index are read directly.
+
+The relation is the judgment call. A port relation that answers
+`NotRelated` where native answers `True` reports a TS2536 native never
+does, so the arm uses `relate_ternary` and declines on `Unknown`. On the
+jsTyping leg the plain `is_type_assignable_to` produced two false TS2536
+(`parser.ts(504,59)`, `visitorPublic.ts(619,55)`: `TNode["kind"]` with a
+mapped type parameter constrained to the 300-member `ForEachChildNodes`);
+with the ternary both are `Unknown`, and two corpus true positives go with
+them (`mappedTypeErrors2` (15,38), `intersectionsOfLargeUnions` (21,15)'s
+second report).
+
+The type node arm is declined where native reaches the node through a
+substitution or not at all:
+- the true branch of a conditional type, and the template of a mapped type
+  without an `as` clause: `getConditionalFlowTypeOfType` substitutes the
+  implied constraint there (and `number | `${number}`` for a mapped type's
+  parameter over an array-constrained homomorphic variable, which made
+  `mappedTypeInferenceFromApparentType` (6,59) a false report). This port has
+  no substitution types on that road; native's report in a true branch
+  (`P["ctx"] extends object ? P["ctx"] : object` reports both) is a missed
+  positive here;
+- an import type's type arguments: `checkImportType` (`:3324`) never
+  `checkSourceElements` them, unlike `checkTypeReferenceNode` (`:2994`); the
+  port's walk visits them (`declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile`
+  was a RIGHT→WRONG loss before this decline).
+
+Also declined: a remapping mapped object, an apparent `number` index info,
+and an object or index this port could not compute (`is_gap`,
+`unresolved_types`; `keyof U` for a constrained `U` is such a gap today, so
+`mappedTypeRelationships`' `x[k]` with `k: keyof U` stays missing).
+Known remaining false reports, in a case already EMPTY_WRONG:
+`ramdaToolsNoInfinite2` (45,83) and (60,42), where this port resolves an ambient module's
+`import { Boolean } from "Boolean/Boolean"` to the global `Boolean`
+interface, so the index's constraint is wrong before this rule reads it
+(routed to the integration thread).
+
+No table or cache: the relation's own caches. The type node arm runs one
+relation per deferred indexed access type node, lib files included.
+
+Measured (§47 and §48 together) on `de5cbc86` (main `cdb668dc` + the three
+§46/§31/§38 commits, rebased): types unchanged; diagnostics **+1** case
+(`indexedAccessPrivateMemberOfGenericConstraint`, its three TS4105), 22 more
+right diagnostics across nine still-wrong cases (`mappedTypeRelationships`'
+four TS2542 and two TS2536, `mappedTypeErrors2` ×4, `keyofAndIndexedAccessErrors`
+×2, `constraintWithIndexedAccess`, `intersectionsOfLargeUnions(2)`,
+`unknownControlFlow`), 0 lost; exact oracle 10635 → 10636, 0 lost; jsTyping
+gap 28 → 28, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0013.
+
+## §49 NONEXISTENT-PROPERTY-CERTIFICATION-GATE: an exact certificate for a narrowed union receiver
+
+§20's gate refused every union receiver a narrowing could reach, because a
+narrowing arm that cannot decide returns its input, and from the result a
+declined narrowing is indistinguishable from none. The certificate is now
+exact about that: the walk counts (`FlowState::declines`, and the deferred
+`FlowState::unchanged` list) every step that may have answered wider than
+native, and a union receiver is certified only when no walk of it met one
+(`flow_type_is_certified`, reading the `flow_uncertain_references` set the
+walk roads fill).
+
+Counted:
+- a condition narrowing (`narrow_type`, so every nested operand too), a
+  switch clause, or an assertion/predicate call that left its input
+  unchanged at a node that mentions the reference's root (an identifier with
+  the root's text, or `this`/`super` for a `this` root; text only, no name
+  resolution). This over-counts native's legitimate no-op narrowings, which
+  only keeps those receivers uncertified as before;
+- a CALL flow node with no effects signature whose call mentions the root:
+  this port's `None` is also its answer for an uncomputed one;
+- an assignment whose assigned type this port cannot reach, on the auto and
+  the declared-union roads (the declared type where native reduces);
+- a loop or branch join whose subtype reduction the relation could not decide
+  (`union_with_subtype_reduction` → `None`);
+- a `flow_loop_cache` hit whose converging walk counted one (the cache value
+  carries the bit; a replay skips the walk);
+- a condition that made `silentNeverType` (§21): its consumers are still the
+  routed `r7-flow-silent-never-callers.diff`, and without them
+  `controlFlowWithIncompleteTypes`' loop converges to `string | boolean`
+  where native has `string` (the one loss the certificate alone measured,
+  +3/−1). Drop this count when the diff lands.
+
+A step that narrows partially (keeps an undecidable constituent and drops
+others) would not be counted by the unchanged rule. The constituent-wise
+filters read for this (`narrow_type_by_equality`'s comparable filter, the
+discriminant and `typeof` arms) decline whole on an undecidable pair
+(Kleene), so the unchanged rule sees them; an arm found to keep a partial
+answer needs its own count.
+
+The walk roads that record (`flow_uncertain_references`):
+`get_flow_type_of_reference_ex`, `narrow_destructured_parent`,
+`get_flow_type_of_property` and `narrow_reference_by_condition`, keyed by the
+reference. A reference no road recorded reads as certified, so
+`union_receiver_flow_is_uncertified` still requires a narrowable kind and
+keeps `flow_cannot_narrow_identifier` as the walk-free proof. Grant: the two
+`checker.rs` lines (the set, and the cache value's `bool`), requested of the
+integration thread.
+
+Cost. Scanning each unchanged narrowing's condition for the root as it
+happened measured domain-model Ir **1.024** (the scan ran for every
+unrelated condition of every walk). The unchanged nodes are now only
+recorded, and the scan runs when a walk publishes an answer that could be
+asked about (the answer or the walk's declared type is a union), and for a
+loop label's cache bit: Ir gi 0.9999, dm 1.0018, with identical legacy
+verdicts.
+
+Rejected: instrumenting each arm's internal decline points. There are dozens
+(`grep -n declin flow.rs`), an arm missed is a false TS2339, and the
+result-unchanged test covers every arm by construction, including ones added
+later. It would win if the over-count (native no-op narrowings) turned out to
+hide many reports; the falsifier is a corpus case where native reports a
+TS2339 on a union receiver after a no-op narrowing.
+
+Measured (§49 with §50) on `fbb108f7`: types unchanged; diagnostics **+3**
+cases (`isArray`, `unionPropertyExistence`, `unionTypeReadonly`) and 33 more
+right TS2339 across eight still-wrong cases (`controlFlowAliasing` ×8,
+`typeGuardsWithInstanceOfByConstructorSignature` ×4,
+`typeGuardsWithInstanceOfBySymbolHasInstance` ×4, `inKeywordTypeguard` ×2 per
+variant, `typeGuardRedundancy` ×2, `unionTypeWithIndexSignature`), 0 lost;
+exact oracle 10812 → 10812, 0 lost; jsTyping gap 28 → 28, new_false 0,
+lost_true 0 (before §50, two false TS2339); Ir gi 0.9999, dm 1.0018.
+
+§20 update: the blanket gate is replaced by this certificate; §20's three
+remaining losses are certified-uncertain here (`typeGuardNarrowByUntypedField`
+×2 and `discriminatedUnionTypes3` decline in the narrowing, and
+`controlFlowWithIncompleteTypes` makes `silentNeverType`).
+
+## §50 An array mutation evolves only the array it mutates
+
+`getTypeAtFlowArrayMutation` (`flow.go:1393`) acts only when the mutated
+expression (`x` of `x.push(…)`/`x.unshift(…)`, or of `x[i] = …`) is the
+reference, through `getReferenceCandidate`, and adds an element assignment's
+right-hand side only when the index's context-free type is number-like. The
+port's arm added every `ARRAY_MUTATION` node's arguments to whichever
+evolving array was being walked, so two auto arrays in one function shared
+their elements: `const a = []; const b = []; a.push(1); b.push("s")` typed
+both `(string | number)[]`. In jsTyping's `checker.ts`
+`runWithoutResolvedSignatureCaching` this made `cachedResolvedSignatures`
+yield `NodeLinks | SymbolLinks`; §49's certificate exposed it as two false
+TS2339 (`checker.ts(2004,27)`, `(2007,29)`), which is how it was found.
+`array_mutation_target` reads the mutated expression; the depth step (§14)
+now follows native's recursion, which happens only on a matching mutation.
+The index check reads `check_expression` (this port has no context-free
+expression type); a contextually typed index expression is the one place
+the two could differ.
+
+## §51 `'{0}' is declared here.` on TS2729 and TS2551; chain children carry their file
+
+`checkPropertyNotUsedBeforeDeclaration` (`checker.go:11727`) and
+`reportNonexistentProperty`'s suggestion arm (`:11574`) add the related
+`'{0}' is declared here.` at the property's (the suggested symbol's) value
+declaration. The port reported both heads without it; 52 oracle cases differed
+only by such related rows (67 TS2729, 16 TS2551 among them). The suggested
+symbol is the property the suggestion names on the type its candidates came
+from (`get_property_of_type`), so a union's synthetic property supplies
+whatever value declaration this port gives it.
+
+A chain child built with `NewDiagnosticForNode(accessExpression, …)` has a
+file and a location; the port's children were file-less (`Diagnostic::with_args`),
+so the oracle's C rows differed (16 cases differed only there). The TS7053
+children (`nonexistent_property.rs`' two element-access arms,
+`report_implicit_any_element_access`) are now built with
+`related_diagnostic_at`, which sets the file image. Children native builds
+with `chainDiagnosticMessages` (the union constituent miss,
+`elaborateNeverIntersection`) stay file-less, as there.
+
+## §52 TS7052, and one noImplicitAny report per union key
+
+`getSuggestionForNonexistentIndexSignature` (`checker.go:27231`) was declined
+wherever a `get`/`set` member existed. It is now
+`suggestion_for_nonexistent_index_signature` (index_access_reports.rs), shared
+by the literal-key and non-literal-key element-access arms: the member's
+single call signature (one call signature, no construct signature, index
+info or property), at least one required argument, and the key assignable to
+its first parameter; the suggestion prefixed by
+`tryGetPropertyAccessOrIdentifierToString` of the receiver. It declines (no
+report at all) for a member type whose signatures this port does not hold (an
+interface or class instance) and for a first parameter that still mentions a
+type parameter: `MyMap<string, string>`'s `get(key: K)` read through
+`get_type_of_symbol` was uninstantiated, and asking `"a"` against `K` made a
+TS7053 where native reports TS7052 (`noImplicitAnyStringIndexerOnObject`
+(102,1), now missing rather than wrong).
+
+`getIndexedAccessTypeOrUndefined` (`:26985`) asks a union key's constituents in
+order and sets `AccessFlagsSuppressNoImplicitAnyError` once one has missed,
+so `o[k]` with `k: "a" | "b" | "c"` reports one TS7053 (for `"b"`); the port
+reported per literal. The noImplicitAny arm now returns when an earlier
+literal of the same key has no property that no index signature certainly
+admits. The object-literal TS2339 arm and the const-enum final arm are not
+suppressed, as native. The TS7053 child names an enum literal constituent
+`[E.p]` (`:27167`).
+
+## §53 A `null`/`undefined` destructuring parent; computed names that cannot bind
+
+`const { a } = null` reports TS2339 "Property 'a' does not exist on type
+'null'." in either mode: `getBindingElementTypeFromParentType` passes the
+parent on and `getApparentType` maps neither `null` nor `undefined`, so
+`getPropertyTypeForIndexType` finds no property and no index info.
+`destructured_property_is_absent` now answers the parent itself for those two
+intrinsics (`usingDeclarations.6`/`.7` and their `await` forms).
+
+`computed_name_is_bound` (the class/interface member-table certificate)
+refused every computed member name but a well-known `Symbol.x`. A computed
+name whose expression is not an entity name expression (`[this.c]`, `[f()]`)
+can never be late-bound (`isLateBindableName`) and adds no member, so it no
+longer refuses the table; a computed name that is a string or numeric literal,
+or an entity name, still does. `typeOfThisInStaticMembers12`/`13` (three
+targets each) lacked the instance arm's TS2339 for this reason alone.
+
+Measured (§51–§53 together) on `06cb8ae9`: types unchanged; diagnostics **+8**
+cases (`usingDeclarations.6`, `awaitUsingDeclarations.6`,
+`typeOfThisInStaticMembers12`/`13` ×3 targets) and 21 more right TS7052/TS7053
+in `noImplicitAnyStringIndexerOnObject`, 0 lost; exact oracle 10816 → **10868**
+(+52), 0 lost; jsTyping gap 25 → 25, new_false 0, lost_true 0; Ir gi 0.9999,
+dm 0.9998.
+
+Finding (routed): a widened object literal's arrow member prints its return as
+`error` (`const c = { get: (key: string) => 'hello' }` prints
+`{ get: (key: string) => error; }`, native `string`), so the new TS7052 for
+such receivers carries that text; and a non-strict `[]` is `never[]` here
+where native has `undefined[]` (`downlevelLetConst16`'s `for (let {a: x} of
+[])`).
+
+## §54 TS2683's "An outer value of 'this' is shadowed by this container."
+
+`checkThisExpression` (`checker.go:12117-12125`) adds a related TS2738 at the
+`this` container when `tryGetThisTypeAt(container)` (the container's own
+`this`, answered from its outer container) exists and is not `globalThis`:
+`function inner() { this.y }` inside a method shadows the class's `this`. The
+port reported TS2683 alone. `try_get_this_type_answer` already answers the
+existence question; asked of the container with its outer
+`this_container(container, false, false)`, a `Present` answer adds the
+related at the container's error range. A source-file container never asks.
+
+## §55 TS2801's "Did you forget to use 'await'?"
+
+`checkTruthinessOfType`'s promise arm reports through
+`errorAndMaybeSuggestAwait(location, true, …)` (`checker.go:14015`), which
+adds the related TS2773 at the same node. `report_known_truthy` now takes
+whether to add it; only the promise arm does.
+
+Measured (§54 with §55) on `45fdd504`: legacy verdicts unchanged (related
+rows are not compared there); exact oracle 10889 → 10896 (+7), 0 lost;
+jsTyping gap 25 → 25, new_false 0, lost_true 0; Ir gi 0.9998, dm 0.9999.
+
+## §56 Correction to §51: the union and never-intersection children carry their file too
+
+§51 said the union constituent miss and `elaborateNeverIntersection` children
+are built with `chainDiagnosticMessages` and stay file-less. That was wrong
+for the pinned port: `reportNonexistentProperty` (`checker.go:11547`) and
+`elaborateNeverIntersection` (`:21872`) both build them with
+`NewDiagnosticChainForNode(chain, propNode, …)`, which has a file and the
+name's location; the oracle's C rows for `unionPropertyExistence` and
+`typeGuardsWithInstanceOfBy*` differed only there. Both now use
+`related_diagnostic_at` at the name.
+
+Measured on `b9edd1a7`: legacy verdicts unchanged; exact oracle 10925 →
+10925 (the chain rows now match in `unionPropertyExistence` and
+`typeGuardsWithInstanceOfBy*`, which keep other differences), 0 lost; jsTyping
+gap 22 → 22, new_false 0, lost_true 0; Ir gi 0.9999, dm 1.0000.
+
+## §57 A completed no-effects call does not uncertify a union receiver
+
+§49 counted every CALL flow node without an effects signature whose call
+mentions the reference, because `get_effects_signature`'s `None` is also its
+answer for work it has not done. Most such calls are decided negatives: the
+callee's signatures are written and completed (`completed_no_effects_calls`,
+published by `complete_written_no_effects_call`), or an identifier callee's
+function symbol has no effects. `effects_negative_is_certain` now exempts
+those, so `x.m(); x.onlyInOne` on a declared union reports again
+(`unionTypeMembers`' four TS2339 had been held back by the preceding
+`x.commonMethod…(…)` statements).
+
+Measured on `44169174`: diagnostics **+1** case (`unionTypeMembers`), 0 lost;
+exact oracle +1, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir
+gi 0.9998, dm 1.0003.
+
+## §58 A related declaration's range is `GetErrorRangeForNode`'s
+
+`NewDiagnosticForNode(suggestion.ValueDeclaration, …)` places TS2551's
+`'{0}' is declared here.` by `GetErrorRangeForNode` (`scanner.go:2585`), whose
+name list covers functions, methods, variables, classes, interfaces, modules,
+enums and their members, accessors, type aliases, property declarations and
+signatures, and namespace imports; every other kind reports its whole node.
+A lib suggestion is often a `MethodSignature` (`getOwnPropertyNames(o: any):
+string[];`, 38 characters), which `error_span` (check.rs) maps to its name
+(19). `declaration_error_range` (nonexistent_property.rs) applies the native
+list for the related row; `error_span` itself serves anchors whose callers
+already pass the name and is left alone (routed as a finding: other related
+rows built from `error_span(declaration)` may differ the same way).
+
+## §59 TS18014's two related declarations
+
+`checkPrivateIdentifierPropertyAccess` (`checker.go:11519-11520`) adds "The
+shadowing declaration of '{0}' is defined here" at the lexical class's
+`#name` and "The declaration of '{0}' that you probably intended to use is
+defined here" at the receiver class's. `check_private_name_shadowing` reports
+both now, at each class's first member spelling the name (the private name
+symbol's value declaration).
+
+Measured (§58 with §59) on `fd448171`: legacy verdicts unchanged; exact
+oracle +12, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir gi
+1.0000, dm 1.0000.

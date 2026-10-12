@@ -1100,3 +1100,106 @@ reports `Module '"*.foo"' has no exported member 'onlyInA'`
 printed the specifier (`"b.foo"`). It now prints an ambient module's own
 declared name and keeps the specifier for a file module; the two agree for
 a non-pattern ambient module.
+
+## 38. §36 corrected: a variable target's miss must be established
+
+§36 decided TS2305 for an `export =` variable target whenever its type was
+computed. The batch-61 rank caught two extra TS2305s that showed it was too
+wide (bucket #173):
+
+- `importPropertyFromMappedType`: `declare const createHttpError:
+  createHttpError.NamedConstructors`, an alias of a mapped type whose
+  members this port does not resolve on this road. `e.NotFound` reads
+  nothing here either, so the miss is not proof of absence. The old guard's
+  caution was right for this shape. The variable arm now also requires the
+  members road to have established the miss,
+  `members.rs::augment_free_miss_is_established`. That is the TS2339 test
+  (`named_walk_is_complete`) without its Object/Function-family gate,
+  because this lookup skips the augment (`skipObjectFunctionPropertyAugment`).
+  It admits a type-literal owner, whose members table the binder fills
+  whole, and a union lacks the name when one constituent does. The
+  existence test now asks the type-read road for any receiver, not only a
+  union, so a mapped type's members count.
+- `arbitraryModuleNamespaceIdentifiers_syntax`: `import { "invalid 1" }
+  from …` (no `as`) is parser recovery with an empty name, and TS2305 was
+  reported for `''` at a zero-width span. An empty identifier name now declines; the empty *string* name
+  (`import { "" as foo }`) is a valid export name and is still decided
+  (`nameText != "" || name.Kind == KindStringLiteral`).
+
+Both were non-exact on the base already, which is why the exact gate showed
+no loss. A name the module file declares locally skips the gate: it takes
+`reportNonExportedMember`'s local outcomes, TS2616 when it is the `export =`
+target (`var a = 10; export = a` then `import { a }`,
+`es6ImportNamedImportNoNamedExports`).
+
+no loss.
+
+## 39. Two binder exclusions: an object-literal method, and a UMD name per file
+
+- `bindPropertyOrMethodOrAccessor` is called for a method with
+  `IsObjectLiteralMethod(node) ? SymbolFlagsValue : MethodExcludes`
+  (binder.go:661). An object-literal method collides with any value of its
+  name, another method included, so `{ foo(x = 1), foo(x = 1) {} }` is
+  TS2300 at both (`callSignaturesWithParameterInitializers2`,
+  `stringLiteralTypesInImplementationSignatures2`). This binder took the
+  flag-derived method excludes everywhere; it now uses `VALUE` when the
+  method's parent is an object literal.
+- `export as namespace Alpha` declares into `file.Symbol.GlobalExports`, a
+  per-file table, and `initializeChecker` merges each file's table into
+  `globals` first-in-wins (checker.go:1321). This binder's `global_exports`
+  table carries over between the files of an ordered program, so a second
+  file's `export as namespace Alpha` collided with the first and reported
+  TS2300 (`umdGlobalConflict`). The conflict lookup now considers only a
+  symbol declared in the file being bound. The first-in-wins merge into
+  `globals` is unchanged.
+
+Perf: the per-file test made `declare_into_with_excludes`, the binder's
+hottest function, +0.1% Ir on generic-imports through code layout (removing
+the test alone did not recover it). The duplicate-declaration report, which
+runs only on a conflict and had grown with §35, now lives out of line in a
+`#[cold]` `report_declaration_conflict`. With that, generic-imports is
+−0.01% against the commit before.
+
+## 40. A binder conflict prints each declaration's name as written
+
+`declareSymbolEx`'s TS2300/TS2451 take `b.getDisplayName(node)` for the new
+declaration and `b.getDisplayName(declaration)` for each earlier one.
+`getDisplayName` (binder.go:357) is `DeclarationNameToString(name)`, the
+name's source text, which is `(Missing)` for a zero-width name; without a
+name node it falls back to the declared name. This binder printed the
+symbol's cooked name for every declaration, so a recovered missing name
+printed `''` where native prints `'(Missing)'` (`reservedWords2`,
+`reachabilityChecksNoCrash1`). The report now reads each declaration's name
+node text, except for an `export =` / `export default` assignment, whose
+`Name()` is nil natively and so prints `export=` / `default`
+(`multipleExportAssignments`; the binder indexes its expression only for
+the error span). The class and interface property duplicates that print the
+first declaration's spelling (`'0b11'`, `'"1"'`) are the checker's
+`checkObjectTypeForDuplicateDeclarations` path (check.rs), not this one.
+
+## 41. A member of a shorthand ambient module is the module
+
+`getExternalModuleMember` (checker.go:14693) answers `moduleSymbol` itself
+for any name of a shorthand ambient module (`declare module "jquery";`, no
+body): every member is the module, typed `any`. So `export {x} from
+"jquery"` re-exports the module, and `import {x} from "./reExportX"` reads
+`x : any` (`ambientShorthand_reExport`). `get_type_of_alias`'s §300 arm
+covered only an import made directly from the shorthand module. The rule now
+sits where native's does, in `get_external_module_member`, so a re-export
+chain reaches it.
+
+chain reaches it. The same native condition (`nameText != "" || name.Kind
+== KindStringLiteral`) corrects §38's empty-name decline: the empty *string*
+name (`import { "" as foo }`) is a valid export name and is decided
+(`arbitraryModuleNamespaceIdentifiers_importEmpty` was missing its TS2305
+with §38).
+
+## 42. TS2305's member is printed as written
+
+`errorNoModuleMemberSymbol` prints `declarationNameToString(name)`, the
+name's source text, in every message it chooses (TS2305, TS2724, TS2614,
+TS2459, TS2460 and the related "declared here"). A string-literal name
+therefore keeps its quotes: `Module '…' has no exported member
+'"missing"'` (`arbitraryModuleNamespaceIdentifiers_importEmpty`). The report
+printed the cooked text. It now reads the literal's source text through the
+host, falling back to a double-quoted string.

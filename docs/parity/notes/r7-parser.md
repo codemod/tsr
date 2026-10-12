@@ -396,13 +396,40 @@ I rejected it for three reasons:
 The bit would win if the checker only needed yes/no for a single-list owner.
 For binding patterns and heritage clauses that holds, and the bit stays.
 
-Consumers do not exist yet. The compiler has to keep the table per file next
-to its JSDoc table (`tsr-compiler` `file.rs`, r7-perf), and the checker's
-grammar checks (TS1098, TS1099, TS1009/TS1013, TS1025, r7-grammar) have to
-read it through the host. Routed. The cases waiting on them are
-emptyTypeArgumentList(WithNew), parserConstructorDeclaration11/12,
-indexSignatureWithTrailingComma, trailingCommasInFunctionParametersAndArguments,
-and the importCallExpressionWithTypeArgument `<>` arm.
+### The readers
+
+Wired in one commit, under the integrator's grant for the compiler and
+grammar files:
+
+- `ProgramFile` keeps the parse's facts, sorted by owner and converted to
+  the checker's mirror type `WrittenList`/`WrittenListKind` (`resolution.rs`;
+  `tsr-checker` does not depend on the parser), and the program answers the
+  checker's new `ModuleHost::written_lists(file)`. `check_source_file` fetches
+  the slice once per file (`Checker::file_written_lists`, `checker.rs`), and a
+  reader binary-searches it; a file without facts, nearly every file, costs
+  one emptiness test per candidate node. The first draft asked the host per
+  node, through `source_file_of_for_diagnostics`, and cost +1.44% Ir on
+  domain-model; this shape measured +0.25% for the whole stack.
+- `grammar.rs`: `checkGrammarTypeArguments` (TS1009, then TS1099) for a
+  call, `new`, tagged template (behind TS1358), expression with type
+  arguments (not `import<T>`, whose TS1326 is unported), type query, type
+  reference and JSX tag; `checkGrammarTypeParameterList` (TS1098) for every
+  owner but an interface and a type alias, which native never asks; the index
+  signature's TS1025.
+- `check.rs`: TS1098 first in `check_grammar_parameter_list`, as
+  `checkGrammarFunctionLikeDeclaration`'s `||` chain orders it; a last rest
+  parameter's TS1013 outside an ambient context; and
+  `checkGrammarConstructorTypeParameters`' empty arm, TS1092 zero-width
+  after the `<`, because an empty list's `Pos() == End()`.
+
+Every report goes through the file's parse-error gate, as native's
+`grammarErrorAtPos` does. Spans are native's: an empty list from `<` to one
+past `SkipTrivia(list.End())`, a trailing comma over the comma.
+
+How it would be wrong: a fact whose owner resolved to the wrong node (a
+nested signature taking its parent's list) would put the report on the
+right span but the wrong condition, and show up as an extra TS1098/TS1099 in
+a case native leaves clean.
 
 ## 11. JSDoc trivia cost
 

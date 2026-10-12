@@ -109,10 +109,33 @@ impl Checker<'_, '_> {
                 node,
                 &messages::THE_CONTAINING_ARROW_FUNCTION_CAPTURES_THE_GLOBAL_VALUE_OF_THIS,
             ),
-            ThisTypeAnswer::Absent => self.report_this_error(
-                node,
-                &messages::THIS_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION,
-            ),
+            ThisTypeAnswer::Absent => {
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                let mut diagnostic = Diagnostic::new(
+                    &messages::THIS_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION,
+                    self.nodes.span(node),
+                );
+                // `checker.go:12120`: when the container's own `this`
+                // (`tryGetThisTypeAt(container)`, its outer container's
+                // answer) exists and is not `globalThis`, the container
+                // shadows it.
+                if self.nodes.kind(container) != SyntaxKind::SourceFile
+                    && let Some(outer) = self.this_container(container, false, false)
+                    && matches!(
+                        self.try_get_this_type_answer(container, outer),
+                        ThisTypeAnswer::Present
+                    )
+                {
+                    let span = self.error_span(container);
+                    diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                        container,
+                        &messages::AN_OUTER_VALUE_OF_THIS_IS_SHADOWED_BY_THIS_CONTAINER,
+                        span,
+                        Vec::new(),
+                    )));
+                }
+                self.report(file, diagnostic);
+            }
             _ => {}
         }
     }

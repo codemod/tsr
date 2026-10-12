@@ -39,6 +39,7 @@ impl Checker<'_, '_> {
         if self.assignment_target_kind(node) == AssignmentTargetKind::None {
             return;
         }
+        self.check_readonly_mapped_index_write(node);
         // §326 — upstream's `checkReferenceExpression` reaches an
         // `ElementAccessExpression` too, and `M["x"]` names a property exactly
         // as `M.x` does. A **computed** key names no particular property and
@@ -314,6 +315,62 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         let printed = self.type_to_string(apparent);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::INDEX_SIGNATURE_IN_TYPE_0_ONLY_PERMITS_READING,
+                span,
+                [printed],
+            ),
+        );
+    }
+
+    /// TS2542 — `Index signature in type '{0}' only permits reading.` — for
+    /// a deferred `Object[Index]` written through a `readonly` mapped type:
+    /// the readonly arm of `checkIndexedAccessIndexType`
+    /// (`checker.go:8219`), reached from `checkElementAccessExpression` on
+    /// an assignment-target element access whose type stayed an indexed
+    /// access (`y[k] = v` with `y: Readonly<T>`, `k: keyof T`). It prints
+    /// the access's object type, the mapped type itself.
+    ///
+    /// The object's keys are `getIndexType`'s; a remapping (`as`) mapped
+    /// type reads `getIndexTypeForMappedType` instead, which this arm does
+    /// not reproduce, so it declines. The `hasNumberIndexInfo` disjunct is
+    /// not reproduced either: an index it would admit declines rather than
+    /// reports (r7-flow §47).
+    fn check_readonly_mapped_index_write(&mut self, node: NodeId) {
+        let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
+        if access.question_dot_token.is_some() {
+            return;
+        }
+        let Some(receiver) = access.expression else { return };
+        let expression = tsr_ast::Expression::ElementAccessExpression(access);
+        // Only a readonly mapped receiver can answer; the access's own type
+        // is not read for the common `array[i] = v`.
+        let receiver_type = self.check_expression(receiver);
+        let receiver_type = self.get_non_nullable_type(receiver_type);
+        if self.mapped_types.get(&receiver_type).is_none_or(|info| info.readonly != Some(true)) {
+            return;
+        }
+        let access_type = self.check_expression(expression);
+        let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&access_type) else {
+            return;
+        };
+        let Some(info) = self.mapped_types.get(&object) else { return };
+        if info.readonly != Some(true) || info.name_type.is_some() {
+            return;
+        }
+        let Some(keys) = self.resolved_keyof_type(object) else { return };
+        let indexes = match &self.store.get(index).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![index],
+        };
+        if !indexes.into_iter().all(|index| self.is_type_assignable_to(index, keys)) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        let printed = self.type_to_string(object);
         self.report(
             file,
             Diagnostic::with_args(
@@ -1146,14 +1203,66 @@ impl Checker<'_, '_> {
         let class_name = self.type_to_string(receiver_type);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.nodes.span(at);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::THE_PROPERTY_0_CANNOT_BE_ACCESSED_ON_TYPE_1_WITHIN_THIS_CLASS_BECAUSE_IT_IS_SHADOWED_BY_ANOTHER_PRIVATE_IDENTIFIER_WITH_THE_SAME_SPELLING,
-                span,
-                [text.to_string(), class_name],
-            ),
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::THE_PROPERTY_0_CANNOT_BE_ACCESSED_ON_TYPE_1_WITHIN_THIS_CLASS_BECAUSE_IT_IS_SHADOWED_BY_ANOTHER_PRIVATE_IDENTIFIER_WITH_THE_SAME_SPELLING,
+            span,
+            [text.to_string(), class_name],
         );
+        // `checker.go:11519-11520`: the shadowing (lexical) declaration, then
+        // the one on the receiver's type, each a value declaration: the
+        // class's first member spelling the name.
+        let related = [
+            (
+                self.private_name_declaration(nearest, text, None),
+                &messages::THE_SHADOWING_DECLARATION_OF_0_IS_DEFINED_HERE,
+            ),
+            (
+                self.private_name_declaration(other, text, Some(is_static)),
+                &messages::THE_DECLARATION_OF_0_THAT_YOU_PROBABLY_INTENDED_TO_USE_IS_DEFINED_HERE,
+            ),
+        ];
+        for (declaration, message) in related {
+            let Some(declaration) = declaration else { continue };
+            let related_span = self.error_span(declaration);
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                declaration,
+                message,
+                related_span,
+                vec![text.to_string()],
+            )));
+        }
+        self.report(file, diagnostic);
+    }
+
+    /// The first member of `class` named `#text` (on the given side, when
+    /// asked): the private name symbol's value declaration.
+    fn private_name_declaration(
+        &self,
+        class: NodeId,
+        text: &str,
+        is_static: Option<bool>,
+    ) -> Option<NodeId> {
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class)? {
+            Node::ClassDeclaration(n) => n.members,
+            Node::ClassExpression(n) => n.members,
+            _ => return None,
+        };
+        members.iter().find_map(|member| {
+            let (name, modifiers) = match member {
+                tsr_ast::ClassElement::PropertyDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::MethodDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) => (n.name, n.modifiers),
+                _ => return None,
+            };
+            (matches!(name, tsr_ast::PropertyName::PrivateIdentifier(p) if p.text == text)
+                && is_static.is_none_or(|is_static| {
+                    tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword)
+                        == is_static
+                }))
+            .then(|| tsr_ast::Node::from(*member).node_id())
+            .flatten()
+        })
     }
 
     /// TS2540 — `Cannot assign to '{0}' because it is a read-only property.`
@@ -1891,14 +2000,21 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(right) else { return };
         let span = self.nodes.span(right);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::PROPERTY_0_IS_USED_BEFORE_ITS_INITIALIZATION,
-                span,
-                [text.to_string()],
-            ),
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::PROPERTY_0_IS_USED_BEFORE_ITS_INITIALIZATION,
+            span,
+            [text.to_string()],
         );
+        // `checker.go:11727`: `'{0}' is declared here.` at the property's
+        // value declaration (`NewDiagnosticForNode`, its error range).
+        let related_span = self.error_span(value_declaration);
+        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+            value_declaration,
+            &messages::_0_IS_DECLARED_HERE,
+            related_span,
+            vec![text.to_string()],
+        )));
+        self.report(file, diagnostic);
     }
 
     /// The `prop` `checkPropertyAccessExpressionOrQualifiedName` resolves:

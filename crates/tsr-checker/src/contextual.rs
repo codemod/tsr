@@ -695,7 +695,40 @@ impl<'a> Checker<'a, '_> {
             return self.get_union_type_without_reduction(&types);
         }
         let ty = if self.store.get(ty).flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
-            self.base_constraint_of_type(ty).unwrap_or(self.intrinsics.unknown)
+            match self.base_constraint_of_type(ty) {
+                Some(constraint) => constraint,
+                // computeBaseConstraint's conditional arm is the base of
+                // getConstraintFromConditionalType, which for a check type
+                // that is no type parameter (not distributive) is
+                // getDefaultConstraintOfConditionalType: the union of the two
+                // branches (`checker.go:17263`). `string extends keyof P ?
+                // { [K in keyof P]: P[K] } : …` contextually types members
+                // through those mapped branches.
+                None if self.store.get(ty).flags.contains(crate::flags::TypeFlags::CONDITIONAL)
+                    && self.conditional_root_operands(ty).is_some_and(|[check, ..]| {
+                        !self
+                            .store
+                            .get(check)
+                            .flags
+                            .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                    }) =>
+                {
+                    match self.default_constraint_of_conditional_type(ty) {
+                        Some(constraint)
+                            if constraint != ty
+                                && !self
+                                    .store
+                                    .get(constraint)
+                                    .flags
+                                    .contains(crate::flags::TypeFlags::CONDITIONAL) =>
+                        {
+                            return self.apparent_contextual_type(constraint);
+                        }
+                        _ => self.intrinsics.unknown,
+                    }
+                }
+                None => self.intrinsics.unknown,
+            }
         } else {
             ty
         };
@@ -784,7 +817,7 @@ impl<'a> Checker<'a, '_> {
             current_context = self.apparent_contextual_type(outer_context);
         }
         let contextual = self
-            .discriminate_contextual_type_by_object_members(literal, contextual)
+            .discriminated_contextual_type(literal, contextual)
             .unwrap_or_else(|| self.discriminate_union_root(contextual, literal));
         let contextual = self.get_non_nullable_type(contextual);
         Some(self.widen_object_literal_freshness(contextual))
@@ -2629,6 +2662,22 @@ impl<'a> Checker<'a, '_> {
         //
         // Generic mapped targets substitute the property key before concrete
         // lookup; other contexts retain the concrete/union lookup order.
+        // A unique-symbol key's member is named `__@name@id` natively
+        // (`getPropertyNameFromType`), the symbol name the lookup uses. The
+        // port spells a literal's late-bound member `[A]`, while a resolved
+        // mapped type over unique-symbol keys lists the escaped name, so the
+        // lookup takes the escaped name where only that one is listed.
+        let name = match name_type.and_then(|key| self.unique_symbol_property_name(key)) {
+            Some(escaped)
+                if self.get_property_of_type(contextual, &name).is_none()
+                    && self
+                        .get_property_names_of_type(contextual)
+                        .is_some_and(|names| names.contains(&escaped)) =>
+            {
+                escaped
+            }
+            _ => name,
+        };
         let mapped = match name_type {
             Some(key) => self.generic_mapped_contextual_property_type_of_key(contextual, key),
             None => self.generic_mapped_contextual_property_type(contextual, &name),
@@ -2660,7 +2709,17 @@ impl<'a> Checker<'a, '_> {
                     .get_type_of_property_of_type(contextual, &name)
                     .unwrap_or_else(|| self.get_type_of_symbol(property)),
                 Some(property) => self.get_type_of_symbol(property),
-                None => self.union_contextual_property_type(contextual, &name, object_literal)?,
+                // getTypeFromIndexInfosOfContextualType reads the index infos
+                // with the member's name type when it has one (a unique
+                // symbol finds a `[sym: symbol]` index, `checker.go:30646`).
+                None => {
+                    match self.union_contextual_property_type(contextual, &name, object_literal) {
+                        Some(property) => property,
+                        None => {
+                            self.contextual_index_value_for_name_type(contextual, name_type?)?
+                        }
+                    }
+                }
             }
         };
         // SS141: a reference context's member instantiates through the
@@ -2788,7 +2847,7 @@ impl<'a> Checker<'a, '_> {
         // answer, `getTypeOfPropertyOfContextualType` maps over what remains
         // and no undiscriminated-walk guard applies. A decline keeps the
         // previous slice and its guard below.
-        let ported = self.discriminate_contextual_type_by_object_members(literal, contextual);
+        let ported = self.discriminated_contextual_type(literal, contextual);
         let discriminated =
             ported.unwrap_or_else(|| self.discriminate_union_root(contextual, literal));
         if discriminated != contextual
@@ -2882,7 +2941,7 @@ impl<'a> Checker<'a, '_> {
     /// unannotated non-empty binding pattern supplies
     /// `getTypeFromBindingPattern(name, true, false)`, unless the caller skips
     /// binding patterns.
-    fn initializer_binding_pattern_context(
+    pub(crate) fn initializer_binding_pattern_context(
         &mut self,
         name: Option<BindingName<'a>>,
         initializer: NodeId,
@@ -2992,9 +3051,8 @@ impl<'a> Checker<'a, '_> {
     /// discriminant in a syntactic const context (see
     /// [`Checker::context_free_discriminant_type`]); and a discriminant test,
     /// member read or relation this port cannot decide.
-    /// No state: native memoizes per `(node, type)` in
-    /// `discriminatedContextualTypes`; this recomputes per member read (the
-    /// cost is the literal's members times the union's constituents).
+    /// Callers go through [`Checker::discriminated_contextual_type`], native's
+    /// `discriminatedContextualTypes` memo (`r7-perf.md` §24).
     #[allow(
         clippy::too_many_lines,
         reason = "one native function: discriminator collection, then the \
@@ -3378,8 +3436,9 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(match index {
                 0 => self.intrinsics.string,
+                // getGlobalImportCallOptionsType reads the arity-0 global.
                 1 => self
-                    .global_type_symbol("ImportCallOptions")
+                    .global_type_symbol_with_arity("ImportCallOptions", 0)
                     .map_or(self.intrinsics.empty_object, |options| {
                         self.get_declared_type_of_symbol(options)
                     }),

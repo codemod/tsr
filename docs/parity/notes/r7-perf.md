@@ -839,6 +839,62 @@ differently by order (lazy returns, indexed-access constraints). Its other
 gates passed: CLI-message audit 0 of 36,308, and the corpus compare was
 not reached.
 
+## §36 Function, method and class literal members defer their site render (proposed)
+
+This section is on `box/r7-perf-proposed-anon`, one commit on main
+`cac2f4c8` in r7-contextual's `objects.rs`. It is proposed, not landed
+from this lane. It is placed after §17 because it revisits §15.1's rule.
+
+**Forcing measurement.** In jsTyping's single-threaded profile, 4.2% of
+samples are in `type_to_string_at_worker`. 1.9% of that comes from
+`check_object_literal_members` rendering function-typed members at the
+literal's site through `signature_to_string_at`, for example the big
+method-valued object literals in `checker.ts`. §15.1 kept every
+anonymous object type (function, method, class, module, namespace) on
+the eager site render for two reasons:
+
+1. A module or namespace object's site-free print is its baked
+   placeholder, the stripped file path. In the literal's own display it
+   changed one CLI message (`aliasUsageInOrExpression`).
+2. Deferring a callable member changed 15 jsTyping lines, through the
+   order in which lazy returns completed.
+
+**Re-measured on main `cac2f4c8`.** Reason 2 no longer holds. With
+function, method and class values deferred, jsTyping's output is
+identical to the base in both checker modes. Reason 1 is about value
+objects only, so the rule now keeps module, namespace and enum value
+objects eager (`holds_value_object`), along with instantiable types
+(§17).
+
+**Gates** against a freeze of `cac2f4c8`:
+
+- Both unfiltered dumps are byte-identical once the `ms=`/`mib=`
+  columns are cut. `compare` reports 0 gained, 0 lost and 0 missing.
+- jsTyping leg against tsgo-pinned: default mode 111 against 111 lines,
+  `--singleThreaded` 109 against 109, both identical, so new_false 0
+  and lost_true 0. CLI output is `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,609 → 10,609
+  exact, 0 lost, 0 missing.
+- Callgrind Ir (measured on the §31 chain with an environment switch):
+  generic-imports +0.01%, domain-model −0.001%.
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,848 passed, 0 failed.
+
+**Speed.** On top of the §31/§33 chain, jsTyping `--singleThreaded`
+user CPU (3 interleaved runs each, environment switch in one build)
+went from 7.92 / 9.01 / 9.47 s to 7.31 / 8.20 / 8.56 s, a median of
+**−9%**. On main alone (37–40 s, dominated by §19's re-check loops) the
+difference is within the run-to-run spread: 36.8 / 37.6 / 39.2 s
+against 37.2 / 37.7 / 40.1 s. So the change is worth having once the
+chain lands, not before.
+
+**How we would know it was wrong.** A CLI message that composes a
+function-typed member's display from a site-free print where native
+qualifies it differently. The exact oracle compares full message text
+on its exact cases, so a change there would show as a loss. Or an
+order dependence that comes back on a later main, which the jsTyping
+leg would show as moved lines.
+
 ## §18 The in-memory file system's realpath keeps the real entry's spelling
 
 **Routed by the integrator** from r7-printer on 2026-10-11: under
@@ -1158,6 +1214,242 @@ The table bounds the gain on this pattern: the 41 ms at declaration
 would become use-time work only for the members a relation reads, and
 tsgo needs 30 ms for declaration and use together.
 
+## §38 generic-imports outside lib.dom.d.ts, and the BindableStatic order pair
+
+This section is placed before §21, after §37, for the same reason as §32.
+
+### §38.1 generic-imports: where the non-dom time goes
+
+The integrator asked on 2026-10-12 for generic-imports' costs other than
+lib.dom.d.ts. Measured at `box/r7-perf` `36eca74e`: callgrind
+`--singleThreaded` with a profiling build, and median wall of 31
+interleaved fresh processes (release; tsgo-pinned beside it).
+
+| run | TSR Ir | TSR wall | tsgo wall |
+|---|---:|---:|---:|
+| `--version` (process start and exit) | — | 2.9 ms | 7.9 ms |
+| empty file, `--lib es2022` (no dom libs) | 37.7 M | 15.0 ms | 25.9 ms |
+| empty file, default libs for es2022 | 192.0 M | 44.6 ms | 76.3 ms |
+| generic-imports | 197.0 M | 43.3 ms | 73.5 ms |
+
+- **The project's own three files cost nothing measurable.** generic-imports
+  runs the same as an empty file with the same libs. Its check is 4.6 M Ir
+  (2.3%).
+- **The dom libs are 80% of the Ir.** That is 153 M of 192 M, about 30 ms
+  of TSR's wall against about 50 ms of tsgo's: 0.60 on their own.
+- **Everything else** is process start (2.9 ms against tsgo's 7.9 ms)
+  plus the serial parse and bind of the other ~60 bundled libs: 15.0 ms
+  against 25.9 ms, 0.58.
+
+**Refused: preparing the non-dom libs on workers.** §25's lib
+preparation runs only above its root gate (≥128 KiB, ≥8 roots), so
+generic-imports parses every lib in place on the walk thread. A scratch
+variant (not committed) prepared the predicted libs except the largest
+on the dependency pool when the roots were under the gate, and left
+lib.dom.d.ts in place at its visit. Node-id order and output were
+unchanged. Interleaved over 41 pairs (dist) it measured **wall 1.045 and
+CPU 1.176** against main, with `Program time` going from 31.0 to 33.0 ms.
+The publication copy of the prepared libs (0.31–0.45 of their parse,
+r5-loader §6.2) and the pool's start cost more than the overlap saves.
+That is the same arithmetic as §34. Without ADR-0056's zero-copy
+publication, generic-imports has no remaining front-end lever in this
+lane's files, and the ADR stays unfunded (integrator, 2026-10-12).
+
+### §38.2 jsTyping's `BindableStatic*` pair is an alias-resolution order bug
+
+§35 found that `compiler/utilities.ts(4187,92)` TS2769 and
+`(4258,13)` TS2322 appear with the default 4 checkers but not with
+`--singleThreaded`. With a scratch hook in `checker_pool.rs` (not
+committed) that checks a chosen list of file indices on one checker:
+
+- `utilities.ts` alone reports both lines.
+- `--checkers` 2, 3, 4, 6 and 8 all report them; `--checkers 1` does not.
+- Checking either `types.ts` or `utilitiesPublic.ts` first removes
+  both. No other earlier file does.
+- In a scratch copy of the sources, one line at the top of `utilities.ts`,
+  `type __a = BindableStaticNameExpression;`, removes both. The same line
+  naming `BindableStaticAccessExpression`,
+  `BindableStaticElementAccessExpression`,
+  `LiteralLikeElementAccessExpression` or `EntityNameExpression` does
+  not.
+
+The reduction has no checker-mode dependence. TSR's answer depends only
+on which alias of a cycle is resolved first:
+
+```ts
+interface Expression { _expressionBrand: any }
+interface Identifier extends Expression { _identifierBrand: any }
+interface ElementAccessExpression extends Expression { readonly expression: Expression }
+type Element = ElementAccessExpression & { readonly expression: Name };
+type Name = Identifier | Element;
+export declare const n: Exclude<Name, Identifier>;
+export const k: number = n;
+// TSR:  TS2322 Type 'Name' is not assignable to type 'number'.
+// tsgo: TS2322 Type 'Element' is not assignable to type 'number'.
+// TSR with the two aliases swapped (Name first): 'Element', as tsgo.
+```
+
+When `Element` is resolved first, its type literal's `expression: Name`
+is resolved eagerly while `Element` is still in progress. The `Name`
+it publishes then fails `Exclude`'s distribution, so it is printed and
+related unfiltered. Native defers a type literal's member types, so the
+cycle never closes during resolution. This is r7-declared's alias road,
+the same eager-member theme as §37 and §30. It is routed through the
+integrator; nothing is built here.
+
+## §39 Ratios at main `2d1b3a4c` (batch 64, the chain landed): not yet verified ≤0.50
+
+This section is placed before §21, after §38, for the same reason as §32.
+
+Batch 64 landed `box/r7-perf` `36eca74e`, which carries the §31/§33
+chain, §30's re-entry guard and §36's deferred member print. TSR/tsgo-pinned,
+`whole_project_perf.py`, median wall · median child CPU. Release and dist
+were built from `2d1b3a4c`. `diagnostics_match` is true on dm, dml and gi
+in every run. jsTyping is still not equivalent work.
+
+| project | session 1, dist (21) | session 2, dist (31) | session 1, release (21) | session 2, release (31) |
+|---|---|---|---|---|
+| domain-model | 0.518 · 0.393 | 0.516 · 0.386 | 0.531 · 0.419 | 0.515 · 0.387 |
+| domain-model-large | 0.524 · 0.411 | 0.506 · 0.393 | 0.548 · 0.436 | 0.549 · 0.429 |
+| generic-imports | 0.575 · 0.298 | 0.602 · 0.304 | 0.601 · 0.305 | 0.588 · 0.303 |
+| jsTyping (5) | 1.54 · 1.18 | 1.75 · 1.32 | 1.63 · 1.30 | 1.79 · 1.44 |
+
+**A third, interleaved session** put tsgo, the pre-landing
+`box/r7-perf` dist binary (`359a20af`) and main's dist binary side by
+side over 31 rounds:
+
+| project | pre-landing | main `2d1b3a4c` |
+|---|---:|---:|
+| domain-model wall · CPU | 0.508 · 0.372 | **0.496** · 0.361 |
+| domain-model-large wall · CPU | 0.492 · 0.390 | 0.520 · 0.419 |
+
+The same pre-landing binary measured dm 0.489 and dml 0.483 in its own
+earlier session. Callgrind (`--singleThreaded`, release) puts main at
+dm +0.44%, dml +0.51% and gi +0.02% Ir over the pre-landing binary,
+which is batch 64's other merges. That is far smaller than the 0.02–0.03
+swings between sessions. **Reading:** dm and dml now sit at 0.49–0.52 in
+dist, depending on the session. The target is reached in some sessions
+and missed in others, so it is not verified with margin. generic-imports
+stays at 0.55–0.60 (§38.1). The levers left on dm/dml are other lanes'
+eager evaluations (§37, §38.2).
+
+## §40 Parse and bind on the libs: the hot-function list, and ADR-0056's staging
+
+This section is placed before §21, after §39, for the same reason as §32.
+The integrator asked for both on 2026-10-12, to decide grants.
+
+### §40.1 Where generic-imports' parse and bind go
+
+Callgrind, `--singleThreaded`, profiling build of main `41e3bf25`:
+generic-imports is 197.0 M Ir, of which parse is 132.6 M (67%) and bind
+56.0 M (28%). The check is 4.6 M. A perf sample profile of 30 runs of an
+empty file with the default es2022 libs adds what Ir cannot see:
+**15.9% of samples are kernel page faults**
+(`do_huge_pmd_anonymous_page`, zeroing 2 MB transparent huge pages),
+`Scanner::scan` is 11.8% self, and the binder's `bind_inner`, `bind` and
+`bind_children` together are 7.6%.
+
+| # | function (file) | Ir share, self (gi) | what the time is | native counterpart | saving, measured or estimated |
+|---|---|---:|---|---|---|
+| 1 | `Scanner::scan`'s token build (`tsr-scanner/src/lib.rs` 597–600) | part of scan's 14.3% | About 23% of `scan`'s **samples** sit on two instructions: `Span::new(self.token_start, self.pos)` loads two u32 fields with one 8-byte load just after `scan_token` stored them separately (a failed store-to-load forward), and `self.token` is reloaded right after it was stored | `scanner.go` `Scan` sets fields; no counterpart cost | **Measured** (scratch): build the token from locals. gi wall 0.987 · CPU 0.963 over 41 pairs; Ir unchanged |
+| 2 | `skip_block_comment` (`lib.rs` ~615–680) | `memchr` 3.5% (shared with #4) | After the first line it `memchr`s for `*`, which hits every JSDoc line's leading ` * ` | `scanner.go` skips comments byte by byte | **Measured**: search for `/` and test the byte before it. gi −0.26% Ir |
+| 3 | `scan_identifier_or_keyword` + `keyword_kind` (`lib.rs` 771–800, `generated/keywords.rs`) | 5.1% + 1.0% | The ASCII loop (6.2 M on one line) is tight; `match` already dispatches on length | `textToKeyword` map lookup | **Measured**: a first-byte lowercase reject gives about 0. No lever |
+| 4 | `jsdoc_tag_flags` (`lib.rs` 2245) | in `memchr` 3.5% | A second `find('@')` pass over every JSDoc comment (66% of lib bytes are comments) | `scanJSDocCommentForTags`: the same second `IndexByte` pass, with the same early exit | Estimated ≤1% Ir, by folding the `@` test into #2's comment walk. Faithful in effect, not in structure |
+| 5 | `Parser::next_token_without_check` + `capture_value` (`tsr-parser/src/parser.rs` 671, 1498) | 3.1% self | A `String` allocation for every token with a decoded value (string literals, escaped identifiers) | `tokenValue` is a Go substring, no copy | Estimated ~1% wall: borrow the slice when the value equals the source text |
+| 6 | binder dispatch: `bind_inner`, `bind`, `bind_children`, `bind_each_child`, `record_flow` (`tsr-binder/src/binder.rs`) | 5.4 + 2.6 + 1.3 + 0.7 + 0.9% | Per-node `match` dispatch. `bind_each_child` pushes the children into a `Vec` (`push_children`) and then walks it | `bindChildren` / `ForEachChild` with a callback, no buffer | Estimated 2–3% of bind: a callback walk instead of the buffer, and folding the repeated `match node` arms. No single hot line; the largest is 0.9 M Ir |
+| 7 | generated `Node::node_id`, `for_each_child_id`, `push_children` (`tsr-ast/src/generated/`) | 1.2 + 2.0 + 0.8% | Kind dispatch per call | field access | None in this form. ADR-0056 stage 0 does not change it |
+| 8 | `NodeTable::push`, `NodeMap::push`, arena (`tsr-ast`, `tsr-core`) and `memcpy` | ≈3.5% + 3.2% | Growth copies of the shared tables per file | slices per file | §11 refused the up-front reserve (noise) |
+| 9 | page faults (kernel; not in Ir) | **15.9% of samples** | mimalloc `madvise`s its 1 GiB arena `MADV_HUGEPAGE` and commits eagerly. RSS is 58.8 MB against a 22.5 MB glibc heap peak (massif); tsgo is 44.5 MB RSS with 20 MB in use | Go heap | **Refused, measured** (dist, 31 interleaved pairs, gi / dm / dml): THP disabled (`PR_SET_THP_DISABLE`) wall 1.172 / 1.147 / 1.098; `MIMALLOC_ARENA_EAGER_COMMIT=0` 1.164 / 1.156 / 1.151, though RSS drops to 36.9 MB. The allocator is at its local optimum, so the remaining lever is fewer bytes touched |
+
+**Combined scratch build of #1–#3:** gi Ir −0.25%; wall 0.996 and CPU
+0.991 over 41 pairs. That session did not reproduce #1's alone reading,
+so #1's real gain is within 1–4% of CPU.
+
+**Reading.** No 15% parse-and-bind speedup is concentrated in a few
+functions. The scanner is already byte-driven, the binder's cost is
+spread over per-node dispatch, and the largest wall item, page zeroing,
+is a footprint cost that the allocator settings cannot remove without
+losing more. Items 1, 2, 4, 5 and 6 together are a realistic **3–6%** of
+generic-imports' parse and bind, about 1–2 ms. Only ADR-0056's zero-copy
+publication, which overlaps the libs with lib.dom.d.ts, reaches the
+modelled 2.8–5.1 ms.
+
+### §40.2 ADR-0056 staging, with the node-id change measured as one codemod
+
+**Stage 0, the node-id accessor, probed** (`box/r7-perf-proposed-nodeid`
+`b82053cd`, one commit on main `8940d068`, scratch). The generated field
+`pub node_id: Option<NodeId>` becomes `pub(crate)`, behind an inherent
+`#[inline] pub fn node_id(&self) -> Option<NodeId>` on the 191 generated
+node structs and on `Token`. A regex then rewrote every `.node_id` read
+outside `tsr-ast` to `.node_id()`: 1,503 sites in 299 files. What the
+build then reported, and how it was fixed:
+
+- two parser writes (`allocated.node_id = Some(id)`) changed to
+  `HasNodeId::set_node_id`;
+- three struct literals that copy a node with its id (`spreads.rs` ×2, a
+  `calls.rs` test) changed to the generated `::new(..)` plus
+  `set_node_id`;
+- five false positives on non-AST structs with their own `node_id` field
+  (`ExpandoMember`, `CommonJsExport` in `tsr-declarations`) reverted. A
+  landable codemod rewrites only the sites rustc reports as E0616
+  (private field) and so has none.
+
+The whole workspace then builds (`--all-targets`). Callgrind:
+generic-imports 191,066,747 → 191,022,788 Ir, domain-model 798,496,712 →
+798,535,300. CLI output is `cmp`-identical on dm and gi. Node ids, their
+order and every answer are unchanged by construction.
+
+| crate | files | lines changed (+/−) |
+|---|---:|---:|
+| `tsr-checker` | 190 | +1,037 / −1,033 |
+| `tsr-declarations` | 5 | +132 / −132 |
+| `tsr-conformance` | 41 | +121 / −121 |
+| `tsr-binder` | 10 | +56 / −56 |
+| `tsr-parser` | 15 | +49 / −49 |
+| `tsr-dts` | 5 | +45 / −45 |
+| `tsr-compiler` | 22 | +33 / −33 |
+| `tsr-execute` | 5 | +17 / −17 |
+| `tsr-printer` | 4 | +9 / −9 |
+| `tsr-tsoptions`, `xtask` | 2 | +6 / −6 |
+| `tsr-ast` generated (from `xtask/src/gen_nodes.rs`, about 30 template lines) | 1 | +1,719 / −191 |
+| `tsr-ast/src/lib.rs` (`Token`) | 1 | +10 / −1 |
+| **total** | 301 | +3,234 / −1,693 |
+
+ADR-0056 counted 2,994 read sites. That count included the 1,653 sites
+that already call the `node_id()` accessor. 1,503 is the number of field
+reads.
+
+**Collision.** Stage 0 touches every lane's crates, but each change is
+one token per line. Two ways to land it:
+
+- **(a) One commit at a quiet point.** The codegen change, regeneration and
+  rewrite land together, right after a batch merge. A lane branch that
+  rebases over it and still reads `.node_id` gets E0616 ("field is
+  private; a method `node_id` exists"), and the same codemod, an `xtask`
+  subcommand driven by those errors, fixes its branch in one run.
+- **(b) Two commits, no flag day.** 0a: generate the inherent accessor
+  only, leaving the field `pub`. That is generated code, with no conflicts,
+  and `x.node_id()` and `x.node_id` both work, because Rust allows a field
+  and a method of the same name. Lanes switch reads as they touch code, or
+  the codemod runs per crate. 0b: flip the field to `pub(crate)` once
+  `rg '\.node_id\b[^(]'` is empty outside `tsr-ast`.
+
+**Later stages, mostly in this lane's files** (estimated sizes):
+
+| stage | content | crates and owner | size |
+|---|---|---|---|
+| 1 | `NodeIdCell` (relaxed `AtomicU32`) replaces `Option<NodeId>` behind the unchanged accessor; registration through it | `tsr-ast` generated plus `gen_nodes.rs`, `tsr-ast/src/lib.rs` (shared) | ~100 template lines, ~400 generated lines; no read-site churn |
+| 2 | publication as a rebase pass: `ParsedFile::publish` adds the file's base instead of copying; generated `publish.rs` becomes a rebase visitor | `tsr-parser` (`parsed_file.rs`), `tsr-ast` generated | ~150 + ~200 generated |
+| 3 | `ArenaPool` (append-only per-file arenas, one audited `unsafe`, ADR-0011 exception), and the loader keeps worker arenas | `tsr-core` (`arena.rs`), `tsr-compiler` loader (mine) | ~150 + ~250 |
+| 4 | per-file bind on the workers: `bind_file` + `publish_file` already exist and are verified (`parallel_tests.rs`); schedule parse-then-bind per job; drop r5-loader §3's gate and §2's static-lib exclusion | `tsr-compiler` (mine), small `tsr-binder` hooks | ~250 + ~50 |
+| 5 | measure against ADR-0056's falsifiers, then a new ADR records the decision | docs | — |
+
+Expected (ADR-0056's model, unchanged): generic-imports −2.8 to −5.1 ms,
+domain-model −12.3 to −15.1 ms, domain-model-large −22 to −30 ms per
+process. At §39's ratios that is roughly gi 0.50–0.53 and dm 0.44–0.47.
+Stages 1–4 are behind stage 0 and need no further cross-lane edits beyond
+the `tsr-parser`/`tsr-binder` hooks named above.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
@@ -1210,6 +1502,454 @@ the jsTyping leg gave new_false 0 / lost_true 0. Separately, publishing
 negatives for unannotated signatures whose lazy return is no longer
 pending moved Ir by 0.00%. That is not where the walk's cost is, so it is
 not proposed.
+
+## §22 Three faithful hot-path fixes in other lanes' files (branch `box/r7-perf-proposed`)
+
+Each is one commit on `box/r7-perf-proposed`, gated on main `127660ee`.
+Gates for every commit: both unfiltered dumps byte-identical, exact
+oracle 9,639 → 9,639 with 0 lost (`--deadline 20 --workers 3` for base and
+candidate, §19), CLI output identical on dm, dml and gi, and jsTyping leg
+new_false 0 / lost_true 0. They are proposed to the integrator for routing
+or a grant; they are not landable from this lane's branch.
+
+1. **`withJSDoc`'s scanner flag** (`tsr-parser/src/jsdoc.rs`
+   `leading_jsdoc_marker`, r7-parser). In a non-JavaScript file the marker
+   is `None` unless the token carries `PRECEDING_JSDOC_WITH_SEE_OR_LINK`.
+   That is `jsdocScannerInfoHasSeeOrLink`, which native reads
+   (`jsdoc.go:64`; ADR-0053). The scanner sets it with `mentions_tag`, the
+   same predicate and terminator set as `jsdoc_has_see_or_link`. A debug
+   build compared the flag with the old re-scan's verdict on every marker
+   across jsTyping and found no disagreement. `parse_jsdoc_at` previously
+   re-scanned the trivia (`jsdoc_ranges_in`) to recompute the flag. Ir:
+   **gi −13.3%**, dm −3.3%, dml −0.8%.
+2. **`check_grammar_modifiers`' memo** (`grammar.rs`, r7-grammar). A node
+   without modifiers no longer enters `modifier_chain_checked`, which
+   native does not have at all. The JS reparsed-host kinds keep the memo.
+   That was 234 K inserts plus rehashing on dml. Ir: dm −0.6%, dml −0.9%.
+3. **`getEffectsSignature`'s nil-dotted-name negative** (`flow.rs`,
+   r7-flow; §21). Ir: dm −0.3%, dml −1.7%.
+
+Together, by Ir: gi about −13%, dm about −4%, dml about −3.4%.
+
+## §23 domain-model-large by file and by operation count: two more fixes
+
+**Where checker 0's time goes.** A scratch build timed each
+`check_source_file` (release, 4 checkers, main `127660ee`). Checker 0 owns
+`main.ts` (index 264, so `264 % 4 == 0`). It finished at 310 ms; the
+other three finished at about 220 ms. `main.ts` alone took 126 ms of it,
+because checker 0 resolves lazily the 150 models its own files never
+touched. The file association is native's `i % checkerCount`
+(`checkerpool.go:98`), so the imbalance is native's too and is not a
+lever.
+
+**TSR against tsgo, single-threaded, by subtraction.** Dropping `main.ts`
+from the project (`include: [core.ts, model*.ts]`) and taking the minimum
+check time of 5 runs:
+
+| | all files | without `main.ts` | `main.ts` alone |
+|---|---:|---:|---:|
+| TSR (dist) | 867 ms | 809 ms | 58 ms |
+| tsgo | 624 ms | 513 ms | 111 ms |
+
+TSR is already about 2× faster than tsgo on `main.ts`'s long flow walks,
+and 1.58× slower on the 201 model files. Parallel checking hides this:
+TSR scales 3× on 4 checkers and tsgo 1.2×. The per-file checker cost of
+the model files is therefore the larger lever.
+
+**Native operation counts.** A copy of the pinned tree
+(`/tmp/box/tsgo-count`, not committed) counts calls with a
+`checker.PrintDebugCounts()` at exit. The comparison was against TSR's
+callgrind call counts on the model files:
+
+| native | count | TSR | count |
+|---|---:|---:|---:|
+| `NameResolver.Resolve` | 36,769 | `BindResult::resolve_name` | 142,801 |
+| `instantiateSignature` | 7,660 | `instantiate_signature` | 26,342 |
+| `createTypeReference` | 18,171 | `create_type_reference` | 41,136 |
+| `getPropertyOfType` | 159,560 | `get_property_of_type_ex` | 314,032 |
+| `recursiveTypeRelatedTo` | 47,000 | `recursive_type_related_to` | 21,388 |
+| `getTypeOfSymbol` | 231,997 | `get_type_of_symbol` | 144,653 |
+
+The four rows where TSR does more work are the candidates. The other
+two show that a TSR excess is not across the board.
+
+**Fix 4: `check_used_before_its_declaration` resolves only what can
+report** (`check.rs`, the dispatch lane's file). The rule runs for every
+identifier node, and 51,415 of the 70,876 memo misses on the model files
+came from it. They were property-signature, parameter, variable,
+type-alias and import-specifier names, and type-reference names. Native
+runs `checkResolvedBlockScopedVariable` inside `resolveName`, for
+value-meaning lookups only. Both of the port's arms report only an
+identifier that `is_value_reference` admits or that
+`is_in_extends_clause` finds, so any other identifier now returns before
+the resolution. A property access's name keeps the old path, because its
+`qualified_member_of_namespace` fallback calls `resolve_alias`, which has
+memo side effects. The memo misses fell from 70,876 to 33,470, with no
+other rule picking up the skipped ones. Ir: dml −1.3%, dm −1.2%,
+gi −0.1%.
+
+**Fix 5: `binding_type_alias_body` stops at a non-alias reference**
+(`destructure.rs`, r7-declared). `narrow_type` calls it for every
+condition step of every flow walk: 201,600 calls on `main.ts` alone,
+which is 8.1% of that file's check Ir. Each step with an
+`Array<string>` declared type cloned the argument vector and built a
+`(symbol, Vec)` key, only for `evaluate_alias_body` to answer `None`.
+Both of that function's arms test `TYPE_ALIAS` first. The walk now
+breaks before the clone. The one effect skipped is the
+`(symbol, args) → error` insert into `alias_body_evaluations`, and that
+table's only non-test reader (`index_signatures.rs`, the
+`type_reference_targets` arm) requires `TYPE_ALIAS` too. Ir: dml −0.7%,
+dm −0.1%.
+
+Fixes 4 and 5 were measured on main `127660ee` plus §22's three
+commits. The branch was then rebased onto main `59ceea97` (batch 34).
+§22's item 1 had landed independently there as r7-parser's `a83e1dfc5`
+(the same `PRECEDING_JSDOC_WITH_SEE_OR_LINK` test), so it was dropped
+from the branch.
+
+**Wall** (interleaved, 30 runs, dml, 4 checkers): main 400.7 ms,
+`box/r7-perf-proposed` before these two fixes 395.7 ms, after them
+387.1 ms, tsgo 712.7 ms. The ratio went from 0.562 to **0.543**.
+
+**Not yet attacked.** `instantiate_signature` runs 3.4× native's count,
+`create_type_reference` 2.3× and `get_property_of_type_ex` 2×.
+`FrozenModelNNN = DeepReadonly<ModelNNN>` costs 160 µs per alias in
+`check_type_alias_circularity` (32 ms single-threaded over 200 aliases).
+Native defers the mapped type's members until something reads them; the
+port's `evaluate_conditional_node` resolves them on construction.
+
+**How we would know these were wrong.** For fix 4: an EXACT loss, or a
+corpus case that reports TS2448/TS2449/TS2450 on a declaration name, a
+type reference, or something else that is not a value reference. For
+fix 5: any dump row that differs, since the walk's answer is unchanged
+by construction.
+
+## §24 jsTyping: two re-check loops that native does not have
+
+**Where the time goes.** jsTyping's single-threaded check took 16.4 s
+on TSR against tsgo's 1.6 s (main `59ceea97`). Per-file times from a
+scratch build:
+
+| file | check |
+|---|---:|
+| `compiler/utilities.ts` | 13.4 s |
+| `compiler/transformers/jsx.ts` | 8.1 s |
+| `compiler/checker.ts` | 3.6 s |
+| every other file | under 0.5 s each |
+
+With 4 checkers, `utilities.ts` alone is the critical path. Native call
+counts (§23's counting copy) against TSR's scratch counters on the whole
+project:
+
+| native | count | TSR | count |
+|---|---:|---:|---:|
+| `getPropertyOfType` | 497 K | `get_property_of_type_ex` | 40.0 M |
+| `getContextualType` | 122 K | `get_contextual_type` | 3.86 M |
+| `isRelatedToEx` | 689 K | `is_related_to_with_flags` | 15.7 M |
+| `instantiateType` | 238 K | `instantiate_type` | 3.55 M |
+| `getTypeOfSymbol` | 1.34 M | `get_type_of_symbol` | 12.0 M |
+
+**Fix A: `annotation_member_context` does not re-resolve a call that is
+resolving** (`symbols.rs`). getScriptTargetFeatures nests generic calls
+three deep: `new Map(Object.entries({ Array: new Map(Object.entries({…}))
+… }))`. tsgo's `checkObjectLiteral` runs at most 4 times on any literal in
+`utilities.ts`. TSR checked each inner literal 1,776 to 3,441 times, and
+the count grew by 333 per member of the literal.
+
+The loop: the §56 road reads each member's contextual type through the
+literal's holder. At a `CallExpression` holder with no
+`resolved_call_signatures` entry, it called `resolve_call_signature`.
+That re-checked every argument, so every nested literal's members ran
+the road again. The `narrow_value_stack` guard stops only the
+re-entrant cycle, not the repetition.
+
+Native does not resolve a call whose `resolvedSignature` is the
+`resolvingSignature` sentinel (`getContextualTypeForArgumentAtIndex`,
+`checker.go:29783`). The argument already has the contextual type that
+the running resolution pushed. The port's equivalent of the sentinel is
+`perf_links.main_resolving_calls`. While it holds the holder, the road
+now answers `None`. The caller then takes
+`check_expression_for_mutable_location`, the general contextual road,
+which is native's only one.
+
+`utilities.ts`: 12.7 s → **0.92 s**. jsTyping's error lines were
+identical (124 against 124).
+
+**Fix B: `discriminateContextualTypeByObjectMembers` is memoised as
+native's is** (`contextual.rs` call sites; the memo is in
+`perf_links.rs`). The port's own rustdoc said it recomputed per member
+read. jsx.ts's `entities` literal (about 250 members, inside
+`new Map(Object.entries({…}))`) paid the discrimination once per member
+per pass. The memo key is native's `(nodeId, typeId)`. The rules are
+those in the convention: decided answers only, `publishable_since`, and
+no alias, mapped-template or identity frame open. `jsx.ts`: 7.75 s →
+**3.26 s**.
+
+**Fix C: `type_only_alias_declaration` is memoised per alias**
+(`check.rs`, with the memo in `perf_links.rs`). Native reads
+`links.typeOnlyDeclaration`, which is set once per alias
+(`getTypeOnlyAliasDeclarationEx`, `checker.go:2144`). The port walked the
+alias chain for every value identifier, `export *` barrels included,
+through `specifier_type_only_export_star`. In checker.ts every imported
+name crosses `_namespaces/ts.ts`'s barrel, and the walk was 7.2% of that
+file's check Ir. The walk reads only the binder, the module host and
+completed alias targets. An alias still resolving answers `None` early,
+so the result is published only when no alias resolution is open.
+jsTyping wall, interleaved with A and B already applied: 5.42 → 5.09 s.
+
+**Combined wall** (interleaved, 3 runs, loaded box): main 16.79 s, A and
+B 5.42 s, A, B and C 5.09 s, tsgo 2.39 s. jsTyping goes from 7.0× tsgo
+to 2.1×.
+
+**How we would know these were wrong.** For A: a corpus or EXACT row
+where the §56 retained-literal road answered during the holder's own
+resolution and the general road answers differently. That would show
+up as a widened literal member (`"a"` printed as `string`). For B: any
+row that differs, since the memo returns what the computation returned.
+The same holds for C, and also an alias whose type-only status a later
+alias resolution would change.
+
+## §26 `propertiesRelatedTo` returns at the first failing property on every road
+
+**Forcing measurement.** In dml, `DeepReadonly<ModelNNN>` relates
+`ModelNNN` to `(infer U)[]`. Each such relation cost about 95 K Ir in
+`evaluate_conditional_node`: 1,205 relations for 114.7 M Ir. Native's
+`propertiesRelatedTo` (`relater.go:4240`) returns at the first target
+property the source fails, here `length`. The port stopped early only on
+the discriminated road, the one caller that passes exclusions. On every
+other road it related all of `Array`'s remaining members before
+combining.
+
+r5-relater4 §1 kept that full walk. Applying the early return everywhere
+had changed two `arrayDestructuringInSwitch1` type lines, through the
+pairs the full walk published to the results store.
+
+**Measured at main `6faf95a3`, early return on every road:**
+- Both corpus dumps are identical to the base: 557,343 type rows, and
+  the diagnostics rows.
+- jsTyping CLI output is identical.
+- Ir: dm −2.9%, dml −3.1%, gi 0.
+- jsTyping wall −4% and CPU −7.5%, measured on main without §24's fixes.
+
+The publication-order dependence r5-relater4 recorded no longer
+reproduces.
+
+**How we would know it was wrong.** An exact-oracle or corpus row that
+moves, or a relation answer that depends on a pair the early return
+leaves unpublished.
+
+## §27 `resolve_name_with_export_alias` is memoised per identifier
+
+Native resolves an identifier once and keeps the answer in
+`links.resolvedSymbol` (`getResolvedSymbol`). Several of this port's
+per-identifier rules resolve the same identifier again with the
+export-alias walk: `check_value_identifier`, `check_type_reference_name`
+and others. On dml's model files that walk was 124 M Ir inclusive (5.0%)
+at main `6faf95a3` plus §22–§26.
+
+The answer is memoised per `(node, meaning)` when the node is an
+identifier resolved under its own text, as `resolve_identifier_memo`
+already does for the plain walk. The walk's only checker callback is
+`resolve_alias`. An alias still resolving answers `None`, so the result
+is published only when `alias_resolving` is zero at both entry and exit.
+
+Ir on top of §22–§26 and the §25 loader: dm −1.1%, dml −1.2%, gi
+−0.1%. CLI output is identical on dm, dml, gi and jsTyping.
+
+## §28 Ratios at main `27c17a4f` (batch 44), with and without this branch
+
+TSR/tsgo-pinned wall · CPU, medians of interleaved runs on a quiet box:
+25 runs each for dm, dml and gi, 3 for jsTyping. "Branch" is this chain
+rebased on `27c17a4f`. The §25 loader is already on main.
+
+| project | tsgo wall / CPU | main release | main dist | branch release | branch dist |
+|---|---|---|---|---|---|
+| domain-model | 209.4 / 663.5 ms | 0.530 · 0.396 | **0.492** · 0.378 | 0.499 · 0.371 | **0.488** · 0.362 |
+| domain-model-large | 701.2 / 2,523 ms | 0.552 · 0.427 | **0.511** · 0.391 | 0.499 · 0.395 | **0.496** · 0.384 |
+| generic-imports | 68.3 / 151.2 ms | 0.558 · 0.275 | **0.545** · 0.263 | 0.567 · 0.277 | **0.539** · 0.265 |
+| jsTyping | 1.99 / 5.21 s | 8.22 · 6.28 | **7.43** · 5.71 | 1.95 · 1.53 | **1.92** · 1.50 |
+
+The 0.50 target is met in dist on domain-model at main. It is also met on
+domain-model-large with this branch. generic-imports is front-end bound:
+parse 22 ms plus bind 12.5 ms of about 37 ms wall, nearly all of it
+`lib.dom.d.ts`. jsTyping is checker-bound on `compiler/checker.ts`
+(§24's remaining table).
+
+## §29 The flow walk's identifier resolutions go through `resolve_identifier_memo`
+
+Native's `isMatchingReference` and the other flow readers compare
+`getResolvedSymbol(node)`, which is resolved once per identifier
+(`links.resolvedSymbol`). This port's flow readers called
+`binder.resolve_name` directly on every flow step:
+`is_matching_reference`, `references_match`, `is_constant_reference`,
+`contains_matching_reference`, `get_effects_signature`,
+`get_discriminant_property_access` and narrowing.
+
+On jsTyping's `compiler/checker.ts`, with §22–§27 applied, that was
+1.45 G of the file's 14.8 G check Ir. For example, `is_matching_reference`
+made 420,586 calls at about 1,360 Ir each.
+
+Every such call now goes through `resolve_identifier_memo`. That calls
+the same binder function with the same arguments, memoised per
+`(node, meaning)` when the node is an identifier resolved under its own
+text, and calls it directly otherwise. The answer is therefore identical
+by construction. One `&self` reader (`nullable_literal_type`) keeps the
+direct call.
+
+Measured on top of §22–§28:
+- jsTyping wall −6.2% and CPU −7.8% (interleaved, 3 runs); output
+  identical.
+- Ir: dm −0.4%, dml −0.5%, gi 0.
+
+The same substitution in the other checker files is mechanical but
+meets about 20 `&self` readers. It is not proposed here.
+## §31 The chain rebased onto main `bacf0918` (batch 51): gates and ratios
+
+This section is placed before §25 so that the chain's text and §30's
+append do not touch the same lines. §22's item 1 is not in the chain,
+because it landed as r7-parser's `a83e1dfc5` (§23). The other ten code
+commits, §22 items 2–3 through §29, cherry-pick onto `bacf0918` with no
+code conflict.
+
+**Gates** against a freeze of `bacf0918`:
+
+- Both unfiltered dumps are byte-identical once the `ms=`/`mib=`
+  columns are cut. `compare` reports 0 gained, 0 lost and 0 missing.
+- jsTyping leg: 122 against 122 lines, identical, so new_false 0 and
+  lost_true 0. CLI output is `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,458 → 10,458
+  exact, 0 lost, 0 missing.
+- Callgrind Ir, `--singleThreaded`, release:
+
+  | project | main | chain | change |
+  |---|---:|---:|---:|
+  | generic-imports | 191,627,273 | 191,226,759 | −0.2% |
+  | domain-model | 857,621,235 | 797,721,649 | **−7.0%** |
+  | domain-model-large | 3,736,321,970 | 3,371,628,608 | **−9.8%** |
+
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,841 passed, 0 failed.
+
+**Ratios** (TSR/tsgo-pinned, `whole_project_perf.py`, one quiet
+session, 21 samples, jsTyping 5; median wall · median child CPU):
+
+| project | main dist | **chain dist** | chain release |
+|---|---|---|---|
+| domain-model | 0.524 · 0.399 | **0.496** · 0.363 | 0.528 · 0.387 |
+| domain-model-large | 0.510 · 0.408 | **0.471** · 0.380 | 0.515 · 0.411 |
+| generic-imports | 0.604 · 0.303 | **0.556** · 0.280 | 0.571 · 0.286 |
+| jsTyping | 7.42 · 5.85 (earlier session) | **1.81** · 1.42 | 1.90 · 1.53 |
+
+An earlier session on main alone read dm 0.489, dml 0.527, gi 0.565 in
+dist. So dm's main-only reading straddles 0.50 between sessions. With
+the chain, dm and dml are under 0.50 in dist, and `diagnostics_match`
+is true on both. generic-imports is front-end bound (§12, ADR-0056).
+jsTyping is still not equivalent work: 122 lines against 86.
+
+## §33 Two more success-path fixes on the chain: inference's property order and the relation-first report
+
+This section is placed before §25, after §31, for the same reason as §31.
+Both fixes are in other lanes' files (`inference.rs`, `assignreport.rs`)
+and are proposed on `box/r7-perf-proposed` on top of §31.
+
+**Forcing measurement.** Callgrind on dml with the chain (main
+`bacf0918` plus §31, `--singleThreaded`, profiling build, 3.50 G Ir)
+shows a flat profile: no checker function above 1.7% self. Two
+inclusive costs are on paths native takes only after a failure, or not
+at all:
+
+1. **`infer_from_members`** cost 116 M Ir inclusive over 4,376 calls.
+   200 of those calls come from `DeepReadonly<ModelNNN>`'s
+   `T extends (infer U)[]`, which infers from an interface to `Array<U>`
+   at about 270 K Ir each. For every one of `Array`'s members the port
+   asked `get_type_of_property_of_type(target, name)` before
+   `get_type_of_property_of_type(source, name)`. That instantiates the
+   target member's type even when the source has no such property.
+   Native's `inferFromProperties` (`inference.go:828`) looks up the
+   source property first and reads the target's type only when the
+   source has one.
+2. **`report_relation_failure`** (reached from `check_return_expression`
+   and `check_variable_like_declaration`, 5,032 calls on dml) ran
+   `elaborate_error`, the union-literal and excess-property arms and
+   `report_weak_type_failure` before it related the pair. That is about
+   76 M Ir inclusive, almost all of it on assignable pairs. Native's
+   `checkTypeRelatedToAndOptionallyElaborate` (`relater.go:430`) returns
+   at a successful `isTypeRelatedTo` before any elaboration.
+
+**Changes.**
+
+1. `infer_from_members` reads the source member's type first and skips
+   the name when the source has none. This is native's order.
+2. `report_relation_failure` computes the reporting relation
+   (`relate_with_signature_diagnostic(…, true)`) first and returns at
+   `Related`. The answer is kept and used where the road used to compute
+   it, so no relation runs twice. A source whose node is an object literal,
+   or which is a fresh object literal type, keeps the old order, because
+   its excess-property arms run in this function rather than inside the
+   relation.
+
+Neither is a cache, side table or traversal, so the checker-port record
+does not apply.
+
+**Refused first cut of change 2.** A separate silent relation
+(`report_errors = false`) in front of the old road changed
+`compiler/relationComplexityError` from TS2859 to TS2322. The silent
+relation overflowed first and published `ComplexityOverflow`, and the
+reporting relation that followed read that entry and answered
+`NotRelated`. Computing the reporting relation once, as landed, keeps
+that case byte-identical.
+
+**Measured** against the freeze of `bacf0918`, as cumulative Ir on top of
+§31 (`--singleThreaded`, release):
+
+| project | §31 chain | + change 1 | + change 2 |
+|---|---:|---:|---:|
+| generic-imports | 191,226,759 | 191,194,704 | 191,232,721 |
+| domain-model | 797,721,649 | 793,080,069 (−0.6%) | 789,713,136 (−1.0%) |
+| domain-model-large | 3,371,628,608 | 3,357,742,886 (−0.4%) | 3,341,605,125 (−0.9%) |
+
+- `compare`: 0 gained, 0 lost and 0 missing. The diagnostics dump differs
+  from the base in one row, a WRONG case:
+  `compiler/styledComponentsInstantiaionLimitNotReached` loses its two
+  false reports (TS2577 at 171:8 and TS2456 at 182:13). Native expects two
+  TS2344, so the case stays WRONG. Change 1 alone causes this (checked
+  with change 1 built without change 2). The only thing it removes is the
+  instantiation of target members the source lacks, so the case depends
+  on that order. It was not reduced. The types dump is byte-identical.
+- jsTyping leg: 122 against 122 lines, identical. CLI output is
+  `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,458 → 10,458
+  exact, 0 lost, 0 missing.
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,841 passed, 0 failed.
+
+**How we would know these were wrong.** For change 1: an inference
+that depended on instantiating a target member the source lacks, which
+would show as a changed type row. For change 2: a TS2322, TS2353 or
+TS2559 that `elaborate_error` or the weak-type arm reported on a pair the
+relation calls `Related`. Native never reports one, so a row losing such
+a report would be a fidelity gain to verify, not a loss to restore.
+
+### §33.1 The chain re-gated on main `ad4f76096` (batch 60)
+
+The fourteen commits of §31 and §33 rebase onto `ad4f76096` with no
+conflict. Gates against a freeze of `ad4f76096`:
+
+- `compare`: 0 gained, 0 lost and 0 missing. The types dump is
+  byte-identical. The diagnostics dump moves only §33's
+  `styledComponentsInstantiaionLimitNotReached` row (WRONG, two false
+  reports fewer).
+- jsTyping leg against tsgo-pinned (86 lines): default mode 110 against
+  110, `--singleThreaded` 108 against 108, both identical, so new_false 0
+  and lost_true 0. CLI output is `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,653 → 10,653
+  exact, 0 lost, 0 missing.
+- Callgrind Ir, `--singleThreaded`, release: generic-imports
+  191,383,183 → 190,971,967 (−0.2%); domain-model 859,130,754 →
+  791,042,078 (**−7.9%**); domain-model-large 3,746,920,151 →
+  3,350,716,320 (**−10.6%**).
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,854 passed, 0 failed.
 
 ## §25 The loader prepares the libs beside the roots, and the walk publishes from tickets
 
@@ -1293,3 +2033,95 @@ parses on wall. The pool drains queued jobs when the walk ends. Another
 would be a dependency-heavy root set (≥128 KiB of roots plus many
 `node_modules` declarations) where the queued root jobs delay the first
 dependency visits by more than the barrier used to cost.
+
+## §30 `recursiveConditionalCrash3`: a deferred conditional's eager branches regress without bound
+
+**Symptom.** At main `d7346aa22` (batch 47) the oracle worker for
+`compiler/recursiveConditionalCrash3.ts` grows by about 220 MB/s. It
+reached 4.5 GB in 20 s, past the gate's cap. Native finishes the case in
+0.32 s, at 80 MB.
+
+**Attribution.** This is not a batch-47 change. With the same driver
+(`full_oracle_actual`, per-process, case 5834), the batch-46 head
+`57e45ae70` grows on the same curve: 2.26 GB at 10 s against 2.40 GB, and
+4.43 GB at 20 s against 4.52 GB. That is about 5% faster at batch 47 and
+otherwise the same. §19 recorded the case at 3.4 GB in 25 s at batch 19.
+The flip from TSR_TIMEOUT to an OOM is the growth rate crossing the
+worker's memory before the 60 s deadline. No commit introduced it.
+
+**Native's limits are not what stops native.** On this case the counting
+tsgo (§23) makes 237 `getConditionalType` calls and 43,531
+`instantiateType` calls, and reports no TS2589. Native never approaches
+`instantiationDepth` 100, `instantiationCount` 5,000,000 or the
+tail-recursion limit of 1000. This port already applies the depth-100 and
+5M checks in `evaluate_conditional_alias` and `instantiate_type`. Its
+TS2589 reporter is held, because it would add false reports
+(`current_node.rs`, r5-spans §2.3). Porting the reporter would add a
+TS2589 native does not print, and would not bound memory. At this case's
+rate the 5M budget is about 23 minutes and tens of GB away.
+
+**Cause.** A scratch trace showed `Expand__` re-entered 96 levels deep,
+always with the same `Depth` tuple and a growing `O`
+(`X[K][P extends Keys ? 'value' : 'default'][…]`). `O` is generic, so
+`O extends CanBeExpanded` is deferred (`is_deferred_type` is true). But
+the deferred conditional's mint inside a mapped template
+(`get_type_from_type_node_worker`, the `mapped_template_depth > 0` arm)
+evaluates both branch types immediately, for
+`mapped_conditional_branches`. Its true branch is
+`Expand__<O[…], Keys, P, N, Depth>`. Under the alias frame that binds
+`N = 4` and `Depth = [1, 1]`, that decides `N extends Depth['length']`
+false and reaches the same deferred conditional again, with a longer `O`.
+Native keeps a deferred conditional's branches lazy
+(`getTrueTypeFromConditionalType`) and stops at the first deferral.
+
+**Fix (`declared.rs`, with a field in `checker.rs`).** The mint records its
+conditional node in `eager_branch_conditionals` while it evaluates the
+branches. A mint of the same node re-entered from inside that evaluation
+keeps its root without branches, which the arm already handles ("the root
+and mapper remain useful when a branch is not yet computable"). The case
+now completes in 0.23 s at 3 MB. The types it prints are still not
+native's; native prints 1.25 MB of expanded types.
+
+**How we would know it was wrong.** A corpus row whose inner deferred
+conditional relied on branches computed by a re-entrant mint of the same
+node. It would show as a mapped conditional that no longer re-evaluates
+after substitution.
+
+**Re-measured on main `bacf0918` (batch 51).** The CLI reproduces it
+without the oracle: `tsr --target es2015 --noEmit` on the case file
+reaches 4.1 GB in 14.7 s and aborts on an allocation failure. tsgo-pinned
+finishes in 0.35 s at 89 MB and prints nothing. With the fix, TSR finishes
+in 0.23 s at 82 MB and prints nothing. Gates against a freeze of
+`bacf0918`:
+
+- Both unfiltered dumps are byte-identical once the `ms=`/`mib=` columns
+  are cut. `compare` reports 0 gained, 0 lost and 0 missing.
+- jsTyping leg: 122 against 122 lines, identical, so new_false 0 and
+  lost_true 0.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,458 → 10,458
+  exact, 0 lost, 0 missing. Case 5834 goes from TSR_FAILED (allocation
+  failure at 22.9 s) to WRONG `types:type-text` at 58 ms.
+- Callgrind Ir, `--singleThreaded`: generic-imports 191,627,273 →
+  191,621,985; domain-model 857,621,235 → 857,975,134 (+0.04%).
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,841 passed, 0 failed.
+
+**The other oracle timeout is the same family, and this guard does not
+cover it.** `conformance/types/keyof/keyofAndIndexedAccess2.ts` is
+TSR_TIMEOUT at 60 s (native 156 ms). Its trigger is four lines
+(#30920):
+
+```ts
+type StrictExtract<T, U> = T extends U ? U extends T ? T : never : never;
+type StrictExclude<T, U> = T extends StrictExtract<T, U> ? never : T;
+type A<T> = { [Q in { [P in keyof T]: P; }[keyof T]]: T[Q]; };
+type B<T, V> = A<{ [Q in keyof T]: StrictExclude<B<T[Q], V>, {}>; }>;
+```
+
+TSR does not finish in 10 s, and its memory grows slowly (430 MB). tsgo
+prints nothing. The profile is `evaluate_conditional_alias` →
+`evaluate_mapped_type_node` → `extends_instantiation` →
+`definite_conditional_outcome`, re-entering `B<T[Q], V>` with a longer
+`T`. That is the same eager evaluation of a deferred alias, reached
+through the conditional-alias road rather than the mint. It is not attempted in this commit; it is
+routed to the integrator for an issue and an owner.

@@ -268,7 +268,7 @@ impl Checker<'_, '_> {
                 new.node_id.and_then(|id| self.active_inference_contexts.get(&id)).is_some_and(
                     |context| context.signature.type_parameters.iter().any(|p| p.is_const),
                 );
-            return has_const_parameter && self.literal_has_const_contextual_target(id);
+            return has_const_parameter && self.literal_has_const_contextual_target(id, true);
         }
         let Some(call) = enclosing_call else { return false };
         // An IIFE's parameters derive from its arguments. Computing that
@@ -315,15 +315,34 @@ impl Checker<'_, '_> {
             if !has_const_parameter {
                 return false;
             }
+            // isConstContext reads `getContextualType(node)`. During inference
+            // that is the uninstantiated parameter (`instantiateContextualType`
+            // without ContextFlagsSignature leaves `T`), but a re-read under
+            // the resolved signature (§1, published with its type parameters
+            // cleared) sees the instantiated one: `inners2<const T>(args:
+            // readonly [unknown, ...T, unknown])` re-reads `[1,2,3,4,5]` under
+            // `readonly [unknown, 2, 3, 4, unknown]`, no const type variable,
+            // so it prints `[number, 2, 3, 4, number]`.
+            if self
+                .call_inference_signatures
+                .get(&call_id)
+                .is_some_and(|signature| signature.type_parameters.is_empty())
+            {
+                return self.literal_has_const_contextual_target(id, false);
+            }
         }
-        self.literal_has_const_contextual_target(id)
+        self.literal_has_const_contextual_target(id, true)
     }
 
-    fn literal_has_const_contextual_target(&mut self, id: tsr_ast::NodeId) -> bool {
+    fn literal_has_const_contextual_target(
+        &mut self,
+        id: tsr_ast::NodeId,
+        uninstantiated: bool,
+    ) -> bool {
         let mut current = id;
         loop {
             let previous = self.contextual_prefers_uninstantiated;
-            self.contextual_prefers_uninstantiated = true;
+            self.contextual_prefers_uninstantiated = uninstantiated;
             let contextual = self.get_contextual_type(current);
             self.contextual_prefers_uninstantiated = previous;
             if contextual.is_some_and(|ty| self.is_const_type_variable(ty, 0)) {
@@ -657,8 +676,12 @@ impl Checker<'_, '_> {
         // tuple context through `[]`. This port's stateless argument road
         // fixes the variable to unknown first, so the written type is read
         // here. Written type arguments still use their instantiated context.
+        // Not under a resolved instance (§1/§31 publish one with its type
+        // parameters cleared): a re-read under the resolved signature sees the
+        // instantiated parameter only, as the writer's read does natively.
         if self.nodes.parent(id).and_then(|parent| self.node_map.get(parent)).is_some_and(
-            |node| matches!(node, tsr_ast::Node::CallExpression(call) if call.type_arguments.is_empty()),
+            |node| matches!(node, tsr_ast::Node::CallExpression(call) if call.type_arguments.is_empty()
+                && !call.node_id.and_then(|call| self.call_inference_signatures.get(&call)).is_some_and(|signature| signature.type_parameters.is_empty())),
         ) {
             let saved = self.contextual_prefers_uninstantiated;
             self.contextual_prefers_uninstantiated = true;

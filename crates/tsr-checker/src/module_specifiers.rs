@@ -323,15 +323,21 @@ impl Checker<'_, '_> {
         module_file: NodeId,
         importing: NodeId,
         override_mode: ModuleKind,
+        site: Option<NodeId>,
     ) -> Option<String> {
         let host = self.module_host?;
         // The node builder's own resolution mode (`:1278`), which picks the
-        // ending preference it passes. The `originalModuleSpecifier` arm
-        // (printing inside an import declaration) is not ported.
-        let builder_mode = if override_mode == ModuleKind::None {
-            host.default_resolution_mode_for_file(importing)
-        } else {
+        // ending preference it passes: the override, else the usage mode of
+        // the module specifier the enclosing declaration carries
+        // (`originalModuleSpecifier`, `TryGetModuleSpecifierFromDeclaration`;
+        // r7-printer §57), else the file's default.
+        let original = site.and_then(|site| self.original_module_specifier(site));
+        let builder_mode = if override_mode != ModuleKind::None {
             override_mode
+        } else if let Some(specifier) = original {
+            host.mode_for_usage_location(importing, specifier)
+        } else {
+            host.default_resolution_mode_for_file(importing)
         };
         let preferences = SpecifierPreferences { ending_js: builder_mode == ModuleKind::ESNext };
         // `computeModuleSpecifiers`' existing-import arm (r5-modules §4).
@@ -389,6 +395,70 @@ impl Checker<'_, '_> {
             }
         }
         node_modules_specifier.or(relative_specifier)
+    }
+
+    /// `TryGetModuleSpecifierFromDeclaration` (`nodebuilderimpl.go:1193`) of
+    /// the node builder's enclosing declaration, the `.types` writer's
+    /// assertion parent, when `canHaveModuleSpecifier` admits its kind: the
+    /// string-literal module specifier of the import or export it belongs
+    /// to, or the argument of the `require` call a variable is initialized
+    /// with.
+    fn original_module_specifier(&self, enclosing: NodeId) -> Option<NodeId> {
+        use tsr_ast::{Expression, ModuleReference, Node, SyntaxKind as K};
+        let declaration_specifier = |node: NodeId| -> Option<NodeId> {
+            let specifier = match self.node_map.get(node)? {
+                Node::ImportDeclaration(declaration) => declaration.module_specifier,
+                Node::ExportDeclaration(declaration) => declaration.module_specifier,
+                _ => None,
+            }?;
+            match specifier {
+                Expression::StringLiteral(literal) => literal.node_id,
+                _ => None,
+            }
+        };
+        let up = |node: NodeId, levels: usize| -> Option<NodeId> {
+            let mut current = node;
+            for _ in 0..levels {
+                current = self.nodes.parent(current)?;
+            }
+            Some(current)
+        };
+        match self.nodes.kind(enclosing) {
+            K::ImportDeclaration | K::ExportDeclaration => declaration_specifier(enclosing),
+            K::ImportClause | K::NamespaceExport => declaration_specifier(up(enclosing, 1)?),
+            K::NamespaceImport | K::ExportSpecifier => declaration_specifier(up(enclosing, 2)?),
+            K::ImportSpecifier => declaration_specifier(up(enclosing, 3)?),
+            K::ImportEqualsDeclaration => match self.node_map.get(enclosing)? {
+                Node::ImportEqualsDeclaration(declaration) => match declaration.module_reference? {
+                    ModuleReference::ExternalModuleReference(external) => {
+                        match external.expression? {
+                            Expression::StringLiteral(literal) => literal.node_id,
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            K::VariableDeclaration | K::BindingElement => {
+                let initializer = match self.node_map.get(enclosing)? {
+                    Node::VariableDeclaration(declaration) => declaration.initializer,
+                    Node::BindingElement(element) => element.initializer,
+                    _ => None,
+                }?;
+                let Expression::CallExpression(call) = initializer else { return None };
+                if !matches!(call.expression, Some(Expression::Identifier(callee)) if callee.text == "require")
+                    || call.arguments.len() != 1
+                {
+                    return None;
+                }
+                match call.arguments[0] {
+                    Expression::StringLiteral(literal) => literal.node_id,
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     /// The program's symlink cache (`host.GetSymlinkCache()`), which

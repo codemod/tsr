@@ -915,6 +915,15 @@ impl Checker<'_, '_> {
         self.relate_with_signature_diagnostic(source, target, relation, false).0
     }
 
+    /// `getNormalizedType`'s indexed-access simplification of a source being
+    /// read (`T[string | number]` is `T[string] | T[number]`), for the report
+    /// retrace, which names a pair as `isRelatedTo` normalized it
+    /// (r7-reports §78).
+    pub(crate) fn chain_simplified_indexed_access(&mut self, id: TypeId) -> TypeId {
+        let mut relater = Relater::new(self, Relation::Assignable, None);
+        relater.simplified_indexed_access(id, false)
+    }
+
     /// [`Checker::relate_ternary`] as `typeRelatedToEachType` relates each
     /// constituent of a target intersection: `isRelatedToEx(…,
     /// IntersectionStateTarget)`, which nested comparisons inherit
@@ -945,10 +954,11 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
         assumed: &[(TypeId, TypeId, bool)],
+        source_only: &[bool],
         intersection_target: bool,
     ) -> Ternary {
         let mut relater = Relater::new(self, Relation::Assignable, None);
-        for &(assumed_source, assumed_target, state) in assumed {
+        for (index, &(assumed_source, assumed_target, state)) in assumed.iter().enumerate() {
             for (s, t) in [
                 (assumed_source, assumed_target),
                 (
@@ -962,11 +972,20 @@ impl Checker<'_, '_> {
                 }
             }
             relater.source_stack.push(assumed_source);
-            relater.target_stack.push(assumed_target);
+            // A constraint descent (`isRelatedToEx(constraint, target,
+            // RecursionFlagsSource)`) pushes its source only (r7-reports §78).
+            if !source_only.get(index).copied().unwrap_or(false) {
+                relater.target_stack.push(assumed_target);
+            }
         }
         relater.intersection_target = intersection_target;
         relater.assumption_walk = true;
-        let answer = relater.is_related_to(source, target).public_answer();
+        let flags = if source_only.get(assumed.len()).copied().unwrap_or(false) {
+            RecursionFlags::SOURCE
+        } else {
+            RecursionFlags::BOTH
+        };
+        let answer = relater.is_related_to_with_flags(source, target, flags).public_answer();
         if relater.overflow { Ternary::Unknown } else { answer }
     }
 
@@ -2108,8 +2127,11 @@ impl Relater<'_, '_, '_> {
         // upstream: it is `declared.rs`'s print-only mint for a qualified alias
         // reference (`N.Alias`), which may stand for a primitive such as
         // `undefined`. Its flags are not evidence, so it stays undecided.
-        if self.checker.strict_null_checks
-            && s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
+        // Outside strict null checks `undefined` and `null` relate to every
+        // object (`isSimpleTypeRelatedTo`'s non-strict arms), but `void` has
+        // no such arm: it fails against an object either way (r7-reports §76).
+        if (self.checker.strict_null_checks && s.intersects(TypeFlags::NULLABLE | TypeFlags::VOID)
+            || s == TypeFlags::VOID)
             && t.contains(TypeFlags::OBJECT)
             && (matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
                 || (!self.is_generic_mapped_target(target)
@@ -7335,13 +7357,12 @@ impl Relater<'_, '_, '_> {
             // which for a matched discriminated constituent can expand
             // recursive generic signatures without bound (`Either<L, (a: A)
             // => B>` in `varianceProblingAndZeroOrderIndexSignatureRelationsAlign`
-            // ran out of memory). Only the discriminated walk (the one caller
-            // with exclusions) stops early: on the other roads the skipped
-            // pairs' published results feed later relations
-            // (`arrayDestructuringInSwitch1`'s subtype reduction of `every`
-            // changed), a separate inconsistency recorded in
-            // `docs/parity/notes/r5-relater4.md` §1.
-            if !excluded.is_empty() && parts.last() == Some(&RelationResult::NotRelated) {
+            // ran out of memory). r5-relater4 §1 kept the full walk on the
+            // other roads because the skipped pairs' published results then
+            // fed `arrayDestructuringInSwitch1`. At main `6faf95a3` both
+            // corpus dumps are identical with the early return on every road,
+            // so it is native's everywhere (`r7-perf.md` §26).
+            if parts.last() == Some(&RelationResult::NotRelated) {
                 return RelationResult::NotRelated;
             }
             if excluded.contains(name) {

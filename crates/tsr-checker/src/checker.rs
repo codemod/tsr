@@ -124,6 +124,11 @@ pub struct Checker<'a, 'n> {
     /// which is every call site the `checker_types` gradient runs through: the
     /// traversal is a second entry point, never a side effect of a query.
     pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
+    /// The file image a reported diagnostic's chain children take
+    /// (`Checker::report`), per file: built once on the first chained
+    /// report in that file. Key: the source file node; owner: `report`.
+    pub(crate) chain_file_images:
+        rustc_hash::FxHashMap<NodeId, std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
     /// Native `InitializerIsUndefinedComputed` / `InitializerIsUndefined`:
@@ -234,7 +239,10 @@ pub struct Checker<'a, 'n> {
     /// list (`controlFlowArrays` f10, `want=(string | number)[] got=any[]`).
     /// A hit replays the slice into the querying state; empty off the array
     /// track.
-    pub(crate) flow_loop_cache: FxHashMap<(usize, u64, TypeId), (TypeId, Vec<TypeId>)>,
+    pub(crate) flow_loop_cache: crate::flow::FlowLoopCache,
+    /// References whose flow walk met a step that may have answered wider
+    /// than native (`flow.rs`' `FlowState::declines`, `r7-flow.md` §49).
+    pub(crate) flow_uncertain_references: rustc_hash::FxHashSet<NodeId>,
     /// `isReachableFlowNode`'s cache over SHARED flow nodes — upstream's
     /// `flowNodeReachable` (`checker.go`, keyed by `*ast.FlowNode`). §743.
     pub(crate) flow_node_reachable: FxHashMap<usize, bool>,
@@ -728,6 +736,9 @@ pub struct Checker<'a, 'n> {
     /// §2, and the sites lifted since are listed there and in
     /// `docs/parity/notes/r7-flow.md` §2.
     pub(crate) file_has_parse_errors: bool,
+    /// The written lists of the file being checked ([`crate::resolution::WrittenList`]),
+    /// fetched once per file by `check_source_file`.
+    pub(crate) file_written_lists: &'n [crate::resolution::WrittenList],
     /// Whether [`Checker::report_merge_conflicts`] has already run.
     ///
     /// The binder's cross-file merge conflicts belong to the *program*, not to
@@ -978,6 +989,10 @@ pub struct Checker<'a, 'n> {
     /// type arguments, result alias, inside a mapped template) → the
     /// evaluated type. Completed evaluations only; see `declared.rs`'
     /// `evaluate_conditional_alias`.
+    /// Conditional type nodes whose deferred mint inside a mapped template is
+    /// evaluating its branches now (`declared.rs`, `r7-perf.md` §30): a
+    /// re-entered mint of the same node keeps its root without branches.
+    pub(crate) eager_branch_conditionals: rustc_hash::FxHashSet<NodeId>,
     pub(crate) conditional_alias_instantiations:
         FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>, Option<tsr_binder::SymbolId>, bool), TypeId>,
     /// §107: while true, `instantiate_type` answers an UNMAPPED type
@@ -1515,6 +1530,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             regular_types: FxHashMap::default(),
             enum_member_owners: FxHashMap::default(),
             diagnostics: Vec::new(),
+            chain_file_images: rustc_hash::FxHashMap::default(),
             symbol_types,
             parameter_initializer_contains_undefined: FxHashMap::default(),
             this_expando_kinds: FxHashMap::default(),
@@ -1538,6 +1554,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             assignments_marked: rustc_hash::FxHashSet::default(),
             definitely_assigned: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
+            flow_uncertain_references: rustc_hash::FxHashSet::default(),
             flow_node_reachable: FxHashMap::default(),
             flow_loop_stack: Vec::new(),
             declared_types: FxHashMap::default(),
@@ -1639,6 +1656,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_override: false,
             no_implicit_returns: false,
             file_has_parse_errors: false,
+            file_written_lists: &[],
             merge_conflicts_reported: false,
             assignability_probe: Vec::new(),
             allow_unreachable_code: false,
@@ -1701,6 +1719,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             key_names_in_progress: rustc_hash::FxHashSet::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
             conditional_alias_instantiations: FxHashMap::default(),
+            eager_branch_conditionals: rustc_hash::FxHashSet::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,
@@ -2282,10 +2301,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             let entry = self.binder.symbols().get(symbol);
             entry.value_declaration.or_else(|| {
                 // An object literal's symbol carries the literal as its one
-                // declaration; this binder leaves `value_declaration` unset.
+                // declaration, and a function or class expression's
+                // (`bindAnonymousDeclaration`) likewise; this binder leaves
+                // `value_declaration` unset for them.
                 entry
                     .flags
-                    .contains(SymbolFlags::OBJECT_LITERAL)
+                    .intersects(
+                        SymbolFlags::OBJECT_LITERAL | SymbolFlags::FUNCTION | SymbolFlags::CLASS,
+                    )
                     .then(|| entry.declarations.first().copied())
                     .flatten()
             })
@@ -2676,6 +2699,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 .unwrap_or_else(|| self.type_to_string(id));
             return self.qualified_name_at(id, printed, reference);
         };
+        // r7-printer §41: with no enclosing declaration the chain is the
+        // module alone (`lookupSymbolChainWorker`), and `symbolToTypeNode`'s
+        // import-type arm names it by `getSpecifierForModuleSymbol` with no
+        // enclosing file: the module symbol's own name, a file module's path
+        // without its extension (`.d.ts` whole) or an ambient module's name.
+        if self.print_without_enclosing {
+            return self.module_root_without_enclosing(module).map(|root| format!("typeof {root}"));
+        }
         if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {
             // SS197 (measured -66 cases, reverted): qualifying with
             // `globalThis.` when the bare name resolves to a DIFFERENT symbol
@@ -2802,8 +2833,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(from) = self.source_file_of(reference)
                 && self.module_host.is_some_and(|host| host.file_path(from).is_some())
             {
+                let site = self.nodes.parent(reference);
                 return self
-                    .module_specifier_for_file(file, from, override_mode)
+                    .module_specifier_for_file(file, from, override_mode, site)
                     .map(|specifier| crate::printing::quote(&specifier));
             }
             // With no host path, the module symbol's name (the path with its
@@ -3231,6 +3263,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             return Some(printed);
         };
+        let symbol = self.type_literal_alias_symbol(symbol).unwrap_or(symbol);
         let name = self.binder.symbols().get(symbol).name;
         if name == "default"
             && let Some(renamed) = self.default_symbol_text_as_written(symbol, &printed, reference)
@@ -3409,7 +3442,15 @@ impl<'a, 'n> Checker<'a, 'n> {
                     false
                 })
             };
-            if same_spelling && lexically_contains_reference(self) {
+            // r7-printer §55: `needsQualification`'s table walk decides,
+            // not the semantic resolution: a merged interface's type
+            // parameter declared by ANOTHER declaration is in the members
+            // table at the site (`someSymbolTableInScope`) though a reference
+            // there resolves past it (`interface i07 { a: A }` beside
+            // `interface i07<A>` prints `a : globalThis.A`).
+            let type_shadowed = !printed.starts_with("typeof ")
+                && self.merged_type_parameter_shadows(symbol, name, reference);
+            if same_spelling && lexically_contains_reference(self) && !type_shadowed {
                 return Some(printed);
             }
         }
@@ -3421,7 +3462,21 @@ impl<'a, 'n> Checker<'a, 'n> {
         // Value-only shadow qualify a Type reference.
         let meaning =
             if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
+        if let Some(root) = self.export_equals_module_text_at(symbol, name, reference, meaning) {
+            let mut out = String::with_capacity(printed.len() + root.len());
+            out.push_str(&printed[..suffix_at - name.len()]);
+            out.push_str(&root);
+            out.push_str(&printed[suffix_at..]);
+            return Some(out);
+        }
         let Some(qualifier) = self.symbol_chain(symbol, reference, meaning, 0) else {
+            if let Some(spelled) = self.renamed_module_leaf_text_at(symbol, reference, meaning) {
+                let mut out = String::with_capacity(printed.len() + spelled.len());
+                out.push_str(&printed[..suffix_at - name.len()]);
+                out.push_str(&spelled);
+                out.push_str(&printed[suffix_at..]);
+                return Some(out);
+            }
             return Some(printed);
         };
         let mut out = String::with_capacity(printed.len() + qualifier.len());
@@ -3496,32 +3551,42 @@ impl<'a, 'n> Checker<'a, 'n> {
             let Some(parent) = entry.parent.map(|parent| self.binder.merged_symbol(parent)) else {
                 break;
             };
-            if self.is_module_symbol(parent) {
-                // `getSpecifierForModuleSymbol` with no enclosing file
-                // (`nodebuilderimpl.go:1265`): a file module's symbol is named
-                // `"` + `tspath.RemoveFileExtension(fileName)` + `"`
-                // (`bindSourceFileAsExternalModule`), which
-                // `IsAmbientModuleSymbolName` accepts, so the specifier is the
-                // path without its extension, `.d.ts` whole:
-                // `import("/.src/renderer")` (r7-printer §30).
-                let file =
-                    self.binder.symbols().get(parent).declarations.iter().copied().find(
-                        |&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile,
-                    )?;
-                let path = self.module_host.and_then(|host| host.file_path(file))?;
-                let name = tsr_path::extension::remove_file_extension(&path);
-                parts.push(format!("import({})", crate::printing::quote(name)));
-                break;
-            }
-            if self.is_ambient_module(parent) {
-                let module = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
-                parts.push(format!("import({})", crate::printing::quote(module)));
+            if self.is_module_symbol(parent) || self.is_ambient_module(parent) {
+                parts.push(self.module_root_without_enclosing(parent)?);
                 break;
             }
             current = parent;
         }
         parts.reverse();
         Some(parts.join("."))
+    }
+
+    /// `import("<specifier>")` for `module` as `getSpecifierForModuleSymbol`
+    /// (`nodebuilderimpl.go:1265`) spells it with no enclosing file. A file
+    /// module's symbol is named `"` + `tspath.RemoveFileExtension(fileName)` +
+    /// `"` (`bindSourceFileAsExternalModule`), which
+    /// `IsAmbientModuleSymbolName` accepts, so the specifier is the path
+    /// without its extension, `.d.ts` whole: `import("/.src/renderer")`
+    /// (r7-printer §30). An ambient module's is its name.
+    pub(crate) fn module_root_without_enclosing(&self, module: SymbolId) -> Option<String> {
+        if self.is_module_symbol(module) {
+            let file = self
+                .binder
+                .symbols()
+                .get(module)
+                .declarations
+                .iter()
+                .copied()
+                .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)?;
+            let path = self.module_host.and_then(|host| host.file_path(file))?;
+            let name = tsr_path::extension::remove_file_extension(&path);
+            return Some(format!("import({})", crate::printing::quote(name)));
+        }
+        if self.is_ambient_module(module) {
+            let name = tsr_core::strip_quotes(self.binder.symbols().get(module).name);
+            return Some(format!("import({})", crate::printing::quote(name)));
+        }
+        None
     }
 
     /// Where a dotted entity name ending in `name` sits in `printed`, if
@@ -3826,6 +3891,23 @@ impl<'a, 'n> Checker<'a, 'n> {
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
+        // r7-printer §56: a namespace its file module's `export =` names is
+        // one of the symbol's containers twice over: as itself, and as the
+        // module (`getFileSymbolIfFileSymbolExportEqualsContainer`).
+        // `sortByBestName` falls back to `compareSymbols`, which puts the
+        // module (declared at position 0) first, so the chain is
+        // `[module, symbol]` even where the namespace is in scope:
+        // `new m.c()` prints `import("./a").c` beside `export = m`.
+        if self.module_host.is_some()
+            && let Some((root, leaf)) = self.module_rooted_chain_at(symbol, reference, meaning)
+            && self.binder.symbols().get(leaf).name == name
+            && let Some(&exported) = self.binder.symbols().get(root).exports.get("export=")
+            && self.binder.merged_symbol(self.resolve_symbol(exported)) == parent
+        {
+            let specifier = self.module_specifier_for_symbol(root, reference)?;
+            self.track_unsafe_import(&specifier, symbol, root);
+            return Some(format!("import({specifier})."));
+        }
         // r7-printer §14, §18: a namespace segment declared in a file module
         // (as its parent, or as a top-level local that `getContainersOfSymbol`'s
         // fallback offers, `symbolaccessibility.go:288`) takes the resolver's
@@ -3848,6 +3930,17 @@ impl<'a, 'n> Checker<'a, 'n> {
                 }
                 None => format!("import({specifier})."),
             });
+        }
+        // r7-printer §50: the same `export =` shortcut for a namespace an
+        // AMBIENT module's `export =` names (`declare module "react" {
+        // export = React; namespace React { … } }`): the namespace is its
+        // module, so the segment is `import("react").`, not
+        // `import("react").React.`.
+        if self.best_name(parent, reference).is_none()
+            && let Some(module) = self.ambient_module_exporting(parent)
+        {
+            let name = tsr_core::strip_quotes(self.binder.symbols().get(module).name);
+            return Some(format!("import({}).", crate::printing::quote(name)));
         }
         // The RENAME applies to chain *segments* too (`§10.9`'s 67-line
         // residue): a chain rooted at `__React` prints under the innermost
@@ -4099,6 +4192,128 @@ impl<'a, 'n> Checker<'a, 'n> {
         Some(symbols.get(root).name.to_string())
     }
 
+    /// r7-printer §50: the ambient module (`declare module "m" { … }`) whose
+    /// `export =` resolves to `symbol`, a declaration of its module block:
+    /// `getSymbolChain`'s `export =` arm (`nodebuilderimpl.go:1117`) then makes
+    /// the module the whole chain for `symbol`.
+    fn ambient_module_exporting(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+        let target = self.binder.merged_symbol(symbol);
+        let declarations = self.binder.symbols().get(target).declarations.to_vec();
+        for declaration in declarations {
+            let Some(block) = self.nodes.parent(declaration) else { continue };
+            if self.nodes.kind(block) != SyntaxKind::ModuleBlock {
+                continue;
+            }
+            let Some(module) = self.nodes.parent(block).and_then(|m| self.binder.symbol_of(m))
+            else {
+                continue;
+            };
+            let module = self.binder.merged_symbol(module);
+            // `getSymbolIfSameReference(exported, symbol)`: both through
+            // `resolveSymbol`.
+            if self.is_ambient_module(module)
+                && let Some(&exported) = self.binder.symbols().get(module).exports.get("export=")
+                && self.binder.merged_symbol(self.resolve_symbol(exported)) == target
+            {
+                return Some(module);
+            }
+        }
+        None
+    }
+
+    /// r7-printer §40: the type of a type literal that is a type alias's body
+    /// (`type Foo = { a: boolean }`) carries that alias
+    /// (`getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` →
+    /// `getAliasSymbolForTypeNode`), and the node builder's alias arm
+    /// (`nodebuilderimpl.go:3362`) names it through `symbolToTypeNode`, so the
+    /// chain is the alias's: `import("./a").Foo` where `Foo` is not in scope.
+    /// The port's image keeps the literal's own `__type` symbol and bakes the
+    /// alias's name; this answers the alias the printed name stands for. No
+    /// cache or table.
+    fn type_literal_alias_symbol(&self, symbol: SymbolId) -> Option<SymbolId> {
+        let record = self.binder.symbols().get(symbol);
+        if !record.flags.contains(SymbolFlags::TYPE_LITERAL) {
+            return None;
+        }
+        let &[declaration] = record.declarations.as_slice() else { return None };
+        self.alias_symbol_for_type_node(declaration).map(|alias| self.binder.merged_symbol(alias))
+    }
+
+    /// r7-printer §51: `getSymbolChain`'s `export =` arm
+    /// (`nodebuilderimpl.go:1117`) for the symbol itself. When no in-scope
+    /// name reaches it and its best container is a module whose `export =` is
+    /// the same reference (`compareSymbols` sorts the file module, declared at
+    /// position 0, ahead of a namespace container), the module's chain is the
+    /// whole chain: `export = A.B` prints `A.B` as `typeof import("./a")`.
+    /// The bare name may be in scope yet shadowed at the site
+    /// (`needsQualification`), as for `namespace x { export var x }` with
+    /// `export = x`.
+    /// Read from the resolver's faithful walk; only a one-element chain that
+    /// is a module other than the symbol answers. No cache or table.
+    fn export_equals_module_text_at(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        if self.module_host.is_none()
+            || self.is_module_symbol(symbol)
+            || self.is_ambient_module(symbol)
+            || !self.chain_needs_qualification(symbol, name, reference, meaning)
+        {
+            return None;
+        }
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let &[module] = chain.as_slice() else { return None };
+        if module == symbol || !(self.is_module_symbol(module) || self.is_ambient_module(module)) {
+            return None;
+        }
+        let specifier = self.module_specifier_for_symbol(module, reference)?;
+        self.track_unsafe_import(&specifier, symbol, module);
+        Some(format!("import({specifier})"))
+    }
+
+    /// r7-printer §39: `getSymbolChain` for a top-level declaration that its
+    /// module exports only under another name (`class Test {}` then
+    /// `export default Test`) is `[module, default]`, the export alias
+    /// `getContainersOfSymbol`'s fallback finds (`symbolaccessibility.go:288`),
+    /// and `createAccessFromSymbolChain` writes the leaf's own name:
+    /// `typeof import("./Test.js").default`. [`Checker::symbol_chain`]
+    /// answers a prefix for the declared name and declines that chain; this
+    /// spells the whole entity name instead, for a symbol no in-scope name
+    /// reaches (`best_name`, the port's `trySymbolTable` walk). No cache or
+    /// table.
+    fn renamed_module_leaf_text_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        if self.module_host.is_none() || self.binder.symbols().get(symbol).parent.is_some() {
+            return None;
+        }
+        let name = self.binder.symbols().get(symbol).name;
+        let top_level = self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            self.nodes.parent(declaration).is_some_and(|parent| {
+                self.nodes.kind(parent) == SyntaxKind::SourceFile
+                    && self.is_external_or_common_js_module(parent)
+            })
+        });
+        if !top_level || self.best_name(symbol, reference).is_some() {
+            return None;
+        }
+        let (root, leaf) = self.module_rooted_chain_at(symbol, reference, meaning)?;
+        let leaf_name = self.binder.symbols().get(leaf).name;
+        if leaf_name == name || !crate::objects::is_identifier_text(leaf_name) {
+            return None;
+        }
+        let specifier = self.module_specifier_for_symbol(root, reference)?;
+        self.track_unsafe_import(&specifier, symbol, root);
+        Some(format!("import({specifier}).{leaf_name}"))
+    }
+
     fn module_rooted_chain_at(
         &mut self,
         symbol: SymbolId,
@@ -4193,13 +4408,63 @@ impl<'a, 'n> Checker<'a, 'n> {
     ) -> bool {
         match self.resolve_name_at_print_site(reference, name, meaning) {
             None => true,
+            // r7-printer §55: the semantic answer is not the last word:
+            // `needsQualification` walks the symbol tables in scope, which
+            // hold a merged class/interface's type parameters from every
+            // declaration, so a name that resolves to the symbol can still be
+            // shadowed there by another declaration's type parameter.
             Some(found)
                 if self.binder.merged_symbol(found) == self.binder.merged_symbol(symbol) =>
             {
-                false
+                meaning.intersects(SymbolFlags::TYPE)
+                    && self.merged_type_parameter_shadows(symbol, name, reference)
             }
             Some(_) => self.shadow_walk(symbol, name, reference, meaning) != Some(false),
         }
+    }
+
+    /// r7-printer §55: whether, walking out from `reference`, a class or
+    /// interface's merged `members` table (`someSymbolTableInScope`'s
+    /// class/interface arm, `symbolaccessibility.go:766`) holds a type
+    /// parameter named `name` other than `symbol` before any lexical table
+    /// holds the name. That is a type parameter of another declaration of a
+    /// merged class or interface, which resolution at the site does not see
+    /// (`interface i07 { a: A }` beside `interface i07<A>`). Only type
+    /// parameters are asked: the port's other tables do not merge as
+    /// native's do (a script's own `interface Promise` beside the lib's).
+    fn merged_type_parameter_shadows(
+        &self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+    ) -> bool {
+        let target = self.binder.merged_symbol(symbol);
+        let mut current = Some(reference);
+        while let Some(location) = current {
+            if self.binder.locals(location).is_some_and(|table| table.contains_key(name)) {
+                return false;
+            }
+            if matches!(
+                self.nodes.kind(location),
+                SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration
+            ) && let Some(owner) = self.binder.symbol_of(location)
+                && let Some(&found) =
+                    self.binder.symbols().get(self.binder.merged_symbol(owner)).members.get(name)
+            {
+                let found = self.binder.merged_symbol(found);
+                return found != target
+                    && self
+                        .binder
+                        .symbols()
+                        .get(found)
+                        .flags
+                        .contains(SymbolFlags::TYPE_PARAMETER);
+            }
+            current = self.nodes.parent(location);
+        }
+        false
     }
 
     /// `trySymbolTable`'s globals arm

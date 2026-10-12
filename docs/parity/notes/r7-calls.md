@@ -1109,6 +1109,24 @@ when the resolved signature's `this` type is `void`
 `new` head reports it for the candidate it can tell
 (`new_head_candidate`): thisTypeInFunctionsNegative's `new VoidThis()`.
 
+## 33. A JSX overload failure chains like a call's
+
+`reportCallResolutionErrors` (`checker.go:9649`) is shared by calls and JSX
+elements: with several `candidatesForArgumentError` the last candidate's
+report is chained under `The_last_overload_gave_the_following_error` and
+`No_overload_matches_this_call`, `The_last_overload_is_declared_here` is
+related, and `addImplementationSuccessElaboration` runs. `jsx_component.rs`
+rewrote each report's head message to TS2769 in place, which lost the chain
+level and the related line. The change (granted for jsx_component.rs) makes `chain_overload_failure`
+`pub(crate)` and calls it there.
+
+Per-case oracle against `cand21` (main `f666bbf2` plus §32): the 212 EXACT
+`.tsx` cases stay exact; tsxElementResolution9 becomes exact. Diff lines drop
+in tsxStatelessFunctionComponentOverload5 (52 → 6) and
+tsxStatelessFunctionComponentsWithTypeArguments4 (34 → 20). What remains
+there is the relation reporter's elaboration and a JSX TS2793 (the
+implementation check through JSX applicability is not ported).
+
 ## 34. A literal argument whose nested calls cannot follow its context is re-checked per candidate
 
 The non-generic overload walk (`check_overload_candidates_arguments`, §8)
@@ -1152,6 +1170,73 @@ same type. Two type roads answered `error` (a GAP) when inference declined:
 parameter mapped to `unknown` and compares identities. If they match, it is
 the answer. It is consulted only after the inference road answered `error`,
 so every answer that road gives today stands.
+
+## 36. Every reported chain child carries the file
+
+§30 gave the call chain builders' children the reported file. This
+change (granted for check.rs and checker.rs) does the same once, in `Checker::report`: any chain child without a
+file (at any depth) takes the reported file's image. The image is built
+once per file and kept in `chain_file_images`. Key: the source file node.
+Owner: `report`. It is built on the first chained report in that file, and
+nothing reads it before then. `set_chain_file` becomes `pub(crate)` for it.
+
+Per-case oracle against `cand22`: of the 664 WRONG cases whose native
+output has chain rows, 16 become exact, and no file-less chain row remains
+in any of them. The 435 EXACT cases with chain rows stay exact. What
+remains in the others is the chains' content (the relation reporter).
+
+## 37. A reference argument's candidate-context check is not published (createToken)
+
+Held since round 7's early batches (`box/r7-calls-held-createtoken`) because
+the jsTyping leg refused it while the relater rejected `T["kind"]` → `SK`.
+r7-reports' indexed-access-to-constraint relation is on main now, so it is
+re-landed here.
+
+**Repro.** `declare function createToken(token: SK.D): Tok<SK.D>;` followed
+by `declare function createToken<TKind extends SK>(token: TKind): Tok<TKind>;`,
+then `createToken(value)` with `value: TKind` inside
+`f<TKind extends SK>(value: TKind): Tok<TKind>`. TSR answered `Tok<SK>`
+(a false TS2322 at the `return`); tsgo answers `Tok<TKind>`.
+
+**Cause.** The overload walk makes every argument's first check under the
+first arity-matching candidate (`check_argument_in_candidate_context`, with
+the call memo set to that candidate) and publishes it. Under the non-generic
+`token: SK.D`, a contextual type with no generic types,
+`getNarrowableTypeForReference` substitutes the generic reference's
+constraint (`hasContextualTypeWithNoGenericTypes`), so `value` reads `SK`.
+The generic candidate's inference then reads that published `SK`
+(`TKind := SK`). Native's check is per candidate and uncached.
+
+**Change.** A reference argument (an identifier, or a property or element
+access, through parentheses) checked under a candidate's context keeps no
+published state: its subtree state is restored after the check
+(`literal_subtree_state`, the same set the literal re-check restores). After
+a literal re-check, the argument types are re-read with the reference read
+under that candidate again rather than context-free.
+
+## 38. `GetErrorRangeForNode`'s unnamed-declaration, `satisfies` and arrow-function arms (check.rs, granted)
+
+The integrator granted this lane the check.rs half of r7-flow's routed
+error-span diff (`r7-flow-error-span-unnamed.diff`, r7-flow §38). Applied
+to the shared `error_span`, so every report at such a node moves, not only
+the call reports:
+
+- a function declaration, method, class or function or class expression
+  with no name (`errorNode == nil`, `scanner.go:2644`) reports at its first
+  token (`function`, `class`, a leading modifier);
+- a `satisfies` expression reports at its `satisfies` keyword
+  (`scanner.go:2626`);
+- an arrow function whose block body's full start (the end of `=>`) and
+  end lie on different lines reports from the arrow's start to the end of
+  that first line (`getErrorRangeForArrowFunction`, `scanner.go:2542`).
+
+The diff as routed differed from native in the arrow arm, and is corrected
+here. It ended the span one past the line break and searched for the line
+break from the body's `{`. `GetECMAEndLinePosition(startLine) + 1`
+(`scanner.go:2703`) is the line break's own position, and `startLine` is
+the line of `body.Pos()`, the end of `=>`, so `() =>\n{ … }` ends at the
+`=>` line's break. The ECMAScript line terminators (U+2028, U+2029) count as line breaks too. A probe file with all three shapes now prints
+byte for byte as tsgo does.
 
 ## Proposed issues (for the integrator to file)
 

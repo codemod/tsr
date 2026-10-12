@@ -1449,3 +1449,577 @@ through the by-id allocation, still said `T_1`, while the declaration kept
 in place to the allocated names. The slots keep their by-id names, so
 declaration and uses agree, as native's `typeParameterToName` cache does.
 No cache or table.
+
+## 38. An instantiation expression's image prints its members at the site
+
+**Forcing constraint.** `optionalChainWithInstantiationExpression1` 0:8
+(×2 targets): `a?.b<c>` over `declare namespace A { export class b<T> … }`
+prints natively as
+`{ new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined`;
+the port printed `b<unknown>` and `b<any>`.
+
+**Cause.** `getInstantiatedTypePart` (`checker.go:10660`) builds
+`newAnonymousType(nil, resolved.members, callSignatures, constructSignatures,
+resolved.indexInfos)`, and the node builder serializes it member by member at
+the print site (`createTypeNodeFromObjectType` →
+`createTypeNodesFromResolvedType`). The port's
+`mint_instantiation_expression_type` bakes the braces text and marks the image
+`alias_named_signature_types` (the callable-expando road prints property
+syntax only), so no site road reached it.
+
+**The port.** `signature_object_text_at` (printing.rs), the last of
+`object_literal_text_at`'s roads, admits an `alias_named_signature_types`
+image with signatures and a complete property table. As §35, it rebuilds the
+baked member list (signatures, index rows, properties, in
+`createTypeNodesFromResolvedType`'s order) and declines unless that reproduces
+the baked text exactly. Then each signature is printed at the site as the
+multi-signature road prints one (its own `enterNewScope`:
+`rename_type_parameters_for_site`, `push_render_type_parameter_scope`,
+`signature_member_text_at`), index rows keep their print, and properties
+follow §35's slot rule (`reprint_property_slots_at`, now shared). No cache or
+table.
+
+## 39. A declaration its module exports only under another name is spelled by that name
+
+**Forcing constraint.** `jsDeclarationEmitDoesNotRenameImport` 2:6–2:16
+(6 lines): in `index.js`, which imports `Test` from `./test/Test.js`, the
+JSDoc `typeof import("./Test.js").default` names the *other* file's
+`class Test {}` / `export default Test`. Native prints
+`typeof import("./Test.js").default`; the port printed `typeof Test`.
+
+**Cause.** The class has no parent (a local exported only through
+`export default`). `getContainersOfSymbol`'s fallback
+(`symbolaccessibility.go:288`) finds the module through its `default` alias,
+so `getSymbolChain` is `[Test.js, default]`, and `createAccessFromSymbolChain`
+writes the leaf's own name. `symbol_chain` answers a *prefix* for the
+declared name, so its no-parent arm (§24) declines a leaf that renames the
+symbol, and the baked `Test` stood.
+
+**The port.** `renamed_module_leaf_text_at` (checker.rs), asked by
+`qualified_name_at` only after `symbol_chain` declines: for a top-level
+declaration of an external module that no in-scope name reaches
+(`best_name`), a resolver chain `[module, leaf]` whose leaf is named
+differently spells the whole entity name, `import(<specifier>).<leaf>`, and
+reports portability as §28. A non-identifier leaf declines (as §9). No cache
+or table. Also converted: `allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration`
+2:1/2:2, `conformance/chained` 1:2/1:3 and `conformance/renamed` 1:0/1:1.
+
+## 40. A type literal's alias names it through the alias's chain
+
+**Forcing constraint.** `checkJsdocTypeTagOnExportAssignment{1,5,6}` 2:0/2:1:
+`b.js` imports `a.js`'s default export, typed by a top-level
+`@typedef {Object} Foo`. Native prints `import("./a").Foo`; the port printed
+`Foo`. The TypeScript shape fails alike (native-read probe):
+`export type Foo = { a: boolean }` used from another file prints
+`import("./a").Foo` natively and `Foo` in the port.
+
+**Cause.** A type literal's type carries its alias
+(`getAliasSymbolForTypeNode`), and the node builder's alias arm
+(`nodebuilderimpl.go:3362`) names it by `symbolToTypeNode`, whose chain for a
+module export not in scope is `[module, Foo]`. `IsTypeSymbolAccessible` holds
+there, since any meaning of a module symbol is accessible through an import
+type (`allowModules`). The port's image keeps the literal's own `__type`
+symbol and bakes the alias's name, so `qualified_name_at` read the symbol
+`__type`, found no name to qualify, and kept `Foo`.
+
+**The port.** `qualified_name_at` asks `type_literal_alias_symbol`: for a
+`TYPE_LITERAL` symbol with one declaration, the alias
+`alias_symbol_for_type_node` answers (the declared alias host through
+parentheses and `readonly`, `@typedef` included, and `None` for a
+function-local or block-local alias, whose image prints its structure). The
+rest of the naming road is unchanged. No cache or table.
+
+## 41. A message names a module object by its file
+
+**Forcing constraint.** The exact oracle's `diag:message-text-only` class
+at `5d28dbd08`: `aliasAssignments`, `allowSyntheticDefaultImports10`,
+`externalModuleImmutableBindings`, `importAsBaseClass` and others write
+`typeof import("/.src/aliasAssignments_moduleA")` natively. Once the report
+sites print through `type_to_string_for_message` (§22), the port wrote
+`typeof /.src/aliasAssignments_moduleA` (the module symbol's baked name),
+or a specifier computed from the reporting file
+(`esmNoSynthesizedDefault`: `typeof import("mdast-util-to-string")` for
+`/node_modules/mdast-util-to-string/index`).
+
+**Cause.** With no enclosing declaration the chain is the module alone
+(`lookupSymbolChainWorker`), and `symbolToTypeNode`'s import-type arm names
+it by `getSpecifierForModuleSymbol` with no enclosing file. That is the module
+symbol's own name: a file module's path without its extension (`.d.ts`
+whole), or an ambient module's name.
+
+**The port.** The worker's module arm answers
+`typeof <module_root_without_enclosing>` under `print_without_enclosing`.
+That is §30's root spelling, factored out of `fully_qualified_symbol_text`.
+No cache or table.
+
+## 42. A JavaScript file's `require` is an existing import
+
+**Forcing constraint.** `jsEnumTagOnObjectFrozen`: `usage.js` writes
+`require("./index")`, and native prints `typeof import("./index")`; the port
+computed `typeof import(".")`.
+
+**Cause.** `computeModuleSpecifiers` first tries the importing file's
+`Imports()`. In a JavaScript file those include every `require("…")` call
+(`ForEachDynamicImportOrRequireCall`, `ast/utilities.go:2715`).
+`existing_import_specifier` read only import calls and import types.
+
+**The port.** The dynamic walk also reads a `require` call with one
+string-literal argument when the importing file is JavaScript. No cache or
+table.
+
+## 43. A message renames no type parameter
+
+**Forcing constraint.** `mismatchedGenericArguments1` and
+`assignmentCompatWithGenericCallSignaturesWithOptionalParameters`, through the
+relation report printing for messages: native writes
+`'<T>(x: T) => T'` inside `class C<T>`; the site renderer wrote
+`'<T_1>(x: T_1) => T_1'`.
+
+**Cause.** `TypeToString` passes `AllowUniqueESSymbolType |
+UseAliasDefinedOutsideCurrentScope` (`printer.go:177`) and no
+`GenerateNamesForShadowedTypeParams`, which the `.types` walker alone sets
+(`type_symbol_baseline.go:394`). Without that flag `typeParameterToName`
+(`nodebuilderimpl.go:1404`) neither caches by id nor renames.
+
+**The port.** `allocate_type_parameter_name_excluding` answers the type
+parameter's own name under `print_without_enclosing`. That also holds for
+`rename_type_parameters_for_site`'s fresh names. signatures.rs'
+`type_parameter_renames` needs the same gate, which is in the routed adoption
+diff (§45). No cache or table.
+
+## 44. A message reuses no written annotation
+
+**Forcing constraint.** The oracle's `| undefined` message diffs
+(`optionalParamTypeComparison`, `optionalParamAssignmentCompat`,
+`functionSignatureAssignmentCompat1`, `assignmentCompatBug2`,
+`strictSubtypeAndNarrowing`, …): native writes
+`'(s: string, n?: number | undefined) => void'` and
+`'{ x?: number | undefined; }'`, and the port wrote the annotation, `n?: number`.
+`overloadOnConstNoStringImplementation2` is the same rule seen from the
+quotes: native writes `(x: "hi") => number` where the source wrote `'hi'`.
+
+**Cause.** `serializeTypeForDeclaration` (`nodebuilderimpl.go:2231`) and
+`serializeReturnTypeForSignature` (`:2043`) reuse a written node only when
+`ctx.enclosingDeclaration != nil`. A message has none, so it serializes the
+symbol's type. An optional parameter's type carries `undefined` under
+`strictNullChecks`. So does an optional property's `getNonMissingTypeOfSymbol`
+(`addPropertyToElementList`, `:2492`), which removes only `exactOptionalPropertyTypes`'
+missing type.
+
+**The port.** Under `print_without_enclosing`:
+- `written_annotation_text_at`, `reused_return_text` and
+  `reused_property_type_text` (node_reuse.rs) decline;
+- `type_literal_text_at` prints a property's optional type at the site
+  (with `undefined` when it is optional, `strictNullChecks` is on and
+  `exactOptionalPropertyTypes` is off).
+
+signatures.rs needs two gates, also in the adoption diff (§45):
+- `signature_parameter_source_text_at` declines;
+- `serialized_parameter_type` adds the optionality without the
+  written-equivalence exemption.
+
+`type_name_for_message` (checker.rs) also takes a function or class
+expression's first declaration as its value declaration, which this binder
+leaves unset (`bindAnonymousDeclaration` sets it natively). The source side of
+`getTypeNamesForErrorDisplay` is then printed at that expression, with reuse,
+as native prints it (`'(s: string, b?: boolean) => void'`). No cache or table.
+
+## 45. Routed: the report sites adopt the message print (`r7-printer-message-adoption.diff`)
+
+§22's `type_to_string_for_message` has one adopter on main (calls.rs). The
+report sites that native prints with `TypeToString` (nil enclosing) still
+print through the site-free `type_to_string`. The diff
+[`r7-printer-message-adoption.diff`](r7-printer-message-adoption.diff)
+touches files this lane does not own, so it is routed:
+- `report_relation_head` (assignreport.rs) takes both names from
+  `type_names_for_error_display` (`getTypeNamesForErrorDisplay`,
+  `relater.go:4752`). A generalized literal source is named by
+  `type_name_for_error_display` (`generalizedSourceType`, `:4759`).
+- `check_nonexistent_name` and the union arm (nonexistent_property.rs, TS2339)
+  print the containing type for a message.
+- TS2403 (check.rs) prints both types for a message
+  (`errorNextVariableOrPropertyDeclarationMustHaveSameType`, which uses
+  `TypeToString`).
+- signatures.rs carries the message gates of §43 and §44:
+  - `type_parameter_renames` renames nothing;
+  - `signature_parameter_source_text_at` declines;
+  - `serialized_parameter_type` adds an optional parameter's `undefined`
+    without the written-equivalence exemption.
+
+**Measured** on the exact oracle, against `5d28dbd08`'s report (`--workers 3`
+for the candidate), with §41–44 and the diff applied: exact
+**10613 → 10666, +53 / −0**. Legacy dumps unchanged (types 0/0,
+diagnostics 0/0; the legacy diagnostic suite compares codes and positions,
+not text). The first measurement, without §43, §44 and the signatures.rs
+gates, was +41 / −2: `mismatchedGenericArguments1` and
+`assignmentCompatWithGenericCallSignaturesWithOptionalParameters` printed
+`<T_1>(x: T_1) => T_1` in messages, which §43 explains.
+
+**Not in the diff: report sites that print a type for a message and still use
+`type_to_string`.** Read from the measured report:
+- TS2741 `missing_properties_diagnostic` (assignreport.rs:2074; it also owes
+  the alike-names retry: `errorWithSameNameType` wants
+  `import("/.src/b").F` / `import("/.src/a").F`; `qualify`, `chained2`,
+  `differentTypesWithSameName`, `typeofExternalModules`,
+  `typeofAmbientExternalModules`, `typesOnlyExternalModuleStillHasInstance`);
+- TS2345 at calls.rs:2175 and call_reports.rs:391 (`functionCall7`,
+  `declarationEmitWithInvalidPackageJsonTypings`,
+  `visibilityOfCrossModuleTypeUsage`);
+- TS2353 (assignreport.rs excess-property sites, satisfies.rs;
+  `namespaceImportTypeQuery{,4}`, `checkJsdocTypeTagOnExportAssignment2`,
+  `nonObjectUnionNestedExcessPropertyCheck`, `strictSubtypeAndNarrowing`);
+- TS2559 (assignreport.rs:4673, `weakType`);
+- TS2367 (comparison_overlap.rs);
+- TS2507 (check.rs:1747, `importAsBaseClass`).
+
+Outside the printer: TS1192 names a module by its symbol name, which this
+binder strips of `.ts` only (`"/.src/other.d"`; native's
+`RemoveFileExtension` strips `.d.ts` whole); TS2300 and TS7006/TS7019/TS7010
+name a declaration by its source text (`declarationNameToString`: `'["a"]'`,
+`'0b11'`, `'0.0'`, `'"artist"'`, `'(Missing)'`), where the port writes the
+symbol name.
+
+## 46. A reused node's own type parameters are renamed where their names are taken
+
+**Forcing constraint.** `constraintSatisfactionWithAny` (2 lines): native prints
+`foo4 : <T extends <T_1>(x: T_1) => void>(x: T) => T`; the port printed the
+written constraint `<T>(x: T) => void`. A native-read probe shows the same
+for a parameter annotation:
+`function h<T>(cb: <T>(x: T) => T): T` prints
+`h : <T>(cb: <T_1>(x: T_1) => T_1) => T`.
+
+**Cause.** The node builder reuses the written node, and the reuse visitor
+names each type-parameter declaration in it through `typeParameterToName`
+(`nodebuilderimpl.go:1404`). That renames a name the render already holds
+(the outer `T`, named first by `enterNewScope`) or one that resolves at the
+site to another type parameter. The port's visitor does not allocate for
+declarations. `renamed_declarations_collide` refused only a node reached
+through a renamed clone (`WrittenAnnotation::renamed`), so the written text
+was reused verbatim.
+
+**The port.** `annotation_text_at_site` (node_reuse.rs) refuses any node
+that declares type parameters whose names collide. The type is then
+serialized, and that renames them (`rename_type_parameters_for_site`'s render
+shadow). `type_parameter_constraint_text` applies the same test to a
+constraint carried as text (`written_constraint`), reading the constraint
+node from the type parameter's declaration
+(`written_constraint_declares_taken_name`). Under `print_without_enclosing`
+nothing is renamed (§43). No cache or table.
+
+**A test expectation corrected to native.** `generic_indexed_key_relations.rs`
+expected `circular : <T extends { [K in keyof T]: string; }, K extends keyof T>(…)`.
+Pinned native, run on that test's own `SOURCE`, prints
+`{ [K_1 in keyof T]: string; }`: the reused mapped type's `K` enters
+`enterNewScope` (`nodecopy.go:845`) after the signature's own `K` holds the
+name. The expectation now reads native's line; the rest of the test is
+unchanged.
+
+## 47. Routed: every JSDoc `@param` annotation is reused (`r7-printer-jsdoc-param-reuse.diff`)
+
+**Forcing constraint.** `callbackCrossModule` prints natively as
+`f : (k: import('./mod1').Con) => any`, keeping the JSDoc import type's
+quotes; the port printed the chain spelling `import("./mod1")`.
+`checkJsdocParamOnVariableDeclaredFunctionExpression` prints natively as
+`(n?: number | undefined, s?: string) => void` for `@param {number=} n`; the
+port printed `n?: number`. `jsDeclarationsUniqueSymbolUsage`,
+`jsDeclarationsMissingTypeParameters` (`y?: any[] | undefined` for
+`{Array=}`) and others differ the same way.
+
+**Cause.** `serializeTypeForDeclaration` reuses the reparsed annotation of a
+JSDoc parameter as it reuses a written one. The node copier rewrites the
+JSDoc-only kinds: `T=` becomes `T | undefined`, `?T` becomes `T | null`, and
+`*` becomes `any` (`nodecopy.go:480-506`). signatures.rs carried a JSDoc
+parameter's annotation as `written_text` only for a bracketed name and only
+for non-JSDoc node kinds. The note there called the rewrites unported, but
+the reuse visitor ports them (`emit_reused_type`'s JSDoc arms, §31).
+
+**The diff** (signatures.rs, not this lane's) carries every `@param`
+annotation's inner type as `written_text`. Measured against `70bcf4e9d`'s
+freeze and exact report (`--workers 2` for the candidate): types **+13 / −0**,
+diagnostics 0/0; exact **10619 → 10626, +7 / −0**
+(`jsdocTypeGenericInstantiationAttempt`, `callbackCrossModule`,
+`checkJsdocParamOnVariableDeclaredFunctionExpression`,
+`jsDeclarationsUniqueSymbolUsage`, `jsdocParseBackquotedParamName`,
+`jsdocPrefixPostfixParsing`, `returnTagTypeGuard`).
+
+**Looked at and left: a member named by a unique symbol.** Native names
+`{ [Op.equal]: "first" }`'s member by the unique symbol's declaring symbol,
+resolved at the property's declaration (`addPropertyToElementList` sets
+`enclosingDeclaration = propertySymbol.ValueDeclaration` before
+`getPropertyNameNodeForSymbol`): `[OpTypes.equal]`, and `[s0]` through
+`const s2: typeof s0` (`uniqueSymbolsPropertyNames`, `dynamicNames`). The
+port keeps the written `[Op.equal]`. The certified member plan
+(`object_member_plan_matches_source`) refuses a computed key that is not a
+literal, so such an image keeps its baked print. Renaming the member there
+first needs the plan to admit late-bound keys. That was not done for three
+lines.
+
+## 48. A reused postfix type keeps a type query operand unparenthesized
+
+**Forcing constraint.** `declarationEmitResolveTypesIfNotReusable` (2 lines):
+`(o:  typeof a['a']) => {}` prints natively as `(o: typeof a['a']) => void`;
+the port printed `(typeof a)['a']`. The written `(typeof a)['a']` of the
+neighbouring `o2` keeps its parentheses on both sides.
+
+**Cause.** `emitPostfixTypeOperand` (`printer.go:1991`) emits the operand of
+an array, indexed-access or optional type at postfix precedence. The one
+exception is a type query under a parse-tree parent, which it emits at
+type-operator precedence, so the written spelling reprints as written. The
+reuse visitor's emitter (`emit_reused_type`) parenthesized every operand that
+binds below postfix.
+
+**The port.** `postfix_operand` (node_reuse.rs) answers type-operator
+precedence for a `TypeQueryNode` operand of those three emitters. A reused node
+is the parse tree's. A written `ParenthesizedType` still prints its own
+parentheses. No cache or table.
+
+**Found, not built: a written conditional predicate is serialized.**
+`controlFlowInstanceofWithSymbolHasInstance` and a native-read probe: native
+reuses `value is (T extends (abstract new (...args: any) => infer U) ? U : never)`,
+parentheses included. `pseudo_return_matches_predicate` compares the
+node's type with the predicate's. A conditional type node mints a fresh
+deferred type on every `get_type_from_type_node` (ids 56, 57 and 59 for one
+node in the probe), whereas native caches it on the node's links. The
+port's identity relation answers `Unknown` for two such conditionals, so
+the predicate is serialized without its parentheses. The cause is in the
+conditional type node's construction (declared.rs); routed.
+
+## 50. A namespace an ambient module's `export =` names is that module
+
+**Forcing constraint.** `jsxFragmentFactoryNoUnusedLocals`: with
+`react16.d.ts` (`declare module "react" { export = React; namespace React {
+… } }`), native prints `Fragment : import("react").ComponentType<{}>` and
+every `createElement` overload slot `import("react").InputHTMLAttributes<…>`.
+The port printed `import("react").React.ComponentType<{}>`.
+
+**Cause.** `getSymbolChain` (`nodebuilderimpl.go:1087`) climbs from
+`ComponentType` to its container `React`, and from `React` to the module
+`"react"`. Since the module's `export =` is the same reference as `React`
+(`getSymbolIfSameReference`), the parent chain replaces `React` itself
+(`:1117`), and the chain is `["react", ComponentType]`. §18 ported that
+shortcut for a namespace declared in a file module. Here the binder gives
+`React` the ambient module as its parent, so `symbol_chain`'s ambient arm
+wrote `import("react").` and the namespace step appended `React.`.
+
+**The port.** At the namespace-parent step, a container no in-scope name
+reaches (`best_name`) that an ambient module's `export =` resolves to
+(`ambient_module_exporting`, comparing through `resolve_symbol` as
+`getSymbolIfSameReference` does) is written as the module itself,
+`import("<name>").`. No cache or table.
+
+**A test expectation corrected to native.** `jsx_context_inference.rs`'s
+`canonical_type_names_preserve_default_scope_shadows_and_clone_identity`
+expected `markedSlot` as `import("marked").Marked.Pair<string, number>`.
+Pinned native, run on that test's own `TYPE_NAMING_SOURCE`, prints
+`markedSlot : import("marked").Pair<string, number>` (`Marked` is the
+module's `export =`). The expectation now reads native's line.
+
+## 51. A symbol its module's `export =` names is spelled as the module
+
+**Forcing constraint.** `exportEqualsProperty`: `a.ts` writes `export = A.B;`,
+and native prints the expression `A.B : typeof import("./a")`; the port
+printed `typeof A.B`. The same holds for `duplicateExportAssignments`' `foo3.ts`
+(`namespace x { export var x = 10 }` … `export = x;` prints
+`x : typeof import("./foo3")`) and `declFileImportChainInExportAssignment`.
+
+**Cause.** `getSymbolChain` (`nodebuilderimpl.go:1087`) needs a qualifier
+here: nothing in scope names `B`, and the inner `var x` shadows the namespace
+`x` (`needsQualification`). Its containers include the file module, through
+`getAlternativeContainingModules` or as the parent of a top-level declaration.
+`sortByBestName` falls back to `compareSymbols`, which puts the file module
+(declared at position 0) first. Since that module's `export =` is the same
+reference, the module's own chain replaces the symbol (`:1117`), so the chain
+is `[module]`.
+
+**The port.** `qualified_name_at` asks `export_equals_module_text_at` before
+`symbol_chain`. When `chain_needs_qualification` holds and the resolver's
+faithful walk (`symbol_chain_at`) answers exactly one module other than the
+symbol, the name is `import(<specifier>)`, and portability is reported as in
+§28. No cache or table.
+
+Left: `declarationEmitImportInExportAssignmentModule` wants
+`typeof import("./…").c`, a two-element chain whose root is the module
+standing for `m`. That would need the module-rooted spelling for longer
+chains, which here only §1's file-module arm writes, and that arm requires
+the leaf to keep its own name.
+
+## 52. A type parameter's written constraint is reused at the print site
+
+**Forcing constraint.** `jsxFragmentFactoryNoUnusedLocals`' `createElement`
+overloads: native prints
+`<P, T extends import("react").Component<P, import("react").ComponentState>, C extends import("react").ComponentClass<P>>`.
+The port printed the constraint as carried at the declaration,
+`T extends Component<P, any>`.
+
+**Cause.** `typeParameterToDeclaration` serializes the constraint through
+`typeToTypeNodeHelperWithPossibleReusableTypeNode`. That reuses the written
+constraint node at the print site, and `trackExistingEntityName` re-spells
+every entity name there. `type_parameter_constraint_text` (node_reuse.rs)
+answered the carried `written_constraint` text, a declaration-site spelling,
+before asking the site.
+
+**The port.** With a print site, `reused_constraint_text` (the visitor at the
+site, the path a parameter without a carried text already took) is asked
+first, and the carried text is the fallback when the visitor declines. No
+cache or table.
+
+## 53. A spread member's declaration is reused before its type is printed
+
+**Forcing constraint.** `spreadIdenticalTypesRemoved` (2 lines):
+`{ ...(pet.owner && pet), paid: false }` over `interface Animal2 { name:
+string; owner?: string }` prints natively as
+`{ name?: string | undefined; owner?: string; paid: boolean; }`. The port
+printed `owner?: string | undefined`.
+
+**Cause.** `addPropertyToElementList` serializes each member through
+`serializeTypeForDeclaration(nil, type, propertySymbol, true)`
+(`nodebuilderimpl.go:2605`). That first reuses the property's declaration
+when its pseudo type is equivalent: `owner?: string` is optional-annotated,
+so `string | undefined` matches `string`, and `name: string` is not. §35's
+spread road re-printed the type at the site without asking the declaration,
+which the certified renderer does (`reused_property_type_text`).
+
+**The port.** `reprint_property_slots_at` (§35, §36, §38) asks
+`reused_property_type_text` for the member's origin first. No cache or table.
+
+## 54. Re-triage at `946e806c6` (exact report on main `2d1b3a4cf` + this lane)
+
+**Naming-only type cases.** 33 type cases differ from native only by
+qualification, `import()` roots, `_N` renames, quotes or an optional slot's
+`| undefined`, with diagnostics equal. Their owners:
+- Routed diffs: `callbackCrossModule`, `checkJsdocParamOnVariableDeclaredFunctionExpression`,
+  `jsDeclarationsMissingTypeParameters` and `jsDeclarationsUniqueSymbolUsage`
+  (§47).
+- Parameter serialization (signatures.rs' `serialized_parameter_type`, the
+  `| undefined` of an optional parameter):
+  - `arrayFlatNoCrashInference{,Declarations}`;
+  - `jsDocDeclarationEmitDoesNotUseNodeModulesPathWithoutError`;
+  - `optionalBindingParameters4`;
+  - `parserParameterList2`, where `a? = 0` takes its initializer's pseudo type.
+- A mapped member that reuses its source declaration (mapped.rs):
+  `declarationEmitExactOptionalPropertyTypesNodeNotReused`, and
+  `mappedTypeErrors`' `a?: number`.
+- An instantiated type literal's optional member, serialized with its
+  `undefined` (`genericCallInferenceInConditionalTypes1`). The port's
+  property type carries no `undefined`, so a non-reused optional member
+  prints without it.
+- Local classes with outer type parameters, `f.C<string>` (`localTypes3`,
+  `baseExpressionTypeParameters`). The port does not instantiate a local
+  class's outer type parameters: `v.x` is `X`, where native says `number`.
+- A generic type alias's declared type, the `Name<Params>` mint, carries no
+  alias symbol, so `type T<T> = {}` cannot be qualified as `globalThis.T<T>`
+  (`unusedTypeParameters*`).
+- JSDoc `@template` scopes that the binder's `resolve_name` does not see
+  (`jsFileMethodOverloads2`, `jsFileFunctionOverloads2`).
+- `exportNestedNamespaces`, `moduleExportNestedNamespaces`: a class
+  expression assigned to `exports.Classic` is contained by its file
+  (`getContainersOfSymbol`'s class-expression arm, `symbolaccessibility.go:306`,
+  not ported).
+- Single cases left as recorded above: `importTypeResolutionJSDocEOF`,
+  `genericClassesRedeclaration`, `typeAliasesDoNotMerge`,
+  `mergedClassWithNamespacePrototype`,
+  `declarationEmitImportInExportAssignmentModule` (§51) and
+  `reactImportDropped` (§26).
+
+**Message cases.** 59 `diag:chain` / `diag:message-text-only` cases differ only
+by the same naming classes in message text. Most are chain-level prints in
+assignreport.rs: `Type '…' is not assignable to type '…'` at depth, TS2741,
+TS2353, TS2559. Natively each prints with `TypeToString` or
+`getTypeNamesForErrorDisplay` (nil enclosing). §45's diff adopts the head
+sites; the chain sites are the reports lane's continuation of it.
+
+## 55. `needsQualification` is the table walk, also where the name resolves to the symbol
+
+**Forcing constraint.** `genericDefaults` 0:1050: `interface i07 { a: A; }`
+beside `interface i07<A = number> { b: A; }` prints natively as
+`a : globalThis.A`. The port printed `A`.
+
+**Cause.** Resolving `A` in the first declaration finds the global interface,
+since the type parameter belongs to the other declaration. That is the type
+both sides compute. The node builder's `needsQualification`
+(`symbolaccessibility.go:688`) does not resolve, though. It walks
+`someSymbolTableInScope`, whose class/interface arm is the merged symbol's
+`members` (`:766`), and that holds the type parameter `A` from the second
+declaration. So `A` is shadowed at the site, and `trySymbolTable`'s globals
+arm names it `globalThis.A`. The port's `chain_needs_qualification` asked
+`resolve_name_at_print_site` first and stopped at "resolves to the symbol",
+and `qualified_name_at`'s §509 same-spelling arm returned the bare name on
+the same answer.
+
+**The port.** When the site resolves the name to the symbol itself,
+`chain_needs_qualification` still asks `shadow_walk` (the transcribed table
+walk) and qualifies when a table holds another symbol first. The same-spelling
+arm keeps the bare name only when `is_shadowed_at` agrees. No cache or table.
+
+## 56. A member of a namespace its module's `export =` names is spelled through the module
+
+**Forcing constraint.** `declarationEmitImportInExportAssignmentModule`:
+`namespace m { export namespace c { export class c {} } … } export = m;` prints
+the namespace `c` natively as `typeof import("./declarationEmitImportInExportAssignmentModule").c`;
+the port printed `typeof m.c`. A native-read probe shows the rule is general:
+beside `export = m`, `new m.c()` prints `import("./a").c` and
+`typeof import("./a").c` even though `m` is in scope.
+
+**Cause.** When the member needs a qualifier, `getContainersOfSymbol` gives
+`[m, file]`: `getWithAlternativeContainers` adds the file module whose
+`export =` is `m` (`getFileSymbolIfFileSymbolExportEqualsContainer`).
+`getSymbolChain` sorts them with `sortByBestName`. Only the module has a
+specifier, so it falls back to `compareSymbols`, which puts the module
+(declared at position 0) first. The chain is therefore `[file, c]`, with the
+leaf found by `getAliasForSymbolInContainer` through the module's resolved
+exports. The port's namespace-parent step qualified by the in-scope `m`.
+
+**The port.** At the namespace-parent step, when the resolver's chain for the
+symbol is `[module, leaf]` (`module_rooted_chain_at`), the leaf keeps the
+symbol's name, and the module's `export =` resolves to the parent namespace,
+the segment is `import(<specifier>).`. Portability is reported as in §28. No
+cache or table. This completes §51's left item.
+
+## 57. An import declaration's own specifier picks the ending mode
+
+**Forcing constraint.** `reactImportDropped` 2:0 (§26's leftover): in
+`NavigationView.js`, `import TabBar from '../../components/TabBar'` prints
+natively as `TabBar : import("../../../react.js").ClassicComponentClass`,
+while the JSX element `<TabBar …/>` in the same file prints
+`import("../../../react")`. The port printed the second spelling at both
+sites.
+
+**Cause.** `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`) takes the
+resolution mode that picks the ending preference from the enclosing
+declaration's own module specifier when it has one: `canHaveModuleSpecifier`
+over an import clause, specifier, namespace import, import/export
+declaration, `import = require` or a `require`-initialized variable, read
+through `TryGetModuleSpecifierFromDeclaration` and then
+`GetModeForUsageLocation`. Only otherwise does it use the file's default
+mode. Here the import's usage mode is ESM, so the ending is `.js`. The port
+used the default mode everywhere.
+
+**The port.** `module_specifier_for_file` takes the print site. Its
+`original_module_specifier` reads the enclosing declaration's specifier as
+`tryGetModuleSpecifierFromDeclarationWorker` does, and the usage mode of that
+literal picks the ending. The override mode still wins, and `OverrideImportMode`
+passed to the specifier search is unchanged. No cache or table.
+
+Not ported: native caches the answer per `(symbol, context file, mode)`
+(`links.specifierCache`). The first print in a file therefore decides for
+later prints with the same mode. The port recomputes each time, which
+differs only if two sites with one mode would compute different specifiers.
+
+## 58. Found, routed: a JSDoc `@template` leaks into the whole JavaScript file
+
+**Forcing constraint.** `jsDeclarationsExportDefinePropertyEmit` (26 lines):
+a top-level `Object.defineProperty` prints natively as
+`<T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T`.
+The port printed `<T_1>(o: T_1, …) => T_1`. A three-line probe reproduces it:
+`/** @template T … */ function e(a) {}` followed by a top-level
+`Object.defineProperty;` gives `<T_1>`.
+
+**Cause, outside the printer.** `bind_jsdoc_declarations` (tsr-binder) declares
+a function's `@template` type parameters in the file's locals (`root`)
+whenever the comment declares no `@typedef` or `@callback`. Natively the
+reparsed type parameters belong to the documented function. So
+`typeParameterShadowsOtherTypeParameterInScope`'s `resolveName` at the print
+site, which the port answers through `binder.resolve_name`, finds a `T` that
+native's scope does not hold, and the rename allocator takes `T_1`. The
+printer reads the binder's scope as given; the template's locals owner is the
+binder's decision. Routed.

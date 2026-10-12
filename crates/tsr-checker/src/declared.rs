@@ -872,7 +872,23 @@ impl<'a> Checker<'a, '_> {
                             && self.mapped_template_depth > 0
                             && let (Some(true_type), Some(false_type)) =
                                 (conditional.true_type, conditional.false_type)
+                            // Native keeps a deferred conditional's branches
+                            // lazy (`getTrueTypeFromConditionalType`); this mint
+                            // evaluates them now. Re-entering the same
+                            // declaration from inside its own branch evaluation
+                            // (`Expand__<O[…]>` in `recursiveConditionalCrash3`,
+                            // whose deferred check never decides) would regress
+                            // without bound, so a re-entered mint keeps its
+                            // root without branches, the state the comment
+                            // below already allows (`r7-perf.md` §30).
+                            && conditional
+                                .node_id
+                                .is_none_or(|declaration| !self.eager_branch_conditionals.contains(&declaration))
                         {
+                            let guard = conditional.node_id;
+                            if let Some(declaration) = guard {
+                                self.eager_branch_conditionals.insert(declaration);
+                            }
                             let true_type = self.get_type_from_type_node(true_type);
                             let false_type = self.get_type_from_type_node(false_type);
                             if true_type != self.intrinsics.error
@@ -901,6 +917,9 @@ impl<'a> Checker<'a, '_> {
                                         operands: [check, extends, true_type, false_type],
                                     },
                                 );
+                            }
+                            if let Some(declaration) = guard {
+                                self.eager_branch_conditionals.remove(&declaration);
                             }
                         } else if let TypeNode::ConditionalTypeNode(conditional) = node
                             && let Some(declaration) = conditional.node_id
@@ -3659,7 +3678,19 @@ impl<'a> Checker<'a, '_> {
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
                 self.get_named_union_type(&types, TypeFlags::empty(), alias)
             }
-            Some(_) => error,
+            // getUnionTypeEx (checker.go:25672) answers `any`/`unknown` for a
+            // set including one, and the one survivor of a reduced set, before
+            // the alias is considered: those are the type itself (r7-declared
+            // §52). A union with the generic alias keeps the gap.
+            Some(_) => {
+                let reduced = self.get_union_type(&types);
+                if reduced != error
+                    && !matches!(self.store.get(reduced).data, crate::types::TypeData::Union { .. })
+                {
+                    return reduced;
+                }
+                error
+            }
         }
     }
 
@@ -8164,10 +8195,10 @@ impl<'a> Checker<'a, '_> {
         self.instantiation_expressions.union_alias_in_progress.insert(symbol);
         let evaluated = self.evaluate_alias_body(symbol, arguments);
         self.instantiation_expressions.union_alias_in_progress.remove(&symbol);
-        evaluated.filter(|&evaluated| {
-            !self.is_gap(evaluated)
-                && matches!(self.store.get(evaluated).data, crate::types::TypeData::Union { .. })
-        })
+        // A set that reduces to one survivor, or includes `any`/`unknown`,
+        // is that type with no alias (getUnionTypeEx, checker.go:25672;
+        // r7-declared §52).
+        evaluated.filter(|&evaluated| !self.is_gap(evaluated))
     }
 
     /// A closed concrete slice of native getTypeAliasInstantiation (5b1047d).
@@ -9683,6 +9714,7 @@ impl<'a> Checker<'a, '_> {
                     }),
                 Some(TypeNode::IndexedAccessTypeNode(_)) => Some(DeclaredBody::OwnIndexed),
                 Some(TypeNode::ConditionalTypeNode(_)) => Some(DeclaredBody::Conditional),
+                Some(TypeNode::UnionTypeNode(_)) => Some(DeclaredBody::Union),
                 _ => None,
             };
             if let Some(body) = self.type_alias_body(symbol) {
@@ -9761,6 +9793,21 @@ impl<'a> Checker<'a, '_> {
                                     .type_reference_targets
                                     .get(&resolved)
                                     .is_none_or(|(owner, _)| *owner != target)
+                        }
+                        // getUnionTypeEx (checker.go:25672) answers `any` or
+                        // `unknown` for a set that includes one, and the only
+                        // survivor of a one-entry set, before an alias is
+                        // considered: `type T23<T> = T | unknown` declares
+                        // `unknown` and `type U<T> = T | never` declares `T`
+                        // (r7-declared §52). A union answer carries the alias
+                        // and keeps the mint.
+                        Some(DeclaredBody::Union) => {
+                            !self.is_error(resolved)
+                                && !self.is_gap(resolved)
+                                && !matches!(
+                                    self.store.get(resolved).data,
+                                    crate::types::TypeData::Union { .. }
+                                )
                         }
                         None => false,
                     };
@@ -12360,7 +12407,12 @@ impl<'a> Checker<'a, '_> {
             let union = self.get_union_type(&keys);
             return Some(self.union_with_keyof_origin(union, target));
         }
-        if self.store.get(target).flags.contains(TypeFlags::UNKNOWN) {
+        // getIndexTypeEx's default arm reads getLiteralTypeFromProperties of
+        // the apparent type, and `object`'s apparent type is the empty object
+        // type (getApparentType, checker.go): no keys (r7-declared §53).
+        if self.store.get(target).flags.contains(TypeFlags::UNKNOWN)
+            || target == self.intrinsics.non_primitive
+        {
             return Some(self.intrinsics.never);
         }
         if self.store.get(target).flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
@@ -14000,4 +14052,5 @@ enum DeclaredBody {
     OwnIndexed,
     Conditional,
     ConditionalReference(SymbolId),
+    Union,
 }

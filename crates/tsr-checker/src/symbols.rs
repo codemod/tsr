@@ -966,6 +966,34 @@ impl<'a> Checker<'a, '_> {
         name: &str,
         meaning: SymbolFlags,
     ) -> Option<SymbolId> {
+        // `getResolvedSymbol` resolves an identifier once (`links.resolvedSymbol`);
+        // this port's per-identifier rules ask once per rule, so an identifier
+        // resolved under its own text is memoised (`r7-perf.md` §27).
+        let own_text = matches!(
+            self.node_map.get(start),
+            Some(Node::Identifier(identifier)) if identifier.text == name
+        );
+        if !own_text {
+            return self.resolve_name_with_export_alias_walk(start, name, meaning);
+        }
+        let key = (start, meaning.bits());
+        if let Some(&answer) = self.perf_links.resolved_export_alias_names.get(&key) {
+            return answer;
+        }
+        let publish = self.alias_resolving == 0;
+        let answer = self.resolve_name_with_export_alias_walk(start, name, meaning);
+        if publish && self.alias_resolving == 0 {
+            self.perf_links.resolved_export_alias_names.insert(key, answer);
+        }
+        answer
+    }
+
+    fn resolve_name_with_export_alias_walk(
+        &mut self,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
         let binder = self.binder;
         let nodes = self.nodes;
         let node_map = self.node_map;
@@ -2510,7 +2538,17 @@ impl<'a> Checker<'a, '_> {
             },
             _ => return None,
         }?;
+        let empty_identifier = matches!(name, tsr_ast::ModuleExportName::Identifier(_))
+            && crate::module_exports::module_export_name_text(name).is_empty();
         let name = crate::module_exports::module_export_name_text(name);
+        // `if isShorthandAmbientModuleSymbol(moduleSymbol) { return
+        // moduleSymbol }` (`checker.go:14693`): every member of `declare
+        // module "jquery";` is the module itself, typed `any`, and so is a
+        // re-export of one (`export {x} from "jquery"`,
+        // `ambientShorthand_reExport`, r7-shared.md §41).
+        if !empty_identifier && self.is_shorthand_ambient_module(module_symbol) {
+            return Some(module_symbol);
+        }
         // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
         // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
         // for both callers here: its synthetic-default and
@@ -2663,12 +2701,56 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::ModuleExportName::Identifier(name) => (name.text, name.node_id?),
             tsr_ast::ModuleExportName::StringLiteral(name) => (name.text, name.node_id?),
         };
+        // `declarationName := declarationNameToString(name)`: the name as
+        // written, so a string-literal name prints with its quotes
+        // (`'"missing"'`, `arbitraryModuleNamespaceIdentifiers_importEmpty`,
+        // r7-shared.md §42).
+        let display = match name {
+            tsr_ast::ModuleExportName::Identifier(_) => text.to_string(),
+            tsr_ast::ModuleExportName::StringLiteral(_) => self
+                .source_file_of(name_id)
+                .and_then(|file| self.module_host?.source_text(file, self.nodes))
+                .and_then(|source| {
+                    let span = self.nodes.span(name_id);
+                    source.get(span.start as usize..span.end as usize).map(str::to_string)
+                })
+                .unwrap_or_else(|| format!("\"{text}\"")),
+        };
+        // A missing name (parser recovery, `import { "a" } from …` with no
+        // `as`) names nothing to report on; the empty STRING name
+        // (`import { "" as foo }`) is a valid export name
+        // (`nameText != "" || name.Kind == KindStringLiteral`).
+        if text.is_empty() && matches!(name, tsr_ast::ModuleExportName::Identifier(_)) {
+            return None;
+        }
         if !has_export_equals {
             if self.get_export_of_module(module_symbol, text).is_some() {
                 return None;
             }
         } else if self.export_equals_module_member_exists(module_symbol, target, text) {
             return None;
+        } else if self.binder.symbols().get(target).flags.intersects(SymbolFlags::VARIABLE) {
+            // A variable target's miss is proof of absence only where the
+            // members road has established it (the TS2339 test without the
+            // augment gate, `augment_free_miss_is_established`): a mapped
+            // alias this port does not resolve
+            // (`createHttpError.NamedConstructors`, `importPropertyFromMappedType`)
+            // is not.
+            // A name the module file declares locally takes
+            // `reportNonExportedMember`'s local outcomes (TS2616 when it is
+            // the `export =` target, `es6ImportNamedImportNoNamedExports`),
+            // which the local decides, not the member walk.
+            let declared_locally = self
+                .binder
+                .symbols()
+                .get(module_symbol)
+                .value_declaration
+                .and_then(|file| self.binder.locals(file))
+                .is_some_and(|locals| locals.contains_key(text));
+            let target_type = self.get_type_of_symbol(target);
+            if !declared_locally && !self.augment_free_miss_is_established(target_type) {
+                return None;
+            }
         }
         // `getExternalModuleMember` (`checker.go`): a missing `default` is
         // answered by the module itself when `canHaveSyntheticDefault` holds,
@@ -2717,7 +2799,7 @@ impl<'a> Checker<'a, '_> {
             let mut diagnostic = Diagnostic::with_args(
                 &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
                 span,
-                [module_name, text.to_string(), suggestion.clone()],
+                [module_name, display.clone(), suggestion.clone()],
             );
             // `errorNoModuleMemberSymbol`: `'{0}' is declared here.` at the
             // suggestion's value declaration (`checker.go:14898`), r7-grammar §49.
@@ -2742,7 +2824,7 @@ impl<'a> Checker<'a, '_> {
                 Diagnostic::with_args(
                     &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1_DID_YOU_MEAN_TO_USE_IMPORT_1_FROM_0_INSTEAD,
                     span,
-                    [module_name, text.to_string()],
+                    [module_name, display.clone()],
                 ),
             );
             return None;
@@ -2774,7 +2856,7 @@ impl<'a> Checker<'a, '_> {
                         Diagnostic::with_args(
                             &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1,
                             span,
-                            [module_name, text.to_string()],
+                            [module_name, display.clone()],
                         ),
                     );
                 }
@@ -2795,13 +2877,13 @@ impl<'a> Checker<'a, '_> {
                 Diagnostic::with_args(
                     &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_EXPORTED_AS_2,
                     span,
-                    [module_name, text.to_string(), exported_name.to_string()],
+                    [module_name, display.clone(), exported_name.to_string()],
                 )
             } else {
                 Diagnostic::with_args(
                     &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_NOT_EXPORTED,
                     span,
-                    [module_name, text.to_string()],
+                    [module_name, display.clone()],
                 )
             };
             // `'{0}' is declared here.` then `and here.` at each of the local
@@ -2812,7 +2894,7 @@ impl<'a> Checker<'a, '_> {
                         declaration,
                         &messages::_0_IS_DECLARED_HERE,
                         self.error_span(declaration),
-                        vec![text.to_string()],
+                        vec![display.clone()],
                     )
                 } else {
                     self.related_diagnostic_at(
@@ -2832,7 +2914,7 @@ impl<'a> Checker<'a, '_> {
             Diagnostic::with_args(
                 &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1,
                 span,
-                [module_name, text.to_string()],
+                [module_name, display.clone()],
             ),
         );
         None
@@ -2854,12 +2936,13 @@ impl<'a> Checker<'a, '_> {
             return true;
         }
         // `getPropertyOfType` on a union is `createUnionOrIntersectionProperty`
-        // (every constituent has it); `get_property_of_type_ex` routes no
-        // union, and the type-read road projects across constituents.
-        if matches!(self.store.get(target_type).data, crate::types::TypeData::Union { .. })
-            && self
-                .get_type_of_property_with_this_argument(target_type, name, target_type, true)
-                .is_some()
+        // (every constituent has it), and on a mapped type its resolved
+        // members (`{ [P in 'NotFound']: unknown }`, `importPropertyFromMappedType`).
+        // `get_property_of_type_ex` routes neither; the type-read road
+        // projects union constituents and resolves mapped members.
+        if self
+            .get_type_of_property_with_this_argument(target_type, name, target_type, true)
+            .is_some()
         {
             return true;
         }
@@ -5164,6 +5247,18 @@ impl<'a> Checker<'a, '_> {
                     // checks the ARGUMENTS, whose object-literal members
                     // walk back to this call — the cycle the first build hit
                     // as a stack overflow (`arrayToLocaleStringES2015`).
+                    // `getContextualTypeForArgumentAtIndex` (`checker.go:29783`)
+                    // does not resolve a call whose own resolution is running
+                    // (`resolvedSignature == resolvingSignature`). The argument
+                    // then has the contextual type that resolution pushed,
+                    // which is the general road a `None` here falls back to.
+                    // Re-resolving re-checked every nested literal once per
+                    // member (`r7-perf.md` §24).
+                    if self.perf_links.main_resolving_calls.contains(&holder)
+                        && !self.resolved_call_signatures.contains_key(&holder)
+                    {
+                        return None;
+                    }
                     if !self.narrow_value_stack.insert(holder) {
                         return None;
                     }
@@ -7034,6 +7129,7 @@ impl<'a> Checker<'a, '_> {
             // The assignment-time record TS7006 reads (r7-reports §18).
             self.record_parameter_context_at_assignment(declaration, contextual.is_none());
             if let Some(contextual) = contextual {
+                let contextual = self.binding_pattern_fallback_for_unknown(declaration, contextual);
                 return Some(self.add_optionality_for_declaration(contextual, declaration));
             }
         }

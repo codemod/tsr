@@ -1023,6 +1023,33 @@ impl<'a> Checker<'a, '_> {
                 // whose parent has none of those sources; never replace a
                 // present source's property type with the implied pattern.
                 let root = self.root_declaration_of(parent);
+                // A variable root projects its annotation, else its
+                // initializer's type (`checkDeclarationInitializer`); one with
+                // neither, a for-of or for-in head's `let { … }`, leaves the
+                // implied pattern as the element initializer's context.
+                if let tsr_ast::Node::VariableDeclaration(declaration) = self.node_map.get(root)? {
+                    if declaration.r#type.is_some()
+                        || declaration.initializer.is_some()
+                        || self.in_js_file(root)
+                    {
+                        return None;
+                    }
+                    let Some(tsr_ast::BindingName::BindingPattern(pattern)) = element.name else {
+                        return None;
+                    };
+                    let tsr_ast::Node::ObjectLiteralExpression(node) =
+                        self.node_map.get(literal)?
+                    else {
+                        return None;
+                    };
+                    return (self.nodes.kind(pattern.node_id?)
+                        == tsr_ast::SyntaxKind::ObjectBindingPattern
+                        && self.binding_default_pattern_context_available(
+                            pattern,
+                            tsr_ast::Expression::ObjectLiteralExpression(node),
+                        ))
+                    .then_some(pattern);
+                }
                 let tsr_ast::Node::ParameterDeclaration(declaration) = self.node_map.get(root)?
                 else {
                     return None;
@@ -1226,35 +1253,37 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// Whether `id` holds an anonymous object type (a function, method or
-    /// class value, a module or namespace object), itself or as a
-    /// union/intersection constituent. Such a member keeps the eager site
-    /// render (`r7-perf.md` §15):
+    /// Whether `id` holds a module, namespace or enum value object, or an
+    /// instantiable type, itself or as a union/intersection constituent.
+    /// Such a member keeps the eager site render (`r7-perf.md` §15, §36):
     ///
     /// - a value object's site-free print is its baked placeholder (for a
     ///   module, the stripped file path; see [`Checker::type_to_string_at`]'s
     ///   "Returns `None` rather than guessing"), which must not stand in for
     ///   the site render in the literal's own display (the CLI-message audit);
-    /// - rendering a callable member at the mint completes its signatures'
-    ///   lazy returns in this port's order, and later answers on jsTyping
-    ///   depend on that order (the jsTyping gate leg). Deferring it is a
-    ///   resolution-order change, not a display change, so it stays out of
-    ///   this cut.
+    /// - an instantiable member (a type parameter, indexed access,
+    ///   conditional or substitution type) asks for constraints and
+    ///   reductions when rendered, and on jsTyping the deferred render of
+    ///   `assertion: Debug[name]` in `debug.ts(189)` changed a TS2322 verdict.
     ///
-    /// An instantiable member (a type parameter, indexed access, conditional
-    /// or substitution type) keeps it for the second reason too: its render
-    /// asks for constraints and reductions, and on jsTyping the deferred
-    /// render of `assertion: Debug[name]` in `debug.ts(189)` changed a TS2322
-    /// verdict.
-    fn holds_anonymous_object(&self, id: TypeId) -> bool {
+    /// A function, method or class value defers like any named member.
+    /// §15.1 kept these eager, because deferring them changed 15 jsTyping
+    /// lines through the order in which their lazy returns completed. On
+    /// main `cac2f4c8` that order no longer changes any jsTyping line (§36).
+    fn holds_value_object(&self, id: TypeId) -> bool {
         let ty = self.store.get(id);
         if ty.flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
             return true;
         }
         match &ty.data {
-            TypeData::Anonymous { .. } => true,
+            TypeData::Anonymous { symbol, .. } => {
+                let symbol = self.binder.merged_symbol(*symbol);
+                self.binder.symbols().get(symbol).flags.intersects(
+                    SymbolFlags::VALUE_MODULE | SymbolFlags::NAMESPACE_MODULE | SymbolFlags::ENUM,
+                )
+            }
             TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
-                types.iter().any(|&member| self.holds_anonymous_object(member))
+                types.iter().any(|&member| self.holds_value_object(member))
             }
             _ => false,
         }
@@ -2295,7 +2324,7 @@ impl Checker<'_, '_> {
             let site_plan = match (&reused, node.node_id) {
                 (None, Some(reference))
                     if !self.member_text_waits_on_pending_return(member_type)
-                        && !self.holds_anonymous_object(member_type) =>
+                        && !self.holds_value_object(member_type) =>
                 {
                     Some(reference)
                 }

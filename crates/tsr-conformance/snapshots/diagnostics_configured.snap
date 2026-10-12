@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1026/1091 (94.04%)
-Failed         : 65
+Passed         : 1033/1091 (94.68%)
+Failed         : 58
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -64,9 +64,9 @@ compiler/functionsWithImplicitReturnTypeAssignableToUndefined(strictnullchecks=t
 compiler/implicitAnyFromCircularInference(target=es2015)
   2 unexpected (first TS7024 at implicitAnyFromCircularInference.ts(17,10)), 3 missing
 compiler/inKeywordTypeguard(strict=false)
-  6 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
+  3 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
 compiler/inKeywordTypeguard(strict=true)
-  7 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
+  4 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
 compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties2.ts(21,1)), 2 missing
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
@@ -139,19 +139,5 @@ conformance/privateNameInInExpression(target=esnext)
   5 missing (first TS2571 at privateNameInInExpression.ts(21,29))
 conformance/restPropertyWithBindingPattern(target=es2015)
   5 missing (first TS2501 at restPropertyWithBindingPattern.ts(1,6))
-conformance/trailingCommasInFunctionParametersAndArguments(target=es2015)
-  1 missing (first TS1013 at trailingCommasInFunctionParametersAndArguments.ts(5,20))
-conformance/typeOfThisInStaticMembers12(target=es2022)
-  1 missing (first TS2339 at typeOfThisInStaticMembers12.ts(5,15))
-conformance/typeOfThisInStaticMembers12(target=es6)
-  1 missing (first TS2339 at typeOfThisInStaticMembers12.ts(5,15))
-conformance/typeOfThisInStaticMembers12(target=esnext)
-  1 missing (first TS2339 at typeOfThisInStaticMembers12.ts(5,15))
-conformance/typeOfThisInStaticMembers13(target=es2022)
-  1 missing (first TS2339 at typeOfThisInStaticMembers13.ts(5,15))
-conformance/typeOfThisInStaticMembers13(target=es6)
-  1 missing (first TS2339 at typeOfThisInStaticMembers13.ts(5,15))
-conformance/typeOfThisInStaticMembers13(target=esnext)
-  1 missing (first TS2339 at typeOfThisInStaticMembers13.ts(5,15))
 conformance/usingDeclarationsWithObjectLiterals2(noimplicitany=true)
   2 missing (first TS7018 at usingDeclarationsWithObjectLiterals2.ts(2,38))
