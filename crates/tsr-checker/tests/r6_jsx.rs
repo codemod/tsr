@@ -39,6 +39,12 @@ fn codes(source: &str) -> Vec<(u32, u32, String)> {
         tsr_binder::FileInfo { name: "/a.tsx", text: source },
     );
     let mut checker = Checker::new(&bound, &nodes, &node_map);
+    // The oracle's `--jsx preserve`: without a `jsx` option every element is
+    // TS17004 (`checkJsxPreconditions`).
+    checker.apply_compiler_options(&tsr_core::CompilerOptions {
+        jsx: tsr_core::JsxEmit::Preserve,
+        ..tsr_core::CompilerOptions::default()
+    });
     checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
     let header = JSX.lines().count() as u32;
     let line_of = |offset: u32| {

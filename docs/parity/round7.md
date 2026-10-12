@@ -1216,3 +1216,27 @@ previous freeze: types +4 RIGHT / 0 lost / 0 missing, diagnostics +3 cases / 0 l
 | `checker_types_configured` | 1,848 | 1,848 |
 | `diagnostics` | 5,108 | 5,110 |
 | `diagnostics_configured` | 1,033 | 1,034 |
+
+### Batch 74 — r7-calls `c31cb547`, r7-parser `312c66e3`, r7-printer `3c1f3b24`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **11118 / 12797 EXACT (86.88%)**, 82 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +13 RIGHT / 0 lost / 0 missing, diagnostics +12 cases / 0 lost / 0 missing. jsTyping 104 → 104 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0002, domain-model 1.0017. No suite's failure count rose.
+
+| Suite | Before | Batch 74 |
+|---|---|---|
+| `checker_types` | 9,038 | 9,040 |
+| `checker_types_configured` | 1,848 | 1,848 |
+| `diagnostics` | 5,110 | 5,121 |
+| `diagnostics_configured` | 1,034 | 1,035 |
+
+The loop blocked this batch on its jsTyping leg. moduleNameResolver.ts(1087,9) is a TS2322 that tsgo does not report and the base already printed; only its message changed, because optional parameters now print as `T | undefined`, as native's typeToString does. The integration owner landed the batch by hand. From this batch on, the leg keys false lines by location and code, so a reworded message on a line that was already false is not counted as new.
+
+**Ownership change (after batch 74).** r7-calls exhausted its call-rooted rank
+buckets, so the JS/JSDoc checking files move to it from r7-reports:
+`jsdoc_*.rs`, `js_case_data.rs`, `assignment_declarations.rs`. r7-reports
+keeps relater, assignreport, implicit_any and JSX. Grants are default-on for
+small atomic consumer hunks in another lane's file, when they share the commit's
+native root cause and pass every gate (named in the lane note). ADR-0056
+(rebasable node ids, per-file bind) is funded as a no-flag-day migration in
+r7-perf.

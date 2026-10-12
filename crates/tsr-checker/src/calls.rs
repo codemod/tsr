@@ -597,6 +597,117 @@ impl<'a> Checker<'a, '_> {
         Some(true)
     }
 
+    /// `getTypeOfExpression`'s quick path, `getQuickTypeOfExpression`
+    /// (`checker.go`): the type `getTypeAtLocation` answers for an
+    /// expression without checking it.
+    ///
+    /// - An `await` answers the awaited type of its operand's quick type.
+    /// - A call (not `super`, `require("…")`, `Symbol()`/`Symbol.for()` or
+    ///   `import()`) or a `new` whose non-nullable callee type has exactly
+    ///   one non-generic signature of the kind (and none of the other
+    ///   kind, `getSingleSignature`) answers that signature's return type.
+    ///   The arguments are not checked and the call is not resolved, so an
+    ///   inaccessible constructor or an abstract class still answers its
+    ///   instance type (`new A()` is `A`).
+    /// - A type assertion answers its written type (a `const` assertion
+    ///   excepted).
+    ///
+    /// `None` everywhere else, and where this port cannot answer the same
+    /// thing: a call chain (`propagateOptionalTypeMarker` is not ported here),
+    /// an undecided signature list or return.
+    pub fn quick_type_of_expression(&mut self, expression: Expression<'a>) -> Option<TypeId> {
+        let mut inner = expression;
+        while let Expression::ParenthesizedExpression(parenthesized) = inner {
+            // A JavaScript file's parenthesized expression may carry a JSDoc
+            // type cast, which native reparses into an assertion; this port
+            // keeps it a parenthesized expression, so it is not skipped.
+            if self.in_js_file(parenthesized.node_id?) {
+                return None;
+            }
+            inner = parenthesized.expression?;
+        }
+        match inner {
+            Expression::AwaitExpression(awaited) => {
+                let operand = self.quick_type_of_expression(awaited.expression?)?;
+                self.awaited_type(operand)
+            }
+            Expression::CallExpression(call) => {
+                let callee = call.expression?;
+                if matches!(callee,
+                    Expression::KeywordExpression(keyword)
+                        if matches!(keyword.kind, tsr_ast::SyntaxKind::SuperKeyword | tsr_ast::SyntaxKind::ImportKeyword))
+                    || matches!(callee, Expression::MetaProperty(_))
+                    || Checker::is_symbol_or_symbol_for_call(call)
+                    || Self::is_require_call_with_literal(call)
+                    || call.question_dot_token.is_some()
+                    || callee.node_id().is_some_and(|id| self.expression_is_optional_chain(id))
+                {
+                    return None;
+                }
+                self.single_non_generic_signature_return(callee, SignatureKind::Call)
+            }
+            Expression::NewExpression(new) => {
+                self.single_non_generic_signature_return(new.expression?, SignatureKind::Construct)
+            }
+            Expression::AsExpression(assertion) => {
+                let written = assertion.r#type?;
+                if crate::assertions::is_const_type_reference(written) {
+                    return None;
+                }
+                let ty = self.get_type_from_type_node(written);
+                (!self.is_gap(ty)).then_some(ty)
+            }
+            Expression::TypeAssertion(assertion) => {
+                let written = assertion.r#type?;
+                if crate::assertions::is_const_type_reference(written) {
+                    return None;
+                }
+                let ty = self.get_type_from_type_node(written);
+                (!self.is_gap(ty)).then_some(ty)
+            }
+            _ => None,
+        }
+    }
+
+    /// `getReturnTypeOfSingleNonGenericSignature(checkNonNullExpression(callee), kind)`:
+    /// `getSingleSignature` with `allowMembers` reads an object type's
+    /// resolved signatures and answers the sole signature of `kind` when the
+    /// other kind has none.
+    fn single_non_generic_signature_return(
+        &mut self,
+        callee: Expression<'a>,
+        kind: SignatureKind,
+    ) -> Option<TypeId> {
+        let callee_type = self.check_expression(callee);
+        let callee_type = self.check_non_null_type(callee_type);
+        if !self.store.get(callee_type).flags.contains(TypeFlags::OBJECT) {
+            return None;
+        }
+        let other = match kind {
+            SignatureKind::Call => SignatureKind::Construct,
+            _ => SignatureKind::Call,
+        };
+        let signatures = self.signatures_of_type_kind(callee_type, kind)?;
+        let [signature] = signatures.as_slice() else { return None };
+        if !signature.type_parameters.is_empty()
+            || !self.signatures_of_type_kind(callee_type, other)?.is_empty()
+        {
+            return None;
+        }
+        let signature = self.complete_signature_return(signature.clone())?;
+        (!self.is_gap(signature.r#type)).then_some(signature.r#type)
+    }
+
+    /// `ast.IsRequireCall(call, true)`: `require` called with one
+    /// string-literal-like argument.
+    fn is_require_call_with_literal(call: &CallExpression<'_>) -> bool {
+        matches!(call.expression, Some(Expression::Identifier(identifier)) if identifier.text == "require")
+            && matches!(
+                call.arguments,
+                [Expression::StringLiteral(_) | Expression::NoSubstitutionTemplateLiteral(_)]
+            )
+    }
+
     /// `resolveCallExpression`'s `super` arm (`checker.go:8471`): the callee's
     /// type is `checkSuperExpression`'s (`any` or `errorType` resolve without
     /// a report); otherwise the candidates are
@@ -6720,6 +6831,14 @@ impl Checker<'_, '_> {
         if best.type_parameters.is_empty() {
             return Some(best.clone());
         }
+        // `pickLongestCandidateSignature` instantiates with the written type
+        // arguments when there are some (`getTypeArgumentsFromNodes`), else
+        // by `inferSignatureInstantiationForOverloadFailure`.
+        if let Some(call) = call {
+            if !self.call_type_arguments(call).is_empty() {
+                return self.instantiate_with_written_type_arguments(best.clone(), call);
+            }
+        }
         let mut instantiated = None;
         let _ = self.check_generic_call_with(best, call, arguments, Some(&mut instantiated));
         instantiated
@@ -6825,6 +6944,19 @@ impl Checker<'_, '_> {
         if best.type_parameters.is_empty() {
             return Some(best);
         }
+        self.instantiate_with_written_type_arguments(best, call)
+    }
+
+    /// `createSignatureInstantiation(candidate, getTypeArgumentsFromNodes(…))`
+    /// (`checker.go:9557`): the written type arguments truncated to the
+    /// candidate's type parameters, the tail filled with each parameter's
+    /// default, else its constraint, else `unknown`.
+    fn instantiate_with_written_type_arguments(
+        &mut self,
+        best: Signature,
+        call: tsr_ast::NodeId,
+    ) -> Option<Signature> {
+        let written = self.call_type_arguments(call);
         let parameters = self.type_parameter_types(&best)?;
         let mut arguments: Vec<TypeId> = written
             .iter()
