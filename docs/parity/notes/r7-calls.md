@@ -1238,6 +1238,31 @@ the line of `body.Pos()`, the end of `=>`, so `() =>\n{ … }` ends at the
 `=>` line's break. The ECMAScript line terminators (U+2028, U+2029) count as line breaks too. A probe file with all three shapes now prints
 byte for byte as tsgo does.
 
+## 40. A non-array rest parameter relates its trailing arguments' spread tuple (held: needs inference.rs visibility)
+
+`isSignatureApplicable` (`checker.go:9256`) relates the arguments past a
+non-array rest parameter (a tuple, a variadic tuple, `never`) as one
+`getSpreadArgumentType` tuple. One trailing argument reports at its
+`getEffectiveCheckNode`; several report over a synthetic node spanning
+the first to the last. §16 handled the no-trailing-argument case (the
+empty tuple) and declined the rest, because the tuple's construction (tuple
+spreads expanded, each element widened under its contextual element type)
+lived only in `inference.rs`'s `inference_spread_argument_type`.
+
+That function is now `pub(crate)` (a visibility-only change in
+inference.rs). The report pass hands it the written arguments and their
+checked types, and relates its tuple to the rest type. A synthetic argument
+anywhere in the list (a decorator's, a tagged template's strings, an
+expanded tuple spread) keeps the written list from lining up with the
+effective one, so it declines. So does a pair over type variables, the
+refusal elsewhere in this file: `f(...args)` against `...args: T` builds
+`[...T]`, which this port's relater rejects where native relates it.
+
+variadicTuples2 gets five of native's missing TS2345s (`[]`, `[1, 2]`,
+`["abc", 1, "def"]`, `["abc", "def", true]` against
+`[...strs: string[], n2: number]`, and `boolean` against `number`). The
+others there sit behind generic candidates whose inference declines.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
