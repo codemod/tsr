@@ -747,6 +747,10 @@ pub struct Checker<'a, 'n> {
     /// makes the set program-scoped without adding a second entry point.
     /// See `docs/architecture/checker-notes-diag2.md` §159.
     pub(crate) merge_conflicts_reported: bool,
+    /// `moduleSymbolLinks.exportsChecked`: the module symbols whose
+    /// `export =` TS2309 test has run (`checkExternalModuleExports`,
+    /// merge_conflicts.rs; r7-grammar §73).
+    pub(crate) export_equals_checked: rustc_hash::FxHashSet<SymbolId>,
     /// Every position `report_assignability_failure` was *asked about*, with
     /// the gate that decided it. Filled only under `TSR_ASSIGN_PROBE`.
     ///
@@ -1658,6 +1662,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             file_has_parse_errors: false,
             file_written_lists: &[],
             merge_conflicts_reported: false,
+            export_equals_checked: rustc_hash::FxHashSet::default(),
             assignability_probe: Vec::new(),
             allow_unreachable_code: false,
             unreachable_code_is_error: false,

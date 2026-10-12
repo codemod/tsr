@@ -55,6 +55,94 @@ impl Checker<'_, '_> {
         self.report_class_prototype_merge_conflicts();
     }
 
+    /// The `export =` half of `checkExternalModuleExports`
+    /// (`checker.go:5693`), once per module symbol (`exportsChecked`): an
+    /// `export =` is TS2309 at its declaration when the module also exports
+    /// a value (`hasExportedMembersOfKind`, the alias-resolved flags of every
+    /// other export), or when the `export =` alias is a namespace that
+    /// shadows one exporting types or namespaces (`hasShadowedNamespace`).
+    /// The declaration is the alias's (`getDeclarationOfAliasSymbol`), else
+    /// the value declaration (a JS `module.exports =`). It is not reported in
+    /// an external module augmentation. Native runs it for an external or
+    /// CommonJS source file after its check and for an export assignment's
+    /// container; the `export *` half is check.rs's
+    /// `check_export_star_conflicts` (r7-grammar §73).
+    pub(crate) fn check_external_module_export_equals(&mut self, module: tsr_ast::NodeId) {
+        let Some(symbol) = self.binder.symbol_of(module) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.export_equals_checked.insert(symbol) {
+            return;
+        }
+        let exports: Vec<(String, SymbolId)> = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .exports
+            .iter()
+            .map(|(name, &member)| (name.to_string(), member))
+            .collect();
+        let Some(&(_, export_equals)) = exports.iter().find(|(name, _)| name == "export=") else {
+            return;
+        };
+        let exports_value = exports.iter().any(|(name, member)| {
+            if name == "export=" {
+                return false;
+            }
+            // An alias whose target is native's `unknownSymbol` (a
+            // `Property`): see `unresolved_qualified_import_equals`.
+            let declarations = self.binder.symbols().get(*member).declarations.clone();
+            let unknown_target = declarations
+                .into_iter()
+                .any(|declaration| self.unresolved_qualified_import_equals(declaration).is_some());
+            unknown_target || self.get_symbol_flags(*member).intersects(SymbolFlags::VALUE)
+        });
+        if !exports_value && !self.has_shadowed_namespace(export_equals) {
+            return;
+        }
+        let declaration = self
+            .declaration_of_alias_symbol(export_equals)
+            .or_else(|| self.binder.symbols().get(export_equals).value_declaration);
+        let Some(declaration) = declaration else { return };
+        let in_augmentation = self.nodes.parent(declaration).is_some_and(|block| {
+            self.nodes.kind(block) == tsr_ast::SyntaxKind::ModuleBlock
+                && self.nodes.parent(block).is_some_and(|owner| {
+                    matches!(self.node_map.get(owner), Some(tsr_ast::Node::ModuleDeclaration(module))
+                        if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+                        && self.module_is_external_augmentation(owner)
+                })
+        });
+        if in_augmentation {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let span = self.error_span(declaration);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AN_EXPORT_ASSIGNMENT_CANNOT_BE_USED_IN_A_MODULE_WITH_OTHER_EXPORTED_ELEMENTS,
+                span,
+            ),
+        );
+    }
+
+    /// `hasShadowedNamespace` (`checker.go:5747`).
+    fn has_shadowed_namespace(&mut self, symbol: SymbolId) -> bool {
+        let flags = self.binder.symbols().get(symbol).flags;
+        if !flags.intersects(SymbolFlags::NAMESPACE_MODULE) || !flags.intersects(SymbolFlags::ALIAS)
+        {
+            return false;
+        }
+        let target = self.resolve_alias_fully(symbol);
+        if !self.binder.symbols().get(target).flags.intersects(SymbolFlags::NAMESPACE) {
+            return false;
+        }
+        let members: Vec<SymbolId> =
+            self.binder.symbols().get(target).exports.iter().map(|(_, &member)| member).collect();
+        members.into_iter().any(|member| {
+            self.get_symbol_flags(member).intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+        })
+    }
+
     /// `mergeSymbolTable(target.Exports, source.Exports)` for a class merged
     /// with a namespace across files: the namespace's exported `prototype`
     /// meets the class's synthetic `prototype` property

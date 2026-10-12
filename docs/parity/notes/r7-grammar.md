@@ -1685,3 +1685,34 @@ JSDoc TS2749/TS2304 reports (`jsdocTypeReferenceToValue`, `enumTag`,
 *Falsifier.* A TS2304/TS2749 inside a JSDoc comment that native does not
 report, from a JSDoc-specific resolution this port lacks (typedef scopes,
 `import()` types).
+
+## §73 TS2309 from `checkExternalModuleExports`
+
+`An export assignment cannot be used in a module with other exported
+elements.` is the `export =` half of `checkExternalModuleExports`
+(`checker.go:5693`). Native runs it once per module symbol
+(`exportsChecked`): for an external or CommonJS source file after its check
+(`checkSourceFile`), and for an export assignment's container (the source
+file, or the module declaration around the block, `checkExportAssignment`).
+It reports at the `export =` alias's declaration (or its value declaration:
+a JS `module.exports =`) when the module also exports a value
+(`hasExportedMembersOfKind` over the alias-resolved flags of every other
+export) or when the alias is a namespace shadowing one that exports types or
+namespaces (`hasShadowedNamespace`). It is not reported in an external
+module augmentation.
+
+check.rs's export-assignment arm approximated this syntactically: a
+top-level `export =` beside an exported class, function, variable, enum or
+`export {…}`, checked only after the TS1203 module-format arm returned. So
+`export function f() {}` + `export = f` under ES modules (TS1203 and
+TS2309), an ambient module's `export = y` beside `export interface x`, and
+every JS `module.exports =` were missed. merge_conflicts.rs's
+`check_external_module_export_equals` is the port (checker.rs gains its
+`export_equals_checked` set). check.rs calls it from both native sites and
+drops the approximation. An exported `import a = x.c` whose target does not
+resolve counts as a value: native's `unknownSymbol` is a `Property`. That is
+meaning_mismatch.rs's `unresolved_qualified_import_equals`, shared with §71.
+Checked with the CLI against `target/tsgo-pinned`: `es6ExportEquals`,
+`importDeclWithExportModifierAndExportAssignment`, `incompatibleExports1`,
+`jsExportAssignmentNonMutableLocation`, `moduleExportAssignment`,
+`exportAssignmentWithExports`, `exportEqualsDefaultProperty`.

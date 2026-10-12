@@ -184,32 +184,47 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        let Some((first_id, first)) = self.unresolved_qualified_import_equals(node) else {
+            return;
+        };
+        if self.resolve_under(first_id, &first, SymbolFlags::VALUE).is_some() {
+            return;
+        }
+        self.report_meaning_mismatch_in_value_position(first_id, &first);
+    }
+
+    /// An `import a = x.y` (qualified module reference) whose target does not
+    /// resolve while its leftmost name `x` resolves as a namespace: the shape
+    /// in which this port's `None` from `qualified_alias_target` is native's
+    /// `unknownSymbol` (TS2694 has been reported on the member). Answers the
+    /// leftmost identifier and its text. `unknownSymbol` is a `Property`, so
+    /// `getSymbolFlags` of such an alias has `SymbolFlagsValue`.
+    pub(crate) fn unresolved_qualified_import_equals(
+        &mut self,
+        node: NodeId,
+    ) -> Option<(NodeId, String)> {
+        let Some(Node::ImportEqualsDeclaration(declaration)) = self.node_map.get(node) else {
+            return None;
+        };
         let Some(tsr_ast::ModuleReference::QualifiedName(qualified)) = declaration.module_reference
         else {
-            return;
+            return None;
         };
         let mut left = qualified.left;
         let first = loop {
             match left {
                 Some(tsr_ast::EntityName::Identifier(name)) => break name,
                 Some(tsr_ast::EntityName::QualifiedName(inner)) => left = inner.left,
-                None => return,
+                None => return None,
             }
         };
-        let Some(first_id) = first.node_id else { return };
-        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let first_id = first.node_id?;
+        let symbol = self.binder.symbol_of(node)?;
         if self.qualified_alias_target(symbol).is_some() {
-            return;
+            return None;
         }
-        if self.resolve_under(first_id, first.text, SymbolFlags::VALUE).is_some() {
-            return;
-        }
-        if self.resolve_symbol_under(first_id, first.text, SymbolFlags::NAMESPACE_MODULE).is_none()
-        {
-            return;
-        }
-        let text = first.text.to_string();
-        self.report_meaning_mismatch_in_value_position(first_id, &text);
+        self.resolve_symbol_under(first_id, first.text, SymbolFlags::NAMESPACE_MODULE)?;
+        Some((first_id, first.text.to_string()))
     }
 
     fn resolve_under(

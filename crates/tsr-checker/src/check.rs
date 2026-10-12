@@ -140,6 +140,11 @@ impl Checker<'_, '_> {
         self.check_node(file, context.ambient, 0);
         // `checkExternalModuleExports`' `getExportsOfModule` (`checker.go:5672`).
         self.check_export_star_conflicts(file);
+        // `checkSourceFile`'s `checkExternalModuleExports` for an external or
+        // CommonJS module, its `export =` half (r7-grammar §73).
+        if self.is_external_or_common_js_module(file) {
+            self.check_external_module_export_equals(file);
+        }
         // `checkSourceFile` (`checker.go:2220`) runs the unused-identifier pass
         // *after* the file's own check, because it reads reference marks the
         // check produces. Here the marks come from the walk that just finished,
@@ -1649,48 +1654,30 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+        // `checkExternalModuleExports(container)` (`checker.go:5661`): the
+        // source file, or the module declaration around the block
+        // (r7-grammar §73).
+        if let Some(parent) = self.nodes.parent(node) {
+            let container = if self.nodes.kind(parent) == SyntaxKind::SourceFile {
+                Some(parent)
+            } else {
+                self.nodes.parent(parent)
+            };
+            if let Some(container) = container {
+                self.check_external_module_export_equals(container);
+            }
+        }
         if !assignment.is_export_equals {
             return;
         }
         let Some(parent) = self.nodes.parent(node) else { return };
-        let Some(Node::SourceFile(source)) = self.node_map.get(parent) else { return };
+        if self.nodes.kind(parent) != SyntaxKind::SourceFile {
+            return;
+        }
         // TS1203 / TS1218: `checkExportAssignment`'s module-format tail
         // (`checker.go:5669`), which reads the file's implied format for emit.
         // §478, §783; `docs/parity/notes/r5-modfmt.md` §2.
-        if self.check_export_equals_module_format(node, parent, ambient) {
-            return;
-        }
-        let exports_a_value = source.statements.iter().any(|statement| {
-            let Some(id) = statement.node_id() else { return false };
-            if id == node {
-                return false;
-            }
-            let Some(typed) = self.node_map.get(id) else { return false };
-            let exported = modifiers_of(typed)
-                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::ExportKeyword));
-            match typed {
-                Node::ClassDeclaration(_)
-                | Node::FunctionDeclaration(_)
-                | Node::VariableStatement(_)
-                | Node::EnumDeclaration(_) => exported,
-                // `export { a }` names whatever it lists; a clause-less
-                // `export *` re-exports and is not an own member.
-                Node::ExportDeclaration(declaration) => declaration.export_clause.is_some(),
-                _ => false,
-            }
-        });
-        if !exports_a_value {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AN_EXPORT_ASSIGNMENT_CANNOT_BE_USED_IN_A_MODULE_WITH_OTHER_EXPORTED_ELEMENTS,
-                span,
-            ),
-        );
+        self.check_export_equals_module_format(node, parent, ambient);
     }
 
     /// TS2507 — `Type '{0}' is not a constructor function type.`

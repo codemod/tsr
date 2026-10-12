@@ -442,7 +442,7 @@ impl Checker<'_, '_> {
     /// module, or directly inside a top-level ambient module of a script.
     /// checker.rs has a private copy for the printer; this file cannot
     /// reach it.
-    fn module_is_external_augmentation(&self, module: NodeId) -> bool {
+    pub(crate) fn module_is_external_augmentation(&self, module: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(module) else { return false };
         let is_external = |file: NodeId| {
             matches!(self.node_map.get(file), Some(Node::SourceFile(source))
