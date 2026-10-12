@@ -1127,3 +1127,24 @@ Measured on `5aed9899` unfiltered: types and diagnostics verdicts unchanged,
 0 lost; exact oracle 9679 → 9679, 0 lost; jsTyping 117 → **114** unique
 lines, new_false 0, lost_true 0 (`program.ts`' three false TS18048 on the
 destructured `oldProgram` read in callbacks gone); Ir gi 0.9999, dm 1.0000.
+
+## §41 A union receiver's readonly property in `isConstantReference`
+
+`isConstantReference` (`flow.go:1817`) admits a property access when its
+receiver is constant and `isReadonlySymbol` of the resolved property holds;
+for a union receiver that property is the synthetic union property, readonly
+when **any** constituent's property is (`createUnionOrIntersectionProperty`,
+`checker.go:21508`). This port's `is_readonly_property_of_type` assembles the
+synthetic property for intersections only (`composite_property_of_type`), so a
+union receiver's property read as writable, and the aliased-condition
+narrowing (`const node = declaration.attributes; if (node)`) declined for
+`declaration: ImportDeclaration | ExportDeclaration | JSDocImportTag`.
+`union_property_is_readonly` (flow.rs) answers for a union whose every
+constituent has the property, through each constituent's
+`constituent_property_is_readonly`; otherwise the shared function answers as
+before. The shared function's union gap is `members.rs`' (r7-shared).
+
+Measured on `4c94490e` unfiltered: types and diagnostics verdicts unchanged,
+0 lost; jsTyping 114 → **111**, new_false 0, lost_true 0 (`checker.ts`
+38800, 45144 and 48616 gone); exact oracle 9679 → 9679, 0 lost; Ir gi
+0.9999, dm 1.0001.

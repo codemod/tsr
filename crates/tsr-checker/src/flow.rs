@@ -2257,6 +2257,22 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `isReadonlySymbol` of a union receiver's property
+    /// (`createUnionOrIntersectionProperty`, `checker.go:21508`): readonly
+    /// when any constituent's property is. `None` unless every constituent
+    /// (by its apparent type) has the property, a union property this port's
+    /// `is_readonly_property_of_type` does not assemble.
+    fn union_property_is_readonly(&mut self, receiver: TypeId, name: &str) -> Option<bool> {
+        let TypeData::Union { types, .. } = &self.store.get(receiver).data else { return None };
+        let mut readonly = false;
+        for part in types.clone() {
+            let apparent = self.apparent_type(part);
+            let property = self.get_property_of_type(apparent, name)?;
+            readonly |= self.constituent_property_is_readonly(apparent, name, property);
+        }
+        Some(readonly)
+    }
+
     pub(crate) fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
@@ -2314,7 +2330,9 @@ impl Checker<'_, '_> {
                 let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
                     return false;
                 };
-                let readonly = self.is_readonly_property_of_type(receiver_type, name.text);
+                let readonly = self
+                    .union_property_is_readonly(receiver_type, name.text)
+                    .unwrap_or_else(|| self.is_readonly_property_of_type(receiver_type, name.text));
                 readonly && self.is_constant_reference(receiver)
             }
             // §904: `case ast.KindElementAccessExpression` shares upstream's
