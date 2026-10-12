@@ -1095,3 +1095,21 @@ An interface extending a tuple alias (`interface I extends EmptyTuple`,
 it is not tuple-like (contextualTypeWithTuple 0:95). An inline conditional
 parameter with function branches instantiates to `error` (`h2<T>(x: T, y: T
 extends E ? (e: 1) => void : (e: 2) => void)`).
+
+## 37. A resolved re-read skips the pre-inference tuple-context read
+
+`array_literal_has_a_tuple_contextual_type` has a pre-inference fallback.
+Native's first inference pass reads the written parameter, which
+`instantiateContextualType` maps only through the return mapper, and whose
+apparent type is the constraint, so `all<T extends readonly unknown[] |
+[]>([a, b])` is a tuple context through `[]`. That fallback ran during §1's
+re-read under the resolved signature too, where it re-read the written `T`
+with no live return mapper and found the constraint's `[]`.
+`const f1: F = () => Promise.all([{…}, {…}])` with `F = () => Promise<Player[]>`
+infers `T = Player[]` (the return mapper) natively, and the writer reads the
+literal under the instantiated `(… | …)[]` as an array. The port's last read
+made it a tuple (inferFromGenericFunctionReturnTypes3 0:206). Like §36, the
+fallback no longer runs when the call's `call_inference_signatures` slot
+holds a resolved instance (type parameters cleared). `Promise.all([fa(),
+fb()])` keeps its tuple (its inferred `T` is the tuple itself), and the §31
+gains hold on the verdict dump.
