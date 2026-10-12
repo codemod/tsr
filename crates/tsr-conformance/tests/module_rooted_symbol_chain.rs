@@ -447,3 +447,71 @@ export interface Thing {}
         ],
     );
 }
+
+/// r7-printer §38: an instantiation expression's image prints its signatures
+/// and properties at the site, where `b` is reached only through `A`.
+#[test]
+fn an_instantiation_expression_image_is_named_at_the_site() {
+    let lines = assertions(
+        "probe/instantiation_expression_image",
+        r"declare namespace A {
+    export class b<T> {
+        static d: number;
+        constructor(x: T);
+    }
+}
+declare const a: typeof A;
+const x = a.b<string>;
+",
+    );
+    assert_has(&lines, &["x : { new (x: string): A.b<string>; d: number; prototype: A.b<any>; }"]);
+}
+
+/// r7-printer §39: a class its module exports only as `default` is spelled
+/// through that export where the local `Test` names another class.
+#[test]
+fn a_default_exported_class_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/default_export_leaf",
+        r#"// @filename: a.ts
+class Test {}
+export default Test;
+// @filename: b.ts
+class Test {}
+export default Test;
+// @filename: index.ts
+import Test from './a'
+declare let t: typeof import("./b").default;
+let v = new t();
+"#,
+    );
+    assert_has(&lines, &["t : typeof import(\"./b\").default", "v : import(\"./b\").default"]);
+}
+
+/// r7-printer §40: a type literal aliased by `Foo` is named by the alias's
+/// chain, in TypeScript and through a JSDoc `@typedef`.
+#[test]
+fn a_type_literal_alias_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/type_literal_alias",
+        r#"// @allowJs: true
+// @checkJs: true
+// @filename: a.ts
+export type Foo = { a: boolean };
+export declare const x: Foo;
+// @filename: c.js
+/**
+ * @typedef {Object} Baz
+ * @property {boolean} a
+ */
+/** @type {Baz} */
+export const z = { a: false };
+// @filename: b.ts
+import { x } from "./a";
+import { z } from "./c";
+x;
+z;
+"#,
+    );
+    assert_has(&lines, &["x : import(\"./a\").Foo", "z : import(\"./c\").Baz"]);
+}

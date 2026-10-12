@@ -3246,6 +3246,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             return Some(printed);
         };
+        let symbol = self.type_literal_alias_symbol(symbol).unwrap_or(symbol);
         let name = self.binder.symbols().get(symbol).name;
         if name == "default"
             && let Some(renamed) = self.default_symbol_text_as_written(symbol, &printed, reference)
@@ -3437,6 +3438,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         let meaning =
             if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
         let Some(qualifier) = self.symbol_chain(symbol, reference, meaning, 0) else {
+            if let Some(spelled) = self.renamed_module_leaf_text_at(symbol, reference, meaning) {
+                let mut out = String::with_capacity(printed.len() + spelled.len());
+                out.push_str(&printed[..suffix_at - name.len()]);
+                out.push_str(&spelled);
+                out.push_str(&printed[suffix_at..]);
+                return Some(out);
+            }
             return Some(printed);
         };
         let mut out = String::with_capacity(printed.len() + qualifier.len());
@@ -4112,6 +4120,63 @@ impl<'a, 'n> Checker<'a, 'n> {
             return None;
         }
         Some(symbols.get(root).name.to_string())
+    }
+
+    /// r7-printer §40: the type of a type literal that is a type alias's body
+    /// (`type Foo = { a: boolean }`) carries that alias
+    /// (`getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` →
+    /// `getAliasSymbolForTypeNode`), and the node builder's alias arm
+    /// (`nodebuilderimpl.go:3362`) names it through `symbolToTypeNode`, so the
+    /// chain is the alias's: `import("./a").Foo` where `Foo` is not in scope.
+    /// The port's image keeps the literal's own `__type` symbol and bakes the
+    /// alias's name; this answers the alias the printed name stands for. No
+    /// cache or table.
+    fn type_literal_alias_symbol(&self, symbol: SymbolId) -> Option<SymbolId> {
+        let record = self.binder.symbols().get(symbol);
+        if !record.flags.contains(SymbolFlags::TYPE_LITERAL) {
+            return None;
+        }
+        let &[declaration] = record.declarations.as_slice() else { return None };
+        self.alias_symbol_for_type_node(declaration).map(|alias| self.binder.merged_symbol(alias))
+    }
+
+    /// r7-printer §39: `getSymbolChain` for a top-level declaration that its
+    /// module exports only under another name (`class Test {}` then
+    /// `export default Test`) is `[module, default]`, the export alias
+    /// `getContainersOfSymbol`'s fallback finds (`symbolaccessibility.go:288`),
+    /// and `createAccessFromSymbolChain` writes the leaf's own name:
+    /// `typeof import("./Test.js").default`. [`Checker::symbol_chain`]
+    /// answers a prefix for the declared name and declines that chain; this
+    /// spells the whole entity name instead, for a symbol no in-scope name
+    /// reaches (`best_name`, the port's `trySymbolTable` walk). No cache or
+    /// table.
+    fn renamed_module_leaf_text_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        if self.module_host.is_none() || self.binder.symbols().get(symbol).parent.is_some() {
+            return None;
+        }
+        let name = self.binder.symbols().get(symbol).name;
+        let top_level = self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            self.nodes.parent(declaration).is_some_and(|parent| {
+                self.nodes.kind(parent) == SyntaxKind::SourceFile
+                    && self.is_external_or_common_js_module(parent)
+            })
+        });
+        if !top_level || self.best_name(symbol, reference).is_some() {
+            return None;
+        }
+        let (root, leaf) = self.module_rooted_chain_at(symbol, reference, meaning)?;
+        let leaf_name = self.binder.symbols().get(leaf).name;
+        if leaf_name == name || !crate::objects::is_identifier_text(leaf_name) {
+            return None;
+        }
+        let specifier = self.module_specifier_for_symbol(root, reference)?;
+        self.track_unsafe_import(&specifier, symbol, root);
+        Some(format!("import({specifier}).{leaf_name}"))
     }
 
     fn module_rooted_chain_at(

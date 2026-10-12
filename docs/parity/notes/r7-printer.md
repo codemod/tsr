@@ -1449,3 +1449,82 @@ through the by-id allocation, still said `T_1`, while the declaration kept
 in place to the allocated names. The slots keep their by-id names, so
 declaration and uses agree, as native's `typeParameterToName` cache does.
 No cache or table.
+
+## 38. An instantiation expression's image prints its members at the site
+
+**Forcing constraint.** `optionalChainWithInstantiationExpression1` 0:8
+(×2 targets): `a?.b<c>` over `declare namespace A { export class b<T> … }`
+prints natively as
+`{ new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined`;
+the port printed `b<unknown>` and `b<any>`.
+
+**Cause.** `getInstantiatedTypePart` (`checker.go:10660`) builds
+`newAnonymousType(nil, resolved.members, callSignatures, constructSignatures,
+resolved.indexInfos)`, and the node builder serializes it member by member at
+the print site (`createTypeNodeFromObjectType` →
+`createTypeNodesFromResolvedType`). The port's
+`mint_instantiation_expression_type` bakes the braces text and marks the image
+`alias_named_signature_types` (the callable-expando road prints property
+syntax only), so no site road reached it.
+
+**The port.** `signature_object_text_at` (printing.rs), the last of
+`object_literal_text_at`'s roads, admits an `alias_named_signature_types`
+image with signatures and a complete property table. As §35, it rebuilds the
+baked member list (signatures, index rows, properties, in
+`createTypeNodesFromResolvedType`'s order) and declines unless that reproduces
+the baked text exactly. Then each signature is printed at the site as the
+multi-signature road prints one (its own `enterNewScope`:
+`rename_type_parameters_for_site`, `push_render_type_parameter_scope`,
+`signature_member_text_at`), index rows keep their print, and properties
+follow §35's slot rule (`reprint_property_slots_at`, now shared). No cache or
+table.
+
+## 39. A declaration its module exports only under another name is spelled by that name
+
+**Forcing constraint.** `jsDeclarationEmitDoesNotRenameImport` 2:6–2:16
+(6 lines): in `index.js`, which imports `Test` from `./test/Test.js`, the
+JSDoc `typeof import("./Test.js").default` names the *other* file's
+`class Test {}` / `export default Test`. Native prints
+`typeof import("./Test.js").default`; the port printed `typeof Test`.
+
+**Cause.** The class has no parent (a local exported only through
+`export default`). `getContainersOfSymbol`'s fallback
+(`symbolaccessibility.go:288`) finds the module through its `default` alias,
+so `getSymbolChain` is `[Test.js, default]`, and `createAccessFromSymbolChain`
+writes the leaf's own name. `symbol_chain` answers a *prefix* for the
+declared name, so its no-parent arm (§24) declines a leaf that renames the
+symbol, and the baked `Test` stood.
+
+**The port.** `renamed_module_leaf_text_at` (checker.rs), asked by
+`qualified_name_at` only after `symbol_chain` declines: for a top-level
+declaration of an external module that no in-scope name reaches
+(`best_name`), a resolver chain `[module, leaf]` whose leaf is named
+differently spells the whole entity name, `import(<specifier>).<leaf>`, and
+reports portability as §28. A non-identifier leaf declines (as §9). No cache
+or table. Also converted: `allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration`
+2:1/2:2, `conformance/chained` 1:2/1:3 and `conformance/renamed` 1:0/1:1.
+
+## 40. A type literal's alias names it through the alias's chain
+
+**Forcing constraint.** `checkJsdocTypeTagOnExportAssignment{1,5,6}` 2:0/2:1:
+`b.js` imports `a.js`'s default export, typed by a top-level
+`@typedef {Object} Foo`. Native prints `import("./a").Foo`; the port printed
+`Foo`. The TypeScript shape fails alike (native-read probe):
+`export type Foo = { a: boolean }` used from another file prints
+`import("./a").Foo` natively and `Foo` in the port.
+
+**Cause.** A type literal's type carries its alias
+(`getAliasSymbolForTypeNode`), and the node builder's alias arm
+(`nodebuilderimpl.go:3362`) names it by `symbolToTypeNode`, whose chain for a
+module export not in scope is `[module, Foo]`. `IsTypeSymbolAccessible` holds
+there, since any meaning of a module symbol is accessible through an import
+type (`allowModules`). The port's image keeps the literal's own `__type`
+symbol and bakes the alias's name, so `qualified_name_at` read the symbol
+`__type`, found no name to qualify, and kept `Foo`.
+
+**The port.** `qualified_name_at` asks `type_literal_alias_symbol`: for a
+`TYPE_LITERAL` symbol with one declaration, the alias
+`alias_symbol_for_type_node` answers (the declared alias host through
+parentheses and `readonly`, `@typedef` included, and `None` for a
+function-local or block-local alias, whose image prints its structure). The
+rest of the naming road is unchanged. No cache or table.
