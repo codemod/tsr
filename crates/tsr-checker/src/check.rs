@@ -8908,6 +8908,58 @@ impl Checker<'_, '_> {
         self.grammar_error_on_first_token(node, message);
     }
 
+    /// The `@augments`/`@extends` arm of `checkGrammarClassDeclarationHeritageClauses`
+    /// (`grammarchecks.go:915`): over the class's eagerly parsed JSDoc, a tag
+    /// whose class name's identifier (`getIdentifierFromEntityNameExpression`)
+    /// differs in text from the `extends` type's is TS8023 on the tag's name,
+    /// and the walk returns. A missing tag name has empty text, so it differs.
+    fn check_jsdoc_augments_matches_extends(
+        &mut self,
+        class: NodeId,
+        target: &tsr_ast::ExpressionWithTypeArguments<'_>,
+    ) -> bool {
+        fn identifier_of(
+            expression: Option<tsr_ast::Expression<'_>>,
+        ) -> Option<&tsr_ast::Identifier<'_>> {
+            match expression? {
+                tsr_ast::Expression::Identifier(identifier) => Some(identifier),
+                tsr_ast::Expression::PropertyAccessExpression(access) => match access.name? {
+                    tsr_ast::MemberName::Identifier(identifier) => Some(identifier),
+                    tsr_ast::MemberName::PrivateIdentifier(_) => None,
+                },
+                _ => None,
+            }
+        }
+        let Some(target_name) = identifier_of(target.expression) else { return false };
+        let Some(docs) = self.jsdoc_entries.get(&class) else { return false };
+        let mut mismatch = None;
+        'docs: for doc in *docs {
+            for tag in doc.tags {
+                if let tsr_ast::JSDocTag::JSDocAugmentsTag(tag) = tag
+                    && let Some(source) = tag.class_name
+                    && let Some(source_name) = identifier_of(source.expression)
+                    && source_name.text != target_name.text
+                {
+                    mismatch = Some((tag.tag_name.text, source_name));
+                    break 'docs;
+                }
+            }
+        }
+        let Some((tag_name, source_name)) = mismatch else { return false };
+        let Some(at) = source_name.node_id else { return false };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::JSDOC_0_1_DOES_NOT_MATCH_THE_EXTENDS_2_CLAUSE,
+                span,
+                [tag_name.to_string(), source_name.text.to_string(), target_name.text.to_string()],
+            ),
+        );
+        true
+    }
+
     /// `checkGrammarClassLikeDeclaration` and
     /// `checkGrammarInterfaceDeclaration`'s heritage walks
     /// (`grammarchecks.go:898`, `:955`).
@@ -8954,6 +9006,12 @@ impl Checker<'_, '_> {
                                 second.node_id,
                                 &messages::CLASSES_CAN_ONLY_EXTEND_A_SINGLE_CLASS,
                             );
+                            return;
+                        }
+                        if let Some(first) = clause.types.first()
+                            && let Some(class) = typed.node_id()
+                            && self.check_jsdoc_augments_matches_extends(class, first)
+                        {
                             return;
                         }
                     }
