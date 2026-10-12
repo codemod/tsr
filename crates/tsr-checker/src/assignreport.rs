@@ -6060,8 +6060,10 @@ impl Checker<'_, '_> {
         // `typeRelatedToSomeType`: only `getBestMatchingType`'s pick is
         // elaborated, with no elaboration when there is none.
         if target_flags.contains(TypeFlags::UNION)
-            && source_flags.intersects(TypeFlags::OBJECT)
-            && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+            && (source_flags.intersects(TypeFlags::OBJECT)
+                && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+                || source_flags.contains(TypeFlags::INTERSECTION)
+                    && !self.intersection_has_instantiable(source))
         {
             let regular = self.get_regular_type_of_object_literal(source);
             return match self.chain_best_matching_type(regular, target)? {
@@ -6114,8 +6116,12 @@ impl Checker<'_, '_> {
         // constraint is not `unknown` and the target is not a type parameter
         // too. A polymorphic `this` relates `getTypeWithThisArgument` of its
         // constraint, which this arm does not build.
+        // A union target first fails `typeRelatedToSomeType`, whose
+        // best-match elaboration has no candidate for a type-parameter source
+        // (every `getBestMatchingType` arm reads an object source), so the
+        // constraint is still what reports (r7-reports §71).
         if source_flags.contains(TypeFlags::TYPE_PARAMETER)
-            && !target_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            && !target_flags.intersects(TypeFlags::INTERSECTION)
             && !self.this_types.values().any(|&this| this == source)
             && !self.this_type_nodes.values().any(|&this| this == source)
         {
@@ -6176,6 +6182,24 @@ impl Checker<'_, '_> {
             return match self.chain_relate(stack, source_element, target_element) {
                 Ternary::NotRelated => {
                     self.explain_pair(stack, source_element, target_element, depth)
+                }
+                _ => None,
+            };
+        }
+        // An array target against tuples (`relater.go:3780`): a readonly
+        // array accepts any array or tuple, a mutable one a mutable tuple,
+        // and the number-index types relate with errors.
+        if let Some(target_readonly) = self.array_reference_readonly(target)
+            && let Some((_, source_readonly)) = self.tuple_element_lists.get(&source).cloned()
+            && (target_readonly || !source_readonly)
+            && !self.tuple_optional_masks.contains_key(&source)
+        {
+            let number = self.intrinsics.number;
+            let source_index = self.array_or_tuple_element_access(source, number, false)?;
+            let target_element = self.type_reference_targets.get(&target)?.1.first().copied()?;
+            return match self.chain_relate(stack, source_index, target_element) {
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, source_index, target_element, depth)
                 }
                 _ => None,
             };
@@ -6512,7 +6536,26 @@ impl Checker<'_, '_> {
             if self.get_type_of_property_of_type(source, name).is_none()
                 && !self.chain_property_is_optional(target, name)?
             {
-                let properties = self.unmatched_property_report(source, target)?;
+                let properties = match self.unmatched_property_report(source, target) {
+                    Some(properties) => properties,
+                    // `getUnmatchedProperties` over an intersection source of
+                    // plain objects: the target's required members its
+                    // combined members lack, in target order (§71).
+                    None if self.type_of(source).flags.contains(TypeFlags::INTERSECTION)
+                        && !self.intersection_has_instantiable(source) =>
+                    {
+                        let mut missing = Vec::new();
+                        for candidate in &names {
+                            if self.get_type_of_property_of_type(source, candidate).is_none()
+                                && !self.chain_property_is_optional(target, candidate)?
+                            {
+                                missing.push(candidate.clone());
+                            }
+                        }
+                        missing
+                    }
+                    None => return None,
+                };
                 let diagnostic = self.missing_properties_diagnostic(
                     tsr_core::Span::default(),
                     source,
