@@ -518,7 +518,10 @@ impl<'a> Checker<'a, '_> {
             );
             if literal
                 && !self.is_context_sensitive_argument(argument)
-                && inner.node_id().is_some_and(|id| !self.literal_subtree_has_resolution(id))
+                && inner.node_id().is_some_and(|id| {
+                    !self.literal_subtree_has_resolution(id)
+                        || self.literal_resolutions_are_context_free(id)
+                })
             {
                 rechecked[index] = true;
                 continue;
@@ -3207,6 +3210,42 @@ impl Checker<'_, '_> {
             return CallHead::Unknown;
         };
         if construct_count != 0 {
+            let Some(construct_signatures) =
+                self.head_signatures(apparent, SignatureKind::Construct)
+            else {
+                return CallHead::Unknown;
+            };
+            // `isConstructorAccessible(node, constructSignatures[0])`: an
+            // inaccessible constructor is reported and the call resolves as
+            // `resolveErrorCall`, with no arity or argument report.
+            match construct_signatures.first().map(|first| self.constructor_accessible(node, first))
+            {
+                Some(Some(false)) => return CallHead::Done,
+                Some(None) => return CallHead::Unknown,
+                _ => {}
+            }
+            // An abstract construct signature (a class declared `abstract`
+            // gives every one of its construct signatures that kind) is
+            // `resolveErrorCall` after TS2511. The check pass reports TS2511
+            // for an identifier naming an abstract class
+            // (`check_new_on_abstract_class`); every other callee (an
+            // abstract construct-signature type, a union holding one) is
+            // reported here.
+            if construct_signatures.iter().any(|signature| {
+                signature.kind == SignatureKind::AbstractConstruct
+                    || signature.union_contains_abstract
+            }) {
+                if !self.names_abstract_class(callee_id) {
+                    self.report_at_node(
+                        node,
+                        Diagnostic::new(
+                            &messages::CANNOT_CREATE_AN_INSTANCE_OF_AN_ABSTRACT_CLASS,
+                            self.nodes.span(node),
+                        ),
+                    );
+                }
+                return CallHead::Done;
+            }
             return CallHead::Resolve(apparent);
         }
         let Some(call_signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
@@ -3247,6 +3286,9 @@ impl Checker<'_, '_> {
                 if let Some(signature) =
                     self.new_head_candidate(node, new.type_arguments, signatures) =>
             {
+                let void_this = signature.this_parameter.as_ref().is_some_and(|parameter| {
+                    self.parameter_type(parameter) == self.intrinsics.void
+                });
                 if !self.no_implicit_any
                     && let Some(signature) = self.complete_signature_return(signature)
                     && signature.r#type != self.intrinsics.void
@@ -3260,10 +3302,140 @@ impl Checker<'_, '_> {
                         ),
                     );
                 }
+                // `getThisTypeOfSignature(signature) == voidType`
+                // (`checker.go:8638`), under the same `noImplicitAny` guard.
+                if !self.no_implicit_any && void_this {
+                    self.report_at_node(
+                        node,
+                        Diagnostic::new(
+                            &messages::A_FUNCTION_THAT_IS_CALLED_WITH_THE_NEW_KEYWORD_CANNOT_HAVE_A_THIS_TYPE_THAT_IS_VOID,
+                            self.error_span(node),
+                        ),
+                    );
+                }
                 CallHead::Resolve(apparent)
             }
             _ => CallHead::Resolve(apparent),
         }
+    }
+
+    /// Whether `callee` is the shape `check_new_on_abstract_class`
+    /// (`check.rs`) reports TS2511 for: an identifier whose value symbol
+    /// (merged) has an abstract class declaration among its declarations,
+    /// outside a JavaScript file. The `new` head reports TS2511 for every
+    /// other abstract target, so the two never both report.
+    fn names_abstract_class(&self, callee: tsr_ast::NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        if self.in_js_file(callee) || self.nodes.kind(callee) != K::Identifier {
+            return false;
+        }
+        let Some(text) = self.identifier_text(callee) else { return false };
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, callee, text, SymbolFlags::VALUE)
+        else {
+            return false;
+        };
+        self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.iter().any(
+            |&declaration| {
+                matches!(self.nodes.kind(declaration), K::ClassDeclaration | K::ClassExpression)
+                    && self
+                        .node_map
+                        .get(declaration)
+                        .and_then(crate::check::modifiers_of)
+                        .is_some_and(|modifiers| {
+                            crate::check::has_modifier(modifiers, K::AbstractKeyword)
+                        })
+            },
+        )
+    }
+
+    /// `isConstructorAccessible` (`checker.go:8648`): a `private` or
+    /// `protected` constructor declaration is accessible only from within
+    /// its class (`isNodeWithinClass`: any enclosing class), or, when
+    /// protected, from a class whose base chain reaches it
+    /// (`typeHasProtectedAccessibleBase`). Otherwise TS2673/TS2674 name the
+    /// declaring class's declared type and the answer is `false`. A
+    /// signature without a constructor declaration (a constructor function,
+    /// a construct signature member) is accessible. `None` where this port
+    /// cannot decide: a JavaScript file (JSDoc accessibility tags), or a
+    /// base chain through an intersection (`findMixins`) or a base it
+    /// cannot name.
+    fn constructor_accessible(
+        &mut self,
+        node: tsr_ast::NodeId,
+        signature: &Signature,
+    ) -> Option<bool> {
+        use tsr_ast::SyntaxKind as K;
+        let declaration = signature.declaration;
+        let Some(tsr_ast::Node::ConstructorDeclaration(constructor)) =
+            self.node_map.get(declaration)
+        else {
+            return Some(true);
+        };
+        let private = crate::check::has_modifier(constructor.modifiers, K::PrivateKeyword);
+        let protected = crate::check::has_modifier(constructor.modifiers, K::ProtectedKeyword);
+        if self.in_js_file(declaration) {
+            return None;
+        }
+        if !private && !protected {
+            return Some(true);
+        }
+        let class = self.nodes.parent(declaration)?;
+        let mut enclosing = self.containing_class_of(node);
+        while let Some(current) = enclosing {
+            if current == class {
+                return Some(true);
+            }
+            enclosing = self.containing_class_of(current);
+        }
+        let class_symbol = self.binder.symbol_of(class)?;
+        if protected && let Some(containing) = self.containing_class_of(node) {
+            let containing_symbol = self.binder.symbol_of(containing)?;
+            if self.class_has_protected_accessible_base(class_symbol, containing_symbol, 0)? {
+                return Some(true);
+            }
+        }
+        let declared = self.get_declared_type_of_class_or_interface(class_symbol);
+        let printed = self.type_to_string(declared);
+        let message = if private {
+            &messages::CONSTRUCTOR_OF_CLASS_0_IS_PRIVATE_AND_ONLY_ACCESSIBLE_WITHIN_THE_CLASS_DECLARATION
+        } else {
+            &messages::CONSTRUCTOR_OF_CLASS_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_WITHIN_THE_CLASS_DECLARATION
+        };
+        self.report_at_node(node, Diagnostic::with_args(message, self.error_span(node), [printed]));
+        Some(false)
+    }
+
+    /// `typeHasProtectedAccessibleBase` (`checker.go:8680`) over a class
+    /// symbol: whether the first base type of `class`'s declared type is
+    /// `target`, or has it as a protected-accessible base, recursively. A
+    /// first base that is an intersection (mixin constructors) or whose
+    /// symbol this port cannot read is undecided.
+    fn class_has_protected_accessible_base(
+        &mut self,
+        target: tsr_binder::SymbolId,
+        class: tsr_binder::SymbolId,
+        depth: usize,
+    ) -> Option<bool> {
+        if depth > 64 {
+            return None;
+        }
+        let Some(&first) = self.get_base_types(class).first() else { return Some(false) };
+        if self.store.get(first).flags.contains(TypeFlags::INTERSECTION) {
+            return None;
+        }
+        let symbol = if let Some((symbol, _)) = self.type_reference_targets.get(&first) {
+            *symbol
+        } else if let TypeData::Named { members: Some(symbol), .. } = self.store.get(first).data {
+            symbol
+        } else {
+            return None;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        if symbol == self.binder.merged_symbol(target) {
+            return Some(true);
+        }
+        self.class_has_protected_accessible_base(target, symbol, depth + 1)
     }
 
     /// The signature `resolveNewExpression`'s `resolveCall` picks over a
@@ -4309,6 +4481,11 @@ impl Checker<'_, '_> {
                     bump(&COUNTERS.single_candidate_generic_error);
                 }
             }
+            if answer == error
+                && let Some(returned) = self.type_parameter_free_return(&signature)
+            {
+                return returned;
+            }
             return answer;
         }
         if node.arguments.iter().any(|argument| {
@@ -4802,9 +4979,32 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            return error;
+            return self.type_parameter_free_return(&signature).unwrap_or(error);
         }
         signature.r#type
+    }
+
+    /// The return type of a generic signature when none of its type
+    /// parameters reaches it: `getReturnTypeOfSignature` of any
+    /// instantiation (`getSignatureInstantiation`, `checker.go:19293`) is
+    /// then the declared return type, so the call's type does not wait on
+    /// inference (a tag `function noParams<T>(n: T) {}` answers `void`
+    /// whatever `T` is). Tested by instantiating the return
+    /// with every type parameter mapped to `unknown` and comparing
+    /// identities. `None` when a parameter reaches it or the signature's
+    /// type parameters cannot be read.
+    fn type_parameter_free_return(&mut self, signature: &Signature) -> Option<TypeId> {
+        let parameters = self.type_parameter_types(signature)?;
+        let names: Vec<String> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let unknown = self.intrinsics.unknown;
+        let map: Vec<(TypeId, TypeId)> =
+            parameters.iter().map(|&parameter| (parameter, unknown)).collect();
+        let returned = signature.r#type;
+        (!self.is_gap(returned)
+            && self.instantiate_type(returned, &map, &parameters, &names) == returned)
+            .then_some(returned)
     }
 
     /// Whether `signature` accepts exactly `count` arguments. §788.
@@ -6040,6 +6240,69 @@ impl Checker<'_, '_> {
             rechecked = true;
         }
         rechecked
+    }
+
+    /// Whether every resolution inside a literal argument's subtree is a
+    /// call or `new` whose answer cannot follow the literal's contextual type:
+    /// its callee's signatures of the kind (call, or construct for `new`)
+    /// are decided and none is generic, and none of its own arguments is
+    /// context sensitive. Such a call's return type is its declared one, and
+    /// its arguments are checked against its own parameters, so re-checking
+    /// the literal under each overload candidate
+    /// ([`Checker::check_literal_argument_in_candidate`]) resolves it to the
+    /// same signature; the subtree's published state is restored after.
+    /// Any other resolving node (a function, class, method or accessor, a
+    /// tagged template, a generic or undecided callee) answers `false`.
+    fn literal_resolutions_are_context_free(&mut self, root: tsr_ast::NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            match self.nodes.kind(id) {
+                K::CallExpression | K::NewExpression => {
+                    let (callee, arguments, kind) = match self.node_map.get(id) {
+                        Some(tsr_ast::Node::CallExpression(call)) => {
+                            (call.expression, call.arguments, SignatureKind::Call)
+                        }
+                        Some(tsr_ast::Node::NewExpression(new)) => {
+                            (new.expression, new.arguments, SignatureKind::Construct)
+                        }
+                        _ => return false,
+                    };
+                    let Some(callee) = callee else { return false };
+                    if arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+                    {
+                        return false;
+                    }
+                    let callee_type = self.check_expression(callee);
+                    let apparent = self.apparent_type(callee_type);
+                    if self.is_error(apparent)
+                        || self.could_contain_type_variables_at_head(apparent, 3)
+                    {
+                        return false;
+                    }
+                    let Some(signatures) = self.head_signatures(apparent, kind) else {
+                        return false;
+                    };
+                    if signatures.is_empty()
+                        || signatures.iter().any(|signature| !signature.type_parameters.is_empty())
+                    {
+                        return false;
+                    }
+                }
+                K::TaggedTemplateExpression
+                | K::FunctionExpression
+                | K::ArrowFunction
+                | K::ClassExpression
+                | K::MethodDeclaration
+                | K::GetAccessor
+                | K::SetAccessor => return false,
+                _ => {}
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        true
     }
 
     /// Whether a literal argument's subtree holds a node whose check resolves

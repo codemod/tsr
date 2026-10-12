@@ -1668,3 +1668,400 @@ caller is a question for its owner; it is proposed rather than changed.
   chain's file goes through `attach_chain_file`, and `new_chain` copies
   the child's related information up. When the reporter declines, or
   produces anything but one diagnostic, the bare TS2786 stands as before.
+
+## 46. Index signatures in the chain; a type-parameter target
+
+- **`indexSignaturesRelatedTo`** (`relater.go:4578`). Each target index
+  signature is related in order. A `string` index of `any` beside a
+  string key relates outright. An applicable source index relates its
+  value (`indexInfoRelatedTo`): `'string' index signatures are
+  incompatible.`, or `'K' and 'L' index signatures…` when the keys
+  differ. A class or interface source with none misses it (TS2329, §37).
+  An inferable-index source (object literal, type literal) relates each
+  applicable member first (`membersRelatedToIndexInfo`): `Property 'one'
+  is incompatible with index signature.` Then it relates its own
+  applicable index infos. The arm declines for a generic mapped source,
+  a key other than `string`/`number`, a symbol-named member, and an
+  optional member. The optional member's `getNonMissingTypeOfSymbol` /
+  `NEUndefined` choice is not modelled.
+- **A type-parameter target** (`structuredTypeRelatedToWorker`,
+  `relater.go:3462`). Only a mapped source (`{ [P in Q]: X }` against
+  `T`) or a generic source has an arm there. Any other source fails with
+  nothing below the relation error, whose TS5075/TS5082 explanation
+  `chain_report_relation_error` already pushes. `Derived → T` under
+  `'number' index signatures are incompatible.` needed this.
+
+## 47. `reportErrorResults`' messages; an object source against a primitive
+
+- **TS2692 / TS2696** (`reportErrorResults`, `relater.go:4717`). Between
+  the structural report and the relation error, an object source against
+  a primitive target gets `'number' is a primitive, but 'Number' is a
+  wrapper object.…` when the source is that primitive's global wrapper
+  interface (`String`, `Number`, `Boolean`, `Symbol`). The global `Object`
+  source gets `The 'Object' type is assignable to very few other types.…`
+  above whatever the structural pass reported (`provides no match for the
+  signature`). `chain_error_results` runs at every chain level and at the
+  head pair, before the relation error. The wrapper comparison reads the
+  global interface symbol at arity 0. `global_type_symbol`'s default
+  arity is 1 and finds none of them.
+- **An object source against a primitive** has no structural arm, so
+  nothing is reported below its relation error except that message.
+- **A target with no properties** needs no source property list.
+  `get_property_names_of_type` has no answer for a function declaration's
+  overload set (`typeof f`, §40). Against a signature-only target the list
+  is never read, so the N×M signature arm now runs:
+  `assignmentCompatWithOverloads`' `g = f4` reads `Type 'string' is not
+  assignable to type 'number'.`
+
+## 48. Member relations inside the walk that is being explained
+
+The retrace asks `relate_ternary` about each member pair. That is a
+fresh walk, and the pairs native is still comparing are on its maybe
+stack (`recursiveTypeRelatedTo`, `relater.go:3089`). `Uint8Array →
+Int8Array` fails on `[Symbol.toStringTag]`. Its `copyWithin(): this`
+members return `Uint8Array` and `Int8Array`, which is the outer pair
+again, so native answers `Maybe` there and keeps looking. A fresh walk
+finds the outer pair already published as failed, so `copyWithin` fails
+and the retrace declined.
+
+`relate_ternary_assuming` seeds a verdict-only walk with the pairs being
+explained (`ChainStack::assumed`, pushed by `explain_pair` and the head),
+in the walk's maybe keys and its source/target stacks. Two departures
+from an ordinary walk make the seeding observable:
+
+- a seeded key answers `Maybe` **before** the completed results are read,
+  because the published failure of the outer pair is exactly what the
+  assumption stands in for;
+- a completed *failure* is not reused, since it may have been decided
+  without the assumptions. Completed successes are still reused.
+
+Nothing a seeded walk proves through an assumption is published. Its
+stacks are never empty, so a `Maybe` frame retains its keys, and the
+walk is dropped with them. A failure it publishes holds without the
+assumptions too, as in any walk.
+
+## 49. Callback parameters in the chain
+
+`compareSignaturesRelated` (`relater.go:1550`) relates two parameters
+that each have a single call signature (non-nullable, neither an
+instantiated generic parameter, neither a type predicate, the same
+nullability facts) as callbacks. It compares target against source in a
+callback mode: `StrictCallback` under strict variance, else
+`BivariantCallback`. In that mode parameters relate contravariantly
+only, and a bivariant callback's return type tries the reverse relation
+first. `explain_signature` declined every callback pair; it now takes
+the mode, reads the verdict from `compare_signature_ternary_in_mode`
+(the relater's own `one_signature_related_to` in that mode), and recurses
+with the swapped pair. `(f: (x: Dog) => Dog) => void` against
+`(f: (x: Animal) => Animal) => void` reads `Types of parameters 'f' and
+'f' are incompatible.` → `Property 'dog' is missing…`. The callback's
+return marker is elided, as upstream does.
+
+## 50. The source's property list is not read; arrays against objects
+
+- `propertiesRelatedTo` walks the **target's** properties and looks each
+  one up on the source by name. `explain_object_relation` also asked for
+  the source's full list and declined without one, which
+  `get_property_names_of_type` does not have for an interface extending
+  a type alias (`interface I1 extends T1 { a: string }`). The list was
+  never read, so the guard is gone: TS2430's `Types of property 'a' are
+  incompatible.` now appears under `I1`, `I12`, `I20` and `I21` in
+  `interfaceExtendsObjectIntersectionErrors`.
+- Array/tuple pairs keep their own arms (tuple elements,
+  `tryElaborateArrayLikeErrors`) and decline. A plain object against an
+  array or tuple, or the reverse, is the structural comparison and is
+  retraced as one. In that file, `I2 extends T1 & { b: number }` still
+  declines (the `I2 → T1` constituent verdict is `Unknown` under
+  `IntersectionStateTarget`), and so does `I3 extends number[]`.
+
+## 51. `Property 'x' is optional in type 'S' but required in type 'T'.`
+
+`propertyRelatedTo` (`relater.go:4309`) relates the member types first.
+When they relate, an optional source member against a required target
+member is still a failure (TS2327), with no `Types of property` above
+it. The target member must carry `SymbolFlagsClassMember`
+(method, accessor or property, which is every property symbol). The
+property loop now checks this after a related member pair, so `C` with
+`x?` against `{ x: any }` reads it.
+
+## 52. Fixed tuple targets in the chain
+
+`propertiesRelatedTo`'s tuple-target arm (`relater.go:4103`) runs before
+any property. For a target whose elements are all required, and a source
+that is a fixed tuple or an array:
+
+- an array source (all rest, minimum length 0) reads `Target requires N
+  element(s) but source may have fewer.`, or `Target allows only 0…`
+  against the empty tuple;
+- a shorter tuple reads `Source has M element(s) but target requires N.`,
+  and a longer one `…but target allows only N.`;
+- otherwise the first element that fails is explained under `Type at
+  position i in source is not compatible with type at position i in
+  target.` (only when either side has more than one element).
+
+Optional, rest and variadic elements on either side decline, since their
+position mapping, `removeMissingType` and the variadic messages are not
+retraced. A readonly source against a mutable target also declines: the
+arm fails silently there, and `tryElaborateArrayLikeErrors` reports
+instead.
+
+## 53. `this` types in the chain
+
+`compareSignaturesRelated` (`relater.go:1505`) compares the `this` types
+before any parameter. A `void` source `this` accepts anything. Otherwise
+the pair is related forward (unless strict variance), then in reverse.
+The reverse failure is reported under `The 'this' types of each signature
+are incompatible.` `explain_signature` declined every signature with a
+`this` parameter; it now runs this arm. Only one side having `this` is
+not compared, as upstream does.
+
+## 54. Too few target arguments inside the chain; alias variances
+
+- `compareSignaturesRelated`'s arity check (`relater.go:1470`) reports
+  `Target signature provides too few arguments. Expected N or more, but
+  got M.` at any depth outside strict arity. At the head this already
+  came from the relater's own signature error. Under a property
+  (`Types of property 'a' are incompatible.` in TS2430) the retrace
+  declined; it now pushes the message.
+- An alias instantiation relates its own arguments under the alias's
+  variances (`relater.go:3392`) when the alias is not written as a type
+  reference. `explain_reference_variances` now takes those aliases too.
+  An alias of a class or interface reference relates as that reference
+  in the relater, and still declines here. The motivating case,
+  `Func<string, Object> → Func<Object, Object>` in
+  `strictFunctionTypesErrors`, does not reach this arm yet: the port's
+  type for the instantiation prints expanded (`(x: string) => Object`),
+  with no alias to relate by.
+
+## 55. Written property names; no retraced chain under a type-parameter head
+
+- **`symbolToString` keeps a string-literal name as written.**
+  `Property ''ry'' is incompatible with index signature.`,
+  `Types of property ''a'' are incompatible.`, `Property '"e"'…`: a
+  property declared with a quoted name prints with its own quotes. The
+  rank has about 100 such lines. `chain_property_symbol_display` reads the
+  property's first declaration (assignment, signature, declaration or
+  method). A `StringLiteral` name keeps its quote style (`TokenFlags::
+  SINGLE_QUOTE`); anything else is `chain_property_display` as before.
+- **A type-parameter head target.** `reportRelationError` either resets
+  the chain ("only report this error once", TS5082) or puts TS5075 above
+  it. The head's report adds that message itself, so a retraced chain
+  under it was wrong in both cases. `doNotElaborateAssignabilityToTypeParameters`
+  showed `Yadda | Awaited<T> → T` with the union member's levels after
+  TS5082. `relation_failure_chain` now declines for a type-parameter
+  target.
+- **Refused: an indexed-access source arm.** Relating `T[K]`'s constraint
+  (`relater.go:3665`) needs `getConstraintOfIndexedAccess` to distribute
+  over a union index: `T[keyof T]` → `T[string] | T[number] | T[symbol]`.
+  The port's `constraint_of_type` answers `T[string | number | symbol]`,
+  so the retraced level reads differently from native
+  (`indexedAccessConstraints`). Through a conditional target
+  (`deepComparisons`) it is undecided. Measured on those two files, then
+  reverted; not in this commit.
+
+## 56. A class's `prototype` is not compared
+
+`propertiesRelatedTo` (`relater.go:4256`) skips every target property
+with `SymbolFlagsPrototype`, so `typeof Ctor2 → typeof Ctor1` is explained
+by the construct signatures' instance types. The dotted reduction then
+reads `The types of '(new a.b.c.d.e.f()).g'…`. The port mints a class's
+static-side `prototype` without a symbol (`members.rs`, §117 slice 2).
+The property loop therefore skips `prototype` on a class's anonymous
+static type, as well as any symbol carrying `PROTOTYPE`.
+
+## 57. TS8030: a JS function's `@type` must fit its arity
+
+`checkFunctionOrMethodDeclaration` (`checker.go:3441`) reports `A JSDoc
+'@type' tag on a function must have a signature with the correct number
+of arguments.` at the full-signature type node when
+`getContextualCallSignature(type, node)` is nil. The call signatures not
+smaller in arity than the function's leading required parameters
+(`isAritySmaller`) must leave exactly one. Several are combined by
+`getIntersectedSignatures` only under `noImplicitAny`, with identical
+type-parameter lists; anything else is nil. `check_jsdoc_full_signature_arity`
+(`jsdoc_full_signature.rs`) ports this for the hosts this port reads a
+full signature from (function and method declarations). It declines on an
+error type and on an undecided signature list. The JS per-function hook
+(`check_jsdoc_reparsed_this_parameter`) calls it, because the dispatch in
+`check.rs` is not this lane's. A quick oracle over `conformance/jsdoc`
+against c49 read 3 gained and 0 lost (`checkJsdocTypeTag5`,
+`checkJsdocTypeTagOnObjectProperty1`, `jsdocFunction_missingReturn`).
+
+## 58. A protected source member; abstract constructor types
+
+- `propertyRelatedTo`'s last modifier arm (`relater.go:4296`): a
+  protected source member against a public target member reads `Property
+  'x' is protected in type 'S' but public in type 'T'.`. A protected
+  *target* needs `isValidOverrideOf`'s class derivation (`…is protected
+  but type 'S' is not a class derived from 'T'`), which this retrace does
+  not make, so it still declines. The private arms now print the target
+  member's written name (§55).
+- `signaturesRelatedTo(Construct)` (`relater.go:4455`): when the first
+  source construct signature is abstract and the first target one is not,
+  the pair fails with `Cannot assign an abstract constructor type to a
+  non-abstract constructor type.` (`classAbstractAssignabilityConstructorFunction`).
+  `constructorVisibilitiesAreCompatible` (private and protected
+  constructors) is not retraced.
+
+## 59. Correction to §51: an unreadable optionality does not decline
+
+§51's optional-member check read both sides' optionality with `?`. For an
+apparent member the source does not own (`constructor` on an interface
+against `Object`), `chain_property_is_optional(source, …)` has no answer,
+so every explanation that reached such a member *after* a related pair
+was abandoned. `I → Object` lost `The types returned by 'toString()'…`.
+The check now applies only when both answers are known (source optional,
+target required). This is a fix to §51 as committed; the c50 measurement
+(+18) included the defect.
+
+The same applies to §46's member-to-index arm. A synthesized source
+member with no symbol (an import-attributes literal, `{ field: 0 }`
+against `ImportAttributes`) has no optionality answer. It is required,
+and the arm now relates it instead of declining.
+
+## 60. The chain under a type-parameter head (supersedes §55's decline)
+
+§55 dropped the retraced chain for every type-parameter head target.
+That is right after TS5082, because `reportRelationError` resets the error
+chain ("only report this error once"). After TS5075 it is wrong: TS5075
+is pushed *above* whatever the structural pass and `reportErrorResults`
+reported, so `Object → T` reads TS5075 and then `The 'Object' type is
+assignable to very few other types.…` beneath it
+(`typeParametersShouldNotBeEqual3`). `add_relation_chain` now places the
+chain by the head's own child: it is dropped under TS5082, nested under
+TS5075, and appended otherwise. Both heads (TS2322 and TS2345) use it.
+
+## 61. The expected-type origin under a union target
+
+`elaborateElement` reads `getPropertyOfType(target, name)` on the union
+itself. That is the synthesized union property, whose declarations are
+its constituents' in union order (`createUnionOrIntersectionProperty`),
+so the origin is the first constituent's declaration, `…declared here on
+type 'Blah'`. The port's `get_property_of_type` has no union property, so
+`add_expected_type_related_info` takes the first constituent that has the
+member (`indirectDiscriminantAndExcessProperty`).
+
+## 62. Rest parameters in the chain
+
+`compareSignaturesRelated` (`relater.go:1532`) walks
+`max(sourceCount, targetCount)` positions. When either side has a
+non-array rest, it walks `min(…)` and reads the last position with
+`getRestOrAnyTypeAtPosition`. The arity check is skipped when the target
+has an effective rest. `explain_signature` declined every rest
+parameter; it now follows the same walk through the port's
+`signature_*_at_position` readers. Parameter names come from
+`getParameterNameAtPosition`: a position past the fixed parameters is
+named by the rest parameter. A tuple rest names its element by label,
+which declines here. `(...x: number[]) => void` against `(x: number[], y:
+string) => void` reads `Types of parameters 'x' and 'x' are
+incompatible.`
+
+## 63. Type predicates in the chain
+
+`compareSignaturesRelated` (`relater.go:1606`) replaces the return-type
+comparison with `compareTypePredicateRelatedTo` (`relater.go:1662`) when
+the target has a type predicate. A source with none fails with `Signature
+'…' must be a type predicate.`, unless the target only asserts. Otherwise
+three failures each end with `Type predicate 'P' is not assignable to
+'Q'.`:
+
+- the kinds differ (this or parameter, asserting or not), with `A
+  this-based type guard is not compatible with a parameter-based type
+  guard.` below it;
+- the predicates name different parameter positions, with `Parameter 'a'
+  is not in the same position as parameter 'b'.` below it;
+- the predicate types fail to relate, with their own explanation below
+  it.
+
+`explain_signature` declined every predicate; `explain_type_predicates`
+ports the arm. On the `typeGuardFunction` subset, a quick oracle against
+c51 read 1 gained and 0 lost (`typeGuardFunctionOfFormThisErrors`).
+`typeGuardFunctionErrors` still differs on an unrelated TS2355.
+
+## 64. A method's own type has no property list in the port
+
+An interface method's overload set (`{ (x: string): any; (x: 'foo'):
+string; }`, the type of `Base.addEventListener`) gets no answer from
+`get_property_names_of_type`, so the retrace declined at the first step.
+Natively that type has no properties: `resolveAnonymousTypeMembers` of a
+function or method symbol reads only its exports, and a method has none.
+`explain_object_relation` now takes the empty list for a callable symbol
+without exports (`completed_callable_symbol`), and the N×M signature arm
+explains it: `overloadOnConstInheritance2` reads `Types of parameters 'x'
+and 'x' are incompatible.` → `Type '"foo"' is not assignable to type
+'"bar"'.` (The signature text there still prints the written `'bar'`
+quotes, which is the printer's.)
+
+## 65. The expected-type origin falls back to the target's declaration
+
+`elaborateElement` (`relater.go:587`) reads the target member's first
+declaration, or else **the target's own** (`target.symbol.Declarations[0]`).
+That covers a missing member with no applicable index signature, and a
+member with no declarations of its own: a mapped member without a
+modifiers property, as in `{[A in "foo"]: A}` and `MappedModel<"Foo">`.
+The origin is then the mapped type node. `add_expected_type_related_info`
+follows that order: index signature only for a missing member; then the
+member's declaration, the mapped type's declaration (`mapped_types`),
+and the target symbol's. `errorElaboration` and
+`genericMappedTypeAsClause` read the native position.
+
+## 66. exactOptionalPropertyTypes members in the chain
+
+`propertiesRelatedTo` reads both members through
+`getNonMissingTypeOfSymbol` (`relater.go:4334`). Under
+`exactOptionalPropertyTypes` an optional member's missing type is
+removed, so an explicit `undefined` source member fails against `number`.
+The relater's walk already does this (`remove_missing_type`). The
+retrace read the members with the missing type left in, found them
+related, and declined. It now removes it the same way, so TS2375 reads
+`Types of property 'value' are incompatible.` → `Type 'undefined' is not
+assignable to type 'number'.` (`strictOptionalProperties1/3`).
+
+## 67. Record: batch 55 refused on four chain losses a stale base hid
+
+Batch 55 merged 3e0052dfb (§46–§57). The integration exact oracle
+refused it on 4 EXACT losses, all `diag:chain` TS2322:
+`assignmentToObject`, `doNotElaborateAssignabilityToTypeParameters`
+(es2015), `typeParametersShouldNotBeEqual` and
+`typeParametersShouldNotBeEqual2`. This lane's gates had compared every
+candidate against base16 (batch 46). Those four were not EXACT there:
+other lanes' later batches made them EXACT on main, so "0 lost against
+base16" could not see a regression in them.
+
+The causes were §51's `?` on an unreadable optionality and §55's blanket
+decline under a type-parameter head. §59 and §60 fixed both before the
+refusal arrived. A filtered oracle run of the corrected branch reads
+every variant of the four EXACT.
+
+**The rule this costs:** the exact leg's base is rebuilt at current main
+whenever main moves, before the next candidate is gated. A base more
+than one batch old measures gains, not losses.
+
+## 68. Correction to §61: a union target's member must be in every constituent
+
+§61 took the first constituent that has the member. Natively,
+`getPropertyOfType(union, name)` answers none when any constituent lacks
+the member: `createUnionOrIntersectionProperty` marks it partial, and
+`undefined` in `T | undefined` lacks every member. The union has no
+symbol for the fallback either. Gated against main (base17 = 81e030785),
+§61 lost 8 EXACT cases on an extra TS6500 (`optionalBindingParameters2`,
+`unionErrorMessageOnMatchingDiscriminant`, `nestedFreshLiteral`,
+`coAndContraVariantInferences6`, `errorsOnUnionsOfOverlappingObjects01`,
+`objectLiteralsAgainstUnionsOfArrays01`, `typeArgInference2`,
+`optionalBindingParametersInOverloads2`). The origin is now taken only
+when every constituent has the member. A filtered oracle reads all eight
+EXACT, and `indirectDiscriminantAndExcessProperty` (§61's case) stays
+EXACT.
+
+## 69. Refused again: the indexed-access source arm, with simplification
+
+§55's refusal named the missing distribution. This round added it locally
+(`getSimplifiedIndexedAccessType`'s union-index arm: `T[A | B]` →
+`T[A] | T[B]`, built with `resolved_indexed_access_type`). The chain then
+reads the right levels, but the distributed union prints `T[number] |
+T[string] | T[symbol]` where native prints `T[string] | T[number] |
+T[symbol]`: `unions.rs`' `compare_types` has no `CompareTypes` arm for two
+indexed accesses and falls back to creation order. Measured on
+`indexedAccessConstraints`, then reverted. Reopen when union ordering
+compares indexed accesses by object and then index (`CompareTypes`,
+`utilities.go`); that is not this lane's file.

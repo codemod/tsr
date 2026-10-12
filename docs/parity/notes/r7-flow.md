@@ -1127,3 +1127,130 @@ Measured on `5aed9899` unfiltered: types and diagnostics verdicts unchanged,
 0 lost; exact oracle 9679 → 9679, 0 lost; jsTyping 117 → **114** unique
 lines, new_false 0, lost_true 0 (`program.ts`' three false TS18048 on the
 destructured `oldProgram` read in callbacks gone); Ir gi 0.9999, dm 1.0000.
+
+## §41 A union receiver's readonly property in `isConstantReference`
+
+`isConstantReference` (`flow.go:1817`) admits a property access when its
+receiver is constant and `isReadonlySymbol` of the resolved property holds;
+for a union receiver that property is the synthetic union property, readonly
+when **any** constituent's property is (`createUnionOrIntersectionProperty`,
+`checker.go:21508`). This port's `is_readonly_property_of_type` assembles the
+synthetic property for intersections only (`composite_property_of_type`), so a
+union receiver's property read as writable, and the aliased-condition
+narrowing (`const node = declaration.attributes; if (node)`) declined for
+`declaration: ImportDeclaration | ExportDeclaration | JSDocImportTag`.
+`union_property_is_readonly` (flow.rs) answers for a union whose every
+constituent has the property, through each constituent's
+`constituent_property_is_readonly`; otherwise the shared function answers as
+before. The shared function's union gap is `members.rs`' (r7-shared).
+
+Measured on `4c94490e` unfiltered: types and diagnostics verdicts unchanged,
+0 lost; jsTyping 114 → **111**, new_false 0, lost_true 0 (`checker.ts`
+38800, 45144 and 48616 gone); exact oracle 9679 → 9679, 0 lost; Ir gi
+0.9999, dm 1.0001.
+
+## §42 A compound-like assignment reads the declared type at its literal's base
+
+`getTypeAtFlowAssignment` (`flow.go:243-246`) takes the declared type at its
+literal's base when the assignment is compound-like (`x = x + 1`, a binary
+right operand reading the target, `isInCompoundLikeAssignment`) before the
+union reduction or the declared-type answer: `let foo = empty` (`empty: ""`)
+is `string` after `foo = foo + "bar"`. The port answered the declared `""`
+(`literalWideningWithCompoundLikeAssignments`, eleven lines). The assignment
+arm now applies the same base read, through the existing
+`is_in_compound_like_assignment` (the identifier road's twin, expressions.rs).
+
+Measured on `f65819c4` unfiltered: types **+11**, diagnostics unchanged, 0
+lost; exact oracle 9679 → 9680, 0 lost; jsTyping 111 → 111, new_false 0, lost_true
+0; Ir gi 1.0000, dm 1.0001.
+
+## §43 The effects signature of an optional call drops the callee's nullable half
+
+`getEffectsSignature` (`flow.go`) types a call's callee by
+`checkNonNullExpression`, or for an optional chain
+`checkNonNullType(getOptionalExpressionType(…))`: either way the callee's
+`null`/`undefined` constituents are gone before its call signatures are read.
+The port read `check_expression(callee)` as it stood (its comment assumed a
+chain's callee already answered the non-optional type, which holds for
+`o?.f` but not for `f?.(x)` with `f: undefined | ((x: any) => x is number)`),
+so the union with `undefined` had no call signatures and `if (f?.(x))` did not
+narrow `x` (`controlFlowOptionalChain`: `x` four times, `o6` twice). The
+effects road now takes `getOptionalExpressionType` for an optional call and
+`GetNonNullableType` of a nullable callee (under `strictNullChecks`).
+
+Measured on `ef353bb9` unfiltered: types **+6** (`controlFlowOptionalChain`),
+diagnostics unchanged, 0 lost; exact oracle 9680 → 9681, 0 lost; jsTyping 111
+→ 111, new_false 0, lost_true 0; Ir gi 1.0001, dm 1.0000.
+
+## §44 Finding (routed): a union with a generic alias reference keeps it unflattened
+
+`narrowingTypeofDiscriminant`'s `booleanBad(wrapped: WrappedStringOr<boolean> |
+null)` does not narrow `wrapped` by `typeof wrapped?.value !== 'string'`: the
+discriminant test (`isDiscriminantProperty` over the declared type,
+`getDiscriminantPropertyAccess`) sees the union's constituents as `[null,
+WrappedStringOr<boolean>]`, the alias reference standing as one constituent,
+so `value` has one member type and is not a discriminant. Native unions are
+always flattened (`getUnionType` adds a union's constituents; the alias and
+origin only shape printing), so the constituents are `null`, `{ value?:
+string }`, `{ value?: boolean }`. The same declaration without `| null`, or a
+non-generic alias, narrows here. The union constructor is `unions.rs` /
+`declared.rs`' (r7-declared); not changed in this lane.
+
+## §45 The class-chain miss certificate declines a value base
+
+§13's `class_chain_lacks` walks a class's `extends` chain by symbol, reading
+each base symbol's declarations. A class's base type is its base
+constructor's instance type (`getBaseConstructorTypeOfClass`): for a class
+symbol that is its declared type, but for a value (`declare const Base02:
+Base02Constructor` merged with `interface Base02`, whose construct signature
+is `new <T = A>(a: T): Base02 & T`) it is the signature's return, `Base02 & A`
+here. The walk read the merged interface and certified `a` absent from
+`Derived03` (`genericDefaults`, a false TS2339). A class's base must now be a
+class symbol (a class declaration or expression among its declarations);
+anything else declines. An interface's `extends` keeps reading the type
+meaning.
+
+Measured on `ead5eb83` unfiltered: types and diagnostics verdicts unchanged
+(`genericDefaults` stays WRONG on a TS2415 of the heritage check), 0 lost;
+exact oracle 9681 → 9681, 0 lost; jsTyping 111 → 111, new_false 0, lost_true 0;
+Ir gi 0.9999, dm 1.0001.
+
+## §46 `elaborateNeverIntersection` on TS2339
+
+`reportNonexistentProperty` chains the TS2339 for a never-reduced
+intersection receiver to `elaborateNeverIntersection` (`checker.go:21868`):
+"The intersection 'A & B' was reduced to 'never' because property 'kind' has
+conflicting types in some constituents." (TS18031), or the private-conflict
+form (TS18032), naming the first discriminant property with a `never` type,
+else the first conflicting private one, and printing the intersection without
+reduction. The port reported the head alone (the chain was "message text this
+diagnostic model does not carry", before chains). `never_reduced_property`
+(flow.rs, the scan of `intersection_has_never_discriminant` refactored to
+also say which property and which kind) supplies it, on the property-access
+road only, as native (`getPropertyTypeForIndexType` does not elaborate).
+The flattened head now matches native (`intersectionReduction`,
+`intersectionReductionStrict`); the chain row is file-less until §19's
+infrastructure lands.
+
+Measured on `c1a10e20` unfiltered: types and diagnostics verdicts unchanged,
+0 lost; exact oracle 9681 → 9681, 0 lost; jsTyping 111 → 111, new_false 0,
+lost_true 0; Ir gi 0.9999, dm
+0.9999.
+
+§31 update: `nullish.rs`' `getSyntacticNullishnessSemantics` identifier arm
+made the same stale test (an `undefined` that "resolves to nothing"), so
+`(opt ? undefined : null) ?? x` missed TS2871 (`predicateSemantics`, two
+rows); `truthiness.rs` had already been corrected. The routed diff now covers
+both files. Re-measured on `954817a5` unfiltered: types **+6**, diagnostics
+unchanged, 0 lost; exact oracle 9681 → 9683, 0 lost; jsTyping 111 → 111,
+new_false 0, lost_true 0; Ir gi 0.9999, dm 1.0000. `predicateSemantics`
+keeps a TS2872 span difference: `GetErrorRangeForNode`'s `SatisfiesExpression`
+arm (the `satisfies` keyword) is missing from the shared `error_span`, which
+§38's routed diff could take too.
+
+§38 update: the routed `error_span` diff now also has `GetErrorRangeForNode`'s
+`SatisfiesExpression` arm (`scanner.go:2626`: the token after the expression,
+the `satisfies` keyword). Re-measured on `bae795fe` unfiltered: legacy verdicts
+unchanged; exact oracle 9681 → 9686 (the same five; `predicateSemantics`
+gains with §31's diff as well), 0 lost; jsTyping 111 → 111, new_false 0,
+lost_true 0; Ir gi 1.0001, dm 1.0002.

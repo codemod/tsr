@@ -1053,6 +1053,106 @@ esDecorators-arguments in the exact oracle). §30 had added it before
 as well. `report_argument_arity_error_under` now builds the chain itself
 in native's order, and the decorator path passes its head there.
 
+## 32. A `new` stops at an inaccessible constructor or an abstract target
+
+`resolveNewExpression` (`checker.go:8575`) does two things before
+`resolveCall` over the construct signatures:
+
+- `isConstructorAccessible(node, constructSignatures[0])` (`:8648`). A
+  `private` or `protected` constructor declaration is accessible only
+  from inside its class (any enclosing class, `isNodeWithinClass`). A
+  `protected` one is also accessible from a class whose base chain reaches
+  it (`typeHasProtectedAccessibleBase`, `:8680`). Otherwise the call reports
+  TS2673/TS2674, naming the class's declared type.
+- An abstract construct signature (or an abstract class declaration)
+  reports TS2511.
+
+Either way the call is `resolveErrorCall`, with no arity or argument
+report. This port's `new` head ran `resolveCall`'s reports regardless.
+typesWithPrivateConstructor/typesWithProtectedConstructor reported a false
+TS2554 (`new C2()` against `private constructor(x: number)`) and missed
+TS2673/TS2674. classConstructorAccessibility and
+classConstructorAccessibility5 missed theirs.
+
+`constructor_accessible` ports the first check and reports from the head.
+For the abstract arm the head only stops: TS2511 is the check pass's
+(`check_new_on_abstract_class`, `check.rs`, an identifier callee naming an
+abstract class). The type road already answers `any` for both
+(`expressions.rs`). A class declared `abstract` gives every construct
+signature `SignatureKind::AbstractConstruct` (`signatures.rs`), so the kind
+test covers native's `valueDecl` arm.
+
+**Declines, stated:**
+
+- a JavaScript file (`getSelectedModifierFlags` reads JSDoc accessibility
+  tags there);
+- a protected base chain through an intersection (`findMixins`) or a base
+  whose symbol this port cannot name.
+
+Both fall back to the old `Unknown` head.
+
+TS2511 itself is split. The check pass keeps the shape it already reports
+(`check_new_on_abstract_class`: an identifier naming an abstract class,
+outside JavaScript). The `new` head reports every other abstract target:
+an abstract construct-signature type, or a union holding one
+(unionTypeConstructSignatures, abstractClassUnionInstantiation).
+`names_abstract_class` mirrors the check pass's predicate so the two never
+both report.
+
+**Proposed:** move TS2511 wholly into `resolveNewExpression` and drop the
+check pass's arm along with this split.
+
+**TS2679.** `resolveNewExpression`'s call-signature arm also reports
+`A_function_that_is_called_with_the_new_keyword_cannot_have_a_this_type_that_is_void`
+when the resolved signature's `this` type is `void`
+(`checker.go:8638`, under the same `noImplicitAny` guard as TS2350). The
+`new` head reports it for the candidate it can tell
+(`new_head_candidate`): thisTypeInFunctionsNegative's `new VoidThis()`.
+
+## 34. A literal argument whose nested calls cannot follow its context is re-checked per candidate
+
+The non-generic overload walk (`check_overload_candidates_arguments`, §8)
+declined an object or array literal argument holding any nested
+resolution (`literal_subtree_has_resolution`). Re-checking it under each
+candidate re-enters that resolution, and a resolution that reads the
+literal's contextual type would publish a candidate-dependent answer.
+
+A nested call or `new` whose callee's signatures of the kind are decided
+and none generic, and none of whose own arguments is context sensitive,
+does not read it. Its return type is its declared one, and its arguments
+are checked against its own parameters, so the re-check resolves it to
+the same signature (and the subtree's published state is restored after,
+as before). `literal_resolutions_are_context_free` certifies a subtree
+whose every resolution is such a call. Functions, classes, methods,
+accessors, tagged templates, and generic or undecided callees still
+decline.
+
+`array.concat([...new SymbolIterator])` now reports native's TS2769
+(iteratorSpreadInArray6); its elaboration below the head is the relation
+reporter's. Only the plain-argument road (the non-generic walk's report and
+§30's TS2793 check) reads the new predicate; the type road's walk keeps
+`literal_subtree_has_resolution`.
+
+## 35. A generic call whose return no type parameter reaches has that return
+
+`getSignatureInstantiation` (`checker.go:19293`) instantiates the return
+type with the inferred (or written) type arguments. When no type parameter
+reaches the declared return, every instantiation returns it unchanged. The
+call's type then does not wait on inference, and an overload failure's
+`pickLongestCandidateSignature` over the same single candidate answers the
+same type. Two type roads answered `error` (a GAP) when inference declined:
+
+- the single generic call (`check_call_expression_worker`): `genericFunc<this>(undefined)`
+  with an unresolvable written argument (thisInInvalidContexts);
+- the tagged template with no substitution, which never infers
+  (`` noParams`` `` over `function noParams<T>(n: T) {}`,
+  taggedTemplateStringsTypeArgumentInference).
+
+`type_parameter_free_return` instantiates the return with every type
+parameter mapped to `unknown` and compares identities. If they match, it is
+the answer. It is consulted only after the inference road answered `error`,
+so every answer that road gives today stands.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

@@ -381,6 +381,9 @@ impl Checker<'_, '_> {
     /// tag.TagName())`). It is always first, so TS2680 never applies. The
     /// written `this` parameter is [`Checker::check_this_parameter_position`]'s.
     pub(crate) fn check_jsdoc_reparsed_this_parameter(&mut self, function: NodeId) {
+        // The JS per-function hook also carries the `@type` full
+        // signature's arity check (TS8030, r7-reports §57).
+        self.check_jsdoc_full_signature_arity(function);
         let message = match self.nodes.kind(function) {
             SyntaxKind::Constructor => &messages::A_CONSTRUCTOR_CANNOT_HAVE_A_THIS_PARAMETER,
             SyntaxKind::ArrowFunction => &messages::AN_ARROW_FUNCTION_CANNOT_HAVE_A_THIS_PARAMETER,

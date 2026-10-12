@@ -67,7 +67,8 @@ alone (`r6-triage.md` §2 row 9).
   cleared — the same instance the `instantiated` out-slot returns.
 - **Work boundary:** only array/object literals that are not
   context-sensitive and whose subtree holds no call, `new`, tagged template,
-  function, method, accessor or class (`literal_subtree_resolves`): native
+  function, method, accessor or class (`literal_subtree_resolves`; §31 later
+  replaced the call/`new`/tagged-template half by reusing the nested answer): native
   caches a nested resolved signature and a function's type from their first
   check, while re-checking them here would redo that resolution (an
   exponential cost in nesting depth). The eviction
@@ -837,3 +838,138 @@ Otherwise the mention is on another road and the answer stays undecided.
 `member_names_are_literal` now also admits an enum object (`typeof E`,
 `TypeData::Anonymous` over a symbol declared only by enum declarations). A
 merged namespace would add exports that its declaration walk does not see.
+
+## 27. A binding pattern's implied object is tuple-like through its `"0"` member
+
+`checkArrayLiteral`'s `inTupleContext` (`checker.go:8029`) asks
+`isTupleLikeType` of the contextual type, whose second disjunct is
+`getPropertyOfType(t, "0") != nil`. The type an object binding pattern implies
+(`getTypeFromObjectBindingPattern`, `:17917`) has synthetic properties with no
+declarations. This port keeps them in `anonymous_properties` with no symbol
+(`binding_pattern_object`), so `get_property_of_type` answered none and
+`var { 0: a, 1: b } = [10, "hello"]` widened the literal to
+`(string | number)[]`. Native gives `[number, string]`, and `a : number`,
+`b : string` follow (declarationsAndAssignments 0:210).
+`binding_pattern_object_has_index_zero` reads that table for a symbol-less
+`"0"` property of a member-less named object, which is exactly
+`binding_pattern_object`'s shape. It is consulted beside `is_tuple_like_type`
+in `array_literal_has_a_tuple_contextual_type` only. Generalizing the lookup
+in `get_property_of_type` (members.rs) would serve every reader, but that file
+is not this lane's.
+
+## 28. An array-literal default supplies context to a nested-pattern element
+
+`binding_default_pattern_context_available`'s array arm (the twin of §22's
+object arm) refused a default whose matching pattern element is itself a
+pattern, because no per-element pattern context was available for the
+literal's element. Since §10 that context arrives through
+`initializer_binding_pattern_context` on the BindingElement arm. In
+`var [a, [b, { x, y: c }] = ["abc", { x: 10, y: false }]] = [1, ["hello", { x: 5, y: true }]]`
+the default types as `[string, { x: number; y: boolean; }]` under its
+`[any, { x: any; y: any; }]` pattern context. The outer literal's
+`{ x: 5, y: true }` then keeps `true` under `y: boolean`
+(isLiteralOfContextualType), as native does (declarationsAndAssignments
+0:228–0:235). The arm still refuses a pattern element with its own
+initializer, and any rest element. tsgo's d.ts emit agrees with the port on
+five probes (`[a, {x, y}] = [1, {x: 1, y: true}]`, a nested array pattern, an
+object root holding an array pattern, an excess member, and a short tuple).
+
+## 29. An empty tuple spreads `never`
+
+`checkSpreadExpression` reads `checkIteratedTypeOrElementType(Spread, …)`,
+and a tuple iterates through its base type (`getTupleBaseType`:
+`Array<union of element types>`). For `[]` that is `Array<never>`, so
+`[x, y, z, ...a0] = v` with `a0: []` records `...a0 : never`
+(declarationsAndAssignments 0:486, 0:535). `array_spread_element_type` fell
+to `for_of_element_type`, which treats the empty yield list of an empty
+tuple as an absent yield and answers `any`; the spread line printed `error`.
+`array_spread_element_type` now answers `never` for an empty fixed tuple
+before that road. Routed: the for-of reader (`for_of_yield_types`,
+symbols.rs) still gives `for (const q of a0)` `q : any`, where native gives
+`never`.
+
+## 30. Phase 1 checks every object/array literal argument under the inference context
+
+`inferTypeArguments` checks each ordinary argument with
+`checkExpressionWithContextualType(arg, paramType, context)`
+(`checker.go:9485`, `:7486`). The argument's contextual type is the
+uninstantiated parameter, mapped only by the return mapper
+(`instantiateContextualType`), and its apparent type is the constraint. The
+port marked the active context `inferential` in phase 1 only for a §1
+fresh-literal argument or under a return-literal map. Any other literal read
+its context through the stateless argument road, which fixes the call's type
+parameters to `unknown` first. `test2<T extends Test<"bar">>(arg: T)` with
+`{ foo: true, bar() {} }` read `unknown` (probed), where native reads
+`Test<"bar">`, whose `foo` is `true` (inferenceAndSelfReferentialConstraint:
+native `T = { foo: true; … }`). Object and array literal arguments whose subtree holds no
+function, method, accessor or class now read the active context in phase 1
+(`literal_subtree_holds_function`). Function and conditional arguments keep
+the return-literal-map gate.
+
+The function boundary is §8's work boundary, measured again here. Admitting
+every literal (first run, against b55) gained 49 lines but lost 3:
+`reverseMappedContravariantInference` 0:7–0:9. Under the active context, the
+member `(v: string) => false` gets the generic contextual signature
+`(val: T["foo"]) => boolean`, and the port's return widening
+(`inferred_return_type`, signatures.rs) then widens to `boolean`. Native keeps
+`false` because `boolean` is a literal context. With the boundary (verdicts
+on the same tree): deeplyNestedMappedTypes 12→1, genericRestParameters2 9→1,
+genericRestParameters1 27→23, trailingCommasInFunctionParametersAndArguments
+1→0 non-RIGHT lines, and reverseMappedContravariantInference stays 0. The
+boundary gives up intraExpressionInferences (26→17 without it) and
+jsxChildrenGenericContextualTypes (10→7), whose literals hold functions.
+Those return once the function-member return widening follows a generic
+contextual signature's return type (routed with §25's signatures.rs items).
+
+That case still needs the mapped-type member resolution routed in the report:
+the port does not resolve `{ [P in "bar" | "foo"]: P extends "foo" ? true :
+() => any }` into members at all.
+
+## 31. The held literal-call boundary (§8) lands: nested calls are reused, not excluded
+
+§8 held this diff (`r7-contextual-HELD-literal-call-boundary.diff`) at
++20 / −6 types, −1 diagnostics. It is rebased here onto the current
+boundary helpers. §1's re-check
+(`resolved_literal_argument_recheck`) now admits a literal holding a call,
+`new` or tagged template. `literal_subtree_holds_function_outside_calls`
+refuses only a function, method, accessor or class outside such a call.
+`evict_literal_subtree` stops at the nested call, so its answer is reused, as
+native's per-candidate re-check reuses the call's cached
+`links.resolvedSignature`. `Promise.all([fa(), fb()])` now keeps
+`Promise<[number[], string[]]>` (probed). `literal_subtree_resolves` had no
+remaining caller and is removed.
+
+The first gate (against b57) gained 27 types (mappedTypesGenericTuples2 10,
+awaitedType 8, correctOrderOfPromiseMethod 5, awaitedTypeStrictNull 4), plus
+1 diagnostics case, with no corpus loss. §8's two blockers no longer reproduce.
+The exact oracle, which checks diagnostics before the type walk, lost
+genericContextualTypes2 and 3: `entry` and its `assign(…)` printed `error`.
+`createMachine<{ count: number }>({ context, entry: assign({…}) })` writes its
+type argument, but phase 1's argument loop runs before the written-arguments
+arm. Its literal now passed the boundary, so the loop marked the active
+context `inferential`. The literal then read the uninstantiated
+`Config<TContext>`, and the nested `assign` call cached its answer under that
+context. Native does no inference with written type arguments: the argument
+is checked against the instantiated signature (`checkApplicableSignature`).
+Phase 1 now never marks the context `inferential` when the call writes type
+arguments (§30's object/array arm included). Instead it publishes the
+written-argument instance (`written_type_argument_map`, the
+`fillMissingTypeArguments` fill the written arm already used, now shared)
+through `call_inference_signatures` while such an argument is checked. A
+first cut that only dropped the `inferential` mark sent those literals to the
+stateless argument road, and the exact oracle lost tupleTypeInference:
+`$q.all<string, number>([$q.when<string>(), $q.when<number>()])` lost its
+`[IPromise<string>, IPromise<number>]` tuple context. With the instance
+published, genericContextualTypes2 and 3 are EXACT and tupleTypeInference is
+RIGHT under the oracle runner, no `Inference`-named case changes EXACT
+status, and the four gains above still hold on the verdict dump.
+
+A call with a spread argument keeps the previous `inferential` mark and
+publishes no instance. checkApplicableSignature reads such a call's
+non-array rest through `getSpreadArgumentType`, an indexed access into the
+rest type per element, which the instance's positional context does not
+port. The gate measured that boundary: publishing the instance there lost
+circularInlineMappedGenericTupleTypeNoCrash 0:17–0:18.
+`new Foo<[...Elements, "abc"]>(...this.elements, { bar: "abc" })` read
+`{ bar: "abc" }` where native prints `{ bar: string }`. With the boundary it is
+back to its b57 state (one non-RIGHT line, unchanged).

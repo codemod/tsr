@@ -2622,10 +2622,28 @@ impl<'a> Checker<'a, '_> {
                 | SymbolFlags::CLASS
                 | SymbolFlags::FUNCTION
                 | SymbolFlags::ENUM;
-            if flags.intersects(SymbolFlags::ALIAS)
-                || !flags.intersects(SymbolFlags::MODULE | declaration_shaped)
-                || flags.intersects(SymbolFlags::VALUE - declaration_shaped)
-            {
+            let declared = !flags.intersects(SymbolFlags::ALIAS)
+                && flags.intersects(SymbolFlags::MODULE | declaration_shaped)
+                && !flags.intersects(SymbolFlags::VALUE - declaration_shaped);
+            // A type-only target (`export = I` of an interface) has no value
+            // and so no property: `getTypeOfSymbol` is `errorType`, and only
+            // its exports answer. A variable target's members are
+            // `getPropertyOfType` over its declared type, decided here once
+            // that type is one this port computed (not `any`, an error or a
+            // gap); `export = x` with `x: { a } | { b }` has neither `a` nor
+            // `b` (`namedImportNonExistentName`, r7-shared.md §36).
+            let type_only = !flags.intersects(SymbolFlags::ALIAS | SymbolFlags::VALUE)
+                && flags.intersects(SymbolFlags::TYPE);
+            let variable = !declared
+                && !type_only
+                && !flags.intersects(SymbolFlags::ALIAS)
+                && flags.intersects(SymbolFlags::VARIABLE)
+                && !flags.intersects(SymbolFlags::VALUE - SymbolFlags::VARIABLE)
+                && {
+                    let ty = self.get_type_of_symbol(target);
+                    !self.is_error(ty) && !self.is_type_any(ty) && !self.is_gap(ty)
+                };
+            if !(declared || type_only || variable) {
                 return None;
             }
             target
@@ -2687,7 +2705,14 @@ impl<'a> Checker<'a, '_> {
         let suggestion = spelling_suggestion(text, &candidates).map(str::to_string);
         let span = self.nodes.span(name_id);
         let file = self.source_file_of_for_diagnostics(specifier)?;
-        let module_name = self.quoted_module_name(module_specifier);
+        // `getFullyQualifiedName(moduleSymbol)`: an ambient module prints its
+        // own declared name, so a specifier matched by a pattern module
+        // (`"b.foo"` against `declare module "*.foo"`) names the pattern
+        // (`ambientDeclarationsPatterns_merging1/2`, r7-shared.md §37); a file
+        // module prints as its specifier.
+        let module_name = self
+            .ambient_module_declared_name(module_symbol)
+            .unwrap_or_else(|| self.quoted_module_name(module_specifier));
         if let Some(suggestion) = suggestion {
             let mut diagnostic = Diagnostic::with_args(
                 &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
@@ -2826,6 +2851,16 @@ impl<'a> Checker<'a, '_> {
     ) -> bool {
         let target_type = self.get_type_of_symbol(target);
         if self.get_property_of_type_ex(target_type, name, true).is_some() {
+            return true;
+        }
+        // `getPropertyOfType` on a union is `createUnionOrIntersectionProperty`
+        // (every constituent has it); `get_property_of_type_ex` routes no
+        // union, and the type-read road projects across constituents.
+        if matches!(self.store.get(target_type).data, crate::types::TypeData::Union { .. })
+            && self
+                .get_type_of_property_with_this_argument(target_type, name, target_type, true)
+                .is_some()
+        {
             return true;
         }
         if self.get_export_of_module(target, name).is_some() {
@@ -3056,6 +3091,24 @@ impl<'a> Checker<'a, '_> {
 
     /// `getFullyQualifiedName` of an external module symbol, which prints the
     /// specifier **as written, with its quotes** (`checker.go:14888`).
+    /// The quoted name an ambient module symbol was declared with
+    /// (`declare module "*.foo"`), when every declaration is a string-named
+    /// module declaration; `None` for a file module.
+    fn ambient_module_declared_name(&self, module: SymbolId) -> Option<String> {
+        let declarations = &self.binder.symbols().get(module).declarations;
+        let mut name = None;
+        for &declaration in declarations {
+            let Some(Node::ModuleDeclaration(module)) = self.node_map.get(declaration) else {
+                return None;
+            };
+            let Some(tsr_ast::ModuleName::StringLiteral(literal)) = module.name else {
+                return None;
+            };
+            name.get_or_insert(literal.text);
+        }
+        name.map(|name| format!("\"{name}\""))
+    }
+
     fn quoted_module_name(&self, module_specifier: NodeId) -> String {
         match self.node_map.get(module_specifier) {
             Some(Node::StringLiteral(literal)) => format!("\"{}\"", literal.text),

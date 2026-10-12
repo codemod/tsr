@@ -612,16 +612,27 @@ impl Checker<'_, '_> {
         // typeToString (TypeFormatFlagsNoTypeReduction unset) prints
         // getReducedType of the containing type: a never-reduced
         // intersection, whose certified apparent type is `never`, is 'never'.
-        // elaborateNeverIntersection's chain (checker.go:21868) is message
-        // text this diagnostic model does not carry.
-        let shown = if apparent_receiver == self.intrinsics.never
-            && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION)
-        {
-            apparent_receiver
-        } else {
-            containing
-        };
+        let never_intersection = apparent_receiver == self.intrinsics.never
+            && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION);
+        let shown = if never_intersection { apparent_receiver } else { containing };
         let printed = self.type_to_string(shown);
+        // `elaborateNeverIntersection` (`checker.go:21868`), on the property
+        // access road only (`reportNonexistentProperty`): the intersection,
+        // printed unreduced, and the property that reduced it.
+        let union_miss = if never_intersection
+            && matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_)))
+            && let Some((property, private)) = self.never_reduced_property(containing)
+        {
+            let message = if private {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_EXISTS_IN_MULTIPLE_CONSTITUENTS_AND_IS_PRIVATE_IN_SOME
+            } else {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_HAS_CONFLICTING_TYPES_IN_SOME_CONSTITUENTS
+            };
+            let unreduced = self.type_to_string(containing);
+            Some(Diagnostic::with_args(message, span, [unreduced, property]))
+        } else {
+            union_miss
+        };
         // reportNonexistentProperty's last arm (checker.go:11580); the
         // element-access fallthrough to here is getPropertyTypeForIndexType's
         // plain TS2339, not this report.
@@ -1333,6 +1344,12 @@ impl Checker<'_, '_> {
         }
         visiting.push(owner);
         let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        let owner_is_class = declarations.iter().any(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        });
         let mut heritage = Vec::new();
         for declaration in declarations {
             match self.node_map.get(declaration) {
@@ -1394,6 +1411,22 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 let base = self.base_symbol_of_heritage_entry(entry, false)?;
+                // A class's base type is its base constructor's instance type
+                // (`getBaseConstructorTypeOfClass`): a class symbol's own
+                // declared type, but a value's construct signatures' returns
+                // otherwise (`declare const Base: { new <T = A>(): Base & T }`
+                // merged with `interface Base` is `Base & A`), which this walk
+                // does not read.
+                if owner_is_class
+                    && !self.binder.symbols().get(base).declarations.iter().any(|&declaration| {
+                        matches!(
+                            self.nodes.kind(declaration),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
+                    })
+                {
+                    return None;
+                }
                 if !self.class_chain_lacks(base, name, visiting, indexed)? {
                     return Some(false);
                 }

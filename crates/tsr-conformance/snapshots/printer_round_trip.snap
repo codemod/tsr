@@ -2,11 +2,11 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 printer_round_trip Summary:
 What a pass means: every unit of the case parses, prints, and reparses to the same tree
-Passed         : 11810/11814 (99.97%)
+Passed         : 11811/11815 (99.97%)
 Failed         : 4
-Skipped        : 630 (excluded from the denominator)
+Skipped        : 629 (excluded from the denominator)
 
-  630  skipped: the case does not parse cleanly, so there is no tree to preserve
+  629  skipped: the case does not parse cleanly, so there is no tree to preserve
 
 compiler/accessorBodyInTypeContext
   tree differs at node 4: Block became TypeAliasDeclaration

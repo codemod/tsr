@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8986/9538 (94.21%)
-Assertion lines: 476088/478853 (99.42%)  — a gradient, not a pass rate
-Failed         : 552
+Passed         : 9011/9538 (94.47%)
+Assertion lines: 476259/478853 (99.46%)  — a gradient, not a pass rate
+Failed         : 527
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 552 failures:
+First 100 of 527 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -43,8 +43,6 @@ compiler/awaitedType
   awaitedType.ts: >T6 : any — expected >T6 : never
 compiler/awaitedTypeNoLib
   awaitedTypeNoLib.ts: >result : Thenable<NotPromise<TResult>> — expected >result : Thenable<NotPromise<TResult>> | NotPromise<TResult>
-compiler/awaitedTypeStrictNull
-  awaitedTypeStrictNull.ts: >[        aaa,        bbb,    ] = await Promise.all([        MaybePromise(1),        MaybePromise('2'),        MaybePromise(true),    ]) : (MaybePromise<string> | MaybePromise<number> | MaybePromise<boolean>)[] — expected >[        aaa,        bbb,    ] = await Promise.all([        MaybePromise(1),        MaybePromise('2'),        MaybePromise(true),    ]) : [number, string, boolean]
 compiler/badInferenceLowerPriorityThanGoodInference
   badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
 compiler/baseConstraintOfDecorator
@@ -59,8 +57,6 @@ compiler/builtinIterator
   builtinIterator.ts: >Iterator : IteratorConstructor — expected >Iterator : Iterator<number, undefined, unknown>
 compiler/callOfConditionalTypeWithConcreteBranches
   callOfConditionalTypeWithConcreteBranches.ts: >arg => useT(arg) : (arg: number) => void — expected >arg => useT(arg) : (arg: T & number) => void
-compiler/callsOnComplexSignatures
-  callsOnComplexSignatures.tsx: >p : boolean — expected >p : true
 compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
 compiler/checkJsdocTypeTagOnExportAssignment1
@@ -163,8 +159,6 @@ compiler/controlFlowPrivateClassField
   controlFlowPrivateClassField.ts: >#test : any — expected >#test : number
 compiler/controlFlowWithIncompleteTypes
   controlFlowWithIncompleteTypes.ts: >x : string | number | boolean — expected >x : string | number
-compiler/correctOrderOfPromiseMethod
-  correctOrderOfPromiseMethod.ts: >resultB : A[] — expected >resultB : B[]
 compiler/correlatedUnions
   correlatedUnions.ts: >clickEvent : error — expected >clickEvent : { readonly name: "click"; readonly once?: boolean; readonly callback: (ev: PointerEvent) => void; }
 compiler/crashInYieldStarInAsyncFunction
@@ -180,7 +174,7 @@ compiler/declFileRestParametersOfFunctionAndFunctionType
 compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1
   declarationAssertionNodeNotReusedWhenTypeNotEquivalent1.ts: >unwrapped : { prop1: "hello" extends Record<string, Wrapper<any>> ? { [x: number]: never; toString: never; charAt: never; charCodeAt: never; concat: never; indexOf: never; lastIndexOf: never; localeCompare: Unwrap<{ (that: string): number; (that: string, locales?: string | string[], options?: Intl.CollatorOptions): number; }>; match: Unwrap<{ (regexp: string | RegExp): RegExpMatchArray | null; (matcher: { [Symbol.match](string: string): RegExpMatchArray | null; }): RegExpMatchArray | null; }>; replace: Unwrap<{ (searchValue: string | RegExp, replaceValue: string): string; (searchValue: string | RegExp, replacer: (substring: string, ...args: any[]) => string): string; (searchValue: { [Symbol.replace](string: string, replaceValue: string): string; }, replaceValue: string): string; (searchValue: { [Symbol.replace](string: string, replacer: (substring: string, ...args: any[]) => string): string; }, replacer: (substring: string, ...args: any[]) => string): string; }>; search: Unwrap<{ (regexp: string | RegExp): number; (searcher: { [Symbol.search](string: string): number; }): number; }>; slice: never; split: Unwrap<{ (separator: string | RegExp, limit?: number): string[]; (splitter: { [Symbol.split](string: string, limit?: number): string[]; }, limit?: number): string[]; }>; substring: never; toLowerCase: never; toLocaleLowerCase: never; toUpperCase: never; toLocaleUpperCase: never; trim: never; readonly length: never; substr: never; valueOf: never; codePointAt: never; includes: never; endsWith: never; normalize: Unwrap<{ (form: "NFC" | "NFD" | "NFKC" | "NFKD"): string; (form?: string): string; }>; repeat: never; startsWith: never; anchor: never; big: never; blink: never; bold: never; fixed: never; fontcolor: never; fontsize: Unwrap<{ (size: number): string; (size: string): string; }>; italics: never; link: never; small: never; strike: never; sub: never; sup: never; } : "hello"; } — expected >unwrapped : { prop1: "hello"; }
 compiler/declarationEmitAliasFromIndirectFile
-  instance.d.ts: >l10ns : { [k in LocaleKey]?: CustomLocale; } & { default: Locale; } — expected >l10ns : { ar?: CustomLocale | undefined; bg?: CustomLocale | undefined; } & { default: Locale; }
+  app.ts: >fp.l10ns : { ar?: CustomLocale | undefined; bg?: CustomLocale | undefined; } & { default: import("./locale").Locale; } — expected >fp.l10ns : { ar?: import("./locale").CustomLocale | undefined; bg?: import("./locale").CustomLocale | undefined; } & { default: import("./locale").Locale; }
 compiler/declarationEmitAliasInlineing
   b.ts: >fn : (v: O['prop'], p: Omit<O, 'prop'>, key: keyof O, p2: Omit<O, keyof I>) => void — expected >fn : (v: string, p: Omit<{ prop: string; prop2: string; }, 'prop'>, key: keyof { prop: string; prop2: string; }, p2: Omit<{ prop: string; prop2: string; }, "prop">) => void
 compiler/declarationEmitClassMixinLocalClassDeclaration
@@ -189,8 +183,6 @@ compiler/declarationEmitComputedPropertyNameEnum1
   index.ts: >foo : { x?: { [Enum.A]: 0; }; } — expected >foo : { x?: { a: 0; }; }
 compiler/declarationEmitComputedPropertyNameEnum3
   index.ts: >foo : { x?: { [Foo.Enum]: 0; }; } — expected >foo : { x?: {}; }
-compiler/declarationEmitDestructuringArrayPattern2
-  declarationEmitDestructuringArrayPattern2.ts: >[1, ["hello", { x12: 5, y12: true }]] : [number, [string, { x12: number; y12: boolean; }]] — expected >[1, ["hello", { x12: 5, y12: true }]] : [number, [string, { x12: number; y12: true; }]]
 compiler/declarationEmitExportAssignedNamespaceNoTripleSlashTypesReference
   src/inferred-comp-export.ts: >getComp : () => Component — expected >getComp : () => import("react").Component
 compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
@@ -213,3 +205,11 @@ compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
   node_modules/@trpc/server/index.d.ts: >middleware : any — expected >middleware : <TNewParams extends Record<string, any>>(fn: import("./middleware").MiddlewareFunction<{ _config: RootConfig<{ errorShape: ErrorFormatterShape<PickFirstDefined<TOptions["errorFormatter"], ErrorFormatter<TParams["ctx"] extends object ? TParams["ctx"] : object, DefaultErrorShape>>>; }>; }, TNewParams>) => import("./middleware").MiddlewareBuilder<{ _config: RootConfig<{ errorShape: ErrorFormatterShape<PickFirstDefined<TOptions["errorFormatter"], ErrorFormatter<TParams["ctx"] extends object ? TParams["ctx"] : object, DefaultErrorShape>>>; }>; }, TNewParams>
 compiler/declarationEmitLocalClassDeclarationMixin
   declarationEmitLocalClassDeclarationMixin.ts: >mixin : <B extends Constructor<{}>>(Base: B) => typeof PrivateMixed — expected >mixin : <B extends Constructor<{}>>(Base: B) => { new (...args: any[]): PrivateMixed; prototype: mixin.PrivateMixed; } & B
+compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
+  reexport.ts: >test : { fn: <T extends { x: Map<T['x']>; }>(sliceIndex: T) => AllArg<T["x"]>; } — expected >test : { fn: <T extends { x: T["x"] extends infer T_1 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_1]: T_1[K]; } : never; }>(sliceIndex: T) => T["x"] extends infer T_2 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_2]: Parameters<T_2[K]>; } : never; }
+compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
+  declarationEmitMappedTypePreservesTypeParameterConstraint.ts: >objectOutputType : flatten<addQuestionMarks<baseObjectOutputType<Shape>, requiredKeys<baseObjectOutputType<Shape>>>> — expected >objectOutputType : addQuestionMarks<baseObjectOutputType<Shape>, requiredKeys<baseObjectOutputType<Shape>>> extends infer T ? { [k in keyof T]: T[k]; } : never
+compiler/declarationEmitNestedGenerics
+  declarationEmitNestedGenerics.ts: >g : <T>(x: T) => any — expected >g : <T>(x: T) => T extends (infer T_1)[] ? T_1 : T
+compiler/declarationEmitNoInvalidCommentReuse1
+  a.ts: >object : any — expected >object : { foo: import("./id.js").Id<{}>; }

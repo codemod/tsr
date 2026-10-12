@@ -326,8 +326,8 @@ fn a_homomorphic_mapping_over_a_mapped_alias_reference_has_its_keys() {
 }
 
 /// §33: an intersection of mapped-alias references lists every constituent's
-/// members, optional only where each constituent is (tsgo prints the same
-/// members, `foo?` first).
+/// members, optional only where each constituent is, in declaration order
+/// (§47; tsgo: `{ foo?: boolean | undefined; bar: number; }`).
 #[test]
 fn an_intersection_of_mapped_aliases_lists_its_members() {
     let source = "type M = { foo: boolean; bar: number };\n\
@@ -336,7 +336,7 @@ fn an_intersection_of_mapped_aliases_lists_its_members() {
          type I = P<M, \"bar\"> & O<P<M, \"foo\">>;\n\
          declare const m: { [K in keyof I]: I[K] };\n\
          const x = m;\n";
-    assert_eq!(type_of_last_initializer(source), "{ bar: number; foo?: boolean | undefined; }");
+    assert_eq!(type_of_last_initializer(source), "{ foo?: boolean | undefined; bar: number; }");
 }
 
 /// §35: a non-distributive infer conditional infers from the whole union
@@ -432,4 +432,40 @@ fn readonly_over_a_type_parameter_is_the_parameter() {
          declare const t: T31<number>;\n\
          const x = t;\n";
     assert_eq!(type_of_last_initializer(source), "number");
+}
+
+/// §45 (§21): `keyof` of a non-generic object that mentions a type
+/// parameter has its keys now (tsgo: `string | number`).
+#[test]
+fn keyof_a_non_generic_object_mentioning_a_parameter_resolves() {
+    let source = "interface Dictionary<T> { [key: string]: T }\n\
+         function f<T>() {\n\
+             declare const k: keyof Dictionary<T>;\n\
+             const x = k;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "string | number");
+}
+
+/// §47: mapped members are ordered by name when nothing links them
+/// (compareSymbols; tsgo: `{ 1: 1; 10: 1; 2: 1; }`).
+#[test]
+fn mapped_members_are_ordered_by_name() {
+    let source = "declare const m: { [K in 2 | 10 | 1]: 1 };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ 1: 1; 10: 1; 2: 1; }");
+}
+
+/// §51: an unconstrained parameter is its own restrictive form, and a
+/// conditional whose permissive relation holds while its restrictive one
+/// fails is deferred under the reference's alias (tsgo: `[A<T>] extends
+/// [0, 0]` is definitely false, so `T4<T>` is `0`).
+#[test]
+fn an_open_conditional_reference_defers_and_a_definite_outer_check_decides() {
+    let source = "type A<T> = { x: T } extends { x: 0 } ? 1 : 0;\n\
+         type T4<T> = [A<T>] extends [0, 0] ? 1 : 0;\n\
+         function f<T>() {\n\
+             declare const t: T4<T>;\n\
+             const x = t;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "0");
 }
