@@ -508,7 +508,7 @@ impl<'a> Checker<'a, '_> {
 
     /// getEffectiveCallArguments and getSpreadArgumentType (checker.go:30042,
     /// :29500), for the inference tail after ordinary positional parameters.
-    fn inference_spread_argument_type(
+    pub(crate) fn inference_spread_argument_type(
         &mut self,
         arguments: &[Expression<'_>],
         checked: &[TypeId],
