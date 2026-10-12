@@ -3106,6 +3106,17 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // In a JavaScript file a `@returns` type is the reparsed `Type`
+        // (`reparseHosted`), the tag's type inside its `{…}`.
+        let annotation = annotation.or_else(|| {
+            if !self.in_js_file(node) {
+                return None;
+            }
+            match self.jsdoc_reparsed_function(node).return_type? {
+                tsr_ast::TypeNode::JSDocTypeExpression(expression) => expression.r#type,
+                other => Some(other),
+            }
+        });
         let Some(annotation) = annotation else { return };
         let Some(annotation_node) = annotation.node_id() else { return };
         let return_type = self.get_type_from_type_node(annotation);
