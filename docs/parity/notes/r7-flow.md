@@ -1041,3 +1041,22 @@ types and diagnostics verdicts unchanged, 0 lost; exact oracle 9676 → 9676,
 0 lost (`noImplicitAnyForIn` now differs only in the chain row's file, §19);
 jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 0.9998, dm 0.9990 (one
 reporter instead of two).
+
+## §37 TS2454's block-scoped fast path requires a statement list
+
+`uninitialized_variable_reads_declared` (check.rs, the TS2454 condition of
+`checkIdentifier`'s flow arm) skips the walk for a read of an initialised
+block-scoped declaration after it "in its own block" (`flow.md` §13, a
+measured ~5% on `domain-model`). It tested only that the statement's parent
+was not a `case`/`default` clause, so a declaration that is an `if`'s bare
+body (`if (1 > 0) const e = 3; console.log(e);`, TS1156) was taken as assigned
+on every path. Native walks: the else path never runs the declaration, and
+reports TS2454 (`disallowedBlockScopedInPresenceOfParseErrors1`, four
+reads). The fast path now requires the statement's parent to be a statement
+list (`Block`, `ModuleBlock`, `SourceFile`), where statements run in order;
+everything else walks.
+
+Measured on `97cc68fc` unfiltered: diagnostics **+1**
+(`disallowedBlockScopedInPresenceOfParseErrors1`), types unchanged, 0 lost;
+exact oracle 9676 → 9677, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0;
+Ir gi 1.0001, dm 1.0001.
