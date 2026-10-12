@@ -14177,7 +14177,9 @@ impl Checker<'_, '_> {
             Some(Node::ArrowFunction(arrow)) => {
                 if let Some(tsr_ast::ConciseBody::Block(block)) = arrow.body
                     && let Some(block) = block.node_id
-                    && let Some(end) = self.arrow_first_line_end(block)
+                    && let Some(arrow_token) =
+                        arrow.equals_greater_than_token.and_then(|token| token.node_id)
+                    && let Some(end) = self.arrow_first_line_end(block, arrow_token)
                 {
                     return tsr_core::Span::new(span.start, end.max(span.start));
                 }
@@ -14236,12 +14238,13 @@ impl Checker<'_, '_> {
 
     /// For an arrow's block body: when the block's full text (from its
     /// `Pos()`, the end of `=>`) holds a line break, the position of the first
-    /// one (`GetECMAEndLinePosition(startLine) + 1`).
-    fn arrow_first_line_end(&self, block: NodeId) -> Option<u32> {
+    /// one (`GetECMAEndLinePosition(startLine) + 1`). Trivia between `=>` and
+    /// `{` is part of that text, comments included.
+    fn arrow_first_line_end(&self, block: NodeId, arrow_token: NodeId) -> Option<u32> {
         let file = self.source_file_of_for_diagnostics(block)?;
         let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
         let span = self.nodes.span(block);
-        let pos = self.missing_node_full_start(block, span.start);
+        let pos = self.nodes.span(arrow_token).end;
         let body = text.get(pos as usize..span.end as usize)?;
         let offset = body.find(['\n', '\r', '\u{2028}', '\u{2029}'])?;
         Some(pos + u32::try_from(offset).ok()?)
