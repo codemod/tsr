@@ -1429,3 +1429,23 @@ A resolved mapped object is excluded: it is owner-less too, but
 computed keys included. The first cut pre-empted that road and lost
 `declarationEmitMappedTypeTemplateTypeofSymbol` 1:1/1:2
 (`[x.timestampSymbol]` printed `[timestampSymbol]`), at +51 / −2.
+
+## 37. A renamed signature whose substitution declines still declares its new names
+
+**Forcing constraint.** `inferenceContextualReturnTypeUnion3`, 2 lines:
+inside `<T extends object>(obj: T) => …`, `Reflect.set` prints natively as
+`{ <T_1 extends object, P extends PropertyKey>(target: T_1, …) … }`. The
+port printed `<T extends object, …>(target: T_1, …)`, contradicting itself.
+
+**Cause.** `rename_type_parameters_for_site` allocates the shadowed
+parameter's fresh name by type id (`T_1`) and then substitutes it through
+the signature (`instantiate_signature`). For `Reflect.set` the substitution
+declines (its conditional slot `P extends keyof T ? T[P] : any`), and the
+function returned the original signature. The slots, printed at the site
+through the by-id allocation, still said `T_1`, while the declaration kept
+`T`.
+
+**The port.** When the substitution declines, the declarations are renamed
+in place to the allocated names. The slots keep their by-id names, so
+declaration and uses agree, as native's `typeParameterToName` cache does.
+No cache or table.

@@ -74,3 +74,28 @@ c.m; d.m; f;
         ],
     );
 }
+
+/// A shadowed overload whose substitution declines still renames its
+/// declaration, matching its by-id slots (`inferenceContextualReturnTypeUnion3`;
+/// r7-printer §37).
+#[test]
+fn a_renamed_overload_declares_the_name_its_slots_use() {
+    let lines = lines(
+        r#"// @target: es2015
+// @strict: true
+// @lib: esnext
+declare function deprecate<T extends Function>(fn: T, msg: string): T;
+const f = <T extends object>(obj: T): T => {
+  return new Proxy(obj, {
+    set: deprecate((target, property, value, receiver) => Reflect.set(target, property, value, receiver), "m"),
+  });
+};
+"#,
+    );
+    assert_has(
+        &lines,
+        &[
+            "Reflect.set : { <T_1 extends object, P extends PropertyKey>(target: T_1, propertyKey: P, value: P extends keyof T_1 ? T_1[P] : any, receiver?: any): boolean; (target: object, propertyKey: PropertyKey, value: any, receiver?: any): boolean; }",
+        ],
+    );
+}
