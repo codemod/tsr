@@ -1861,6 +1861,78 @@ stage 4 (bind on the parsing worker, and r5-loader §3's gate dropped), which
 is where ADR-0056's modelled gi and dm gains are, plus a fix for the two
 memory causes above.
 
+## §44 Print-time type text: scope and expected gain (proposed ADR-0057)
+
+This section is placed before §21, after §43, for the same reason as §32.
+The integrator routed it from r7-declared on 2026-10-12. r7-declared's lazy
+`DeepReadonly` micro-benchmark (200 aliases) spends 170 M of 209 M Ir on type
+text built at creation and on the members that text forces. The fix is
+ADR-0050's rejected alternative 1. This section scopes it as a staged ADR and
+measures what it is worth on the bench projects.
+[ADR-0057](../../adr/0057-type-text-is-rendered-when-printed.md) is the
+proposal. Below is the method behind its numbers.
+
+**Text attribution.** The runs were callgrind, `--singleThreaded`, on a
+profiling build of main `a8012982`. A script over the call graph
+(`/tmp/box/cgedges.py`, scratch) sums the inclusive cost of every edge from
+a non-text function into a `tsr_checker` function whose name matches
+`[a-z_]*(_text|_texts|_text_[a-z_]+|to_string[a-z_]*)`. Each text
+computation is counted once, with everything it forced. Two broader
+patterns were tried first:
+
+- `(_text|type_to_string|text_at)` missed `signature_to_string` and
+  `written_type_text_flags`.
+- `(text|to_string)` also matched `get_contextual_type`, at 93 M on dm.
+
+Union interning, called from `create_union_with_text`, is subtracted,
+because a lazy text still interns: dm 2.26 M, dml 10.5 M. The result is
+dm 29.5 M of 785.8 M (3.75%) and dml 139.0 M of 3,410.9 M (4.07%).
+
+**`DeepReadonly` on the bench.** Copies of dm and dml were edited in
+`/tmp/box/dmvar`:
+
+- **A**: unchanged;
+- **B**: without the `export const modelNNNDefaults: FrozenModelNNN = …`
+  lines;
+- **C**: B, also without the `export type FrozenModelNNN =
+  DeepReadonly<ModelNNN>` aliases.
+
+All three report the same single diagnostic under tsgo and TSR.
+
+| Ir | A | B | C | A − C |
+|---|---:|---:|---:|---:|
+| dm | 784,665,796 | 783,313,202 | 769,434,555 | 15.25 M (1.94%) |
+| dml | 3,405,763,297 | 3,392,971,353 | 3,337,939,551 | 67.8 M (1.99%) |
+
+The text producers' outermost Ir differs by only 0.30 M (dm) and 1.71 M
+(dml) between A and C. On the bench projects, the `DeepReadonly` cost is the
+aliases' eagerly resolved declared types: property lookups, name
+resolution and heritage members, spread through the function list with no
+text function among the top 30. It is not text. So print-time text alone
+does not recover it; ADR-0057's stage 3 (lazy members) is the stage that
+could.
+
+**Sites, recounted on `a8012982`.**
+
+| reader or producer | count |
+|---|---:|
+| calls of the `type_to_string` family | 703 in `tsr-checker`, 61 in `tsr-conformance`, 1 in `tsr-compiler`, 1 in `tsr-execute` |
+| store-less `printing::type_to_string(&Type)` calls | 13 |
+| pattern reads of a text field | 19 |
+| comparisons or prefix tests of a printed type | 12, in 6 files |
+| text-producing functions in `tsr-checker` | 153 |
+
+**Expected gain** (Ir measured; wall estimated):
+
+| stage | dm | dml |
+|---|---|---|
+| upper bound, stages 1–2 (all mint text skipped) | −3.75% Ir, about −2 to −4 ms wall | −4.07% Ir, about −12 ms wall |
+| stage 1 only (union and reference text) | about −1% Ir | about −1.1% Ir |
+| stage 3 (lazy members), at most | −1.9% Ir | −2.0% Ir |
+
+The micro-benchmark's 81% is not representative of the bench projects.
+There, text is about 4% of the work and `DeepReadonly` about 2%.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
