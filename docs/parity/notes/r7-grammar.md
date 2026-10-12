@@ -1213,3 +1213,43 @@ per-node hook. Converted: `importWithTypeArguments`. Not here:
 `import<T>("./0")`, a call. Its TS1326 is `checkGrammarImportCallExpression`'s,
 import_call_grammar.rs, along with `import<>` (an empty list, which this AST
 cannot tell from none). Routed.
+
+## §66 Where the lane stands (r7-grammar (2), 2026-10-12)
+
+*Landed through box/r7-grammar* (§53–§63, merged on main through batch
+63). Exact oracle on this thread's gates: 10574 at the start, 10621 at
+`0eb482de`.
+
+*Gated on box/r7-grammar-held, waiting for grants* (`d677f9168`: +76 exact
+vs a freeze of `1fef27b3`, 0 lost; legacy +18 cases, 0 lost):
+
+- the old held stack (§25, §26, §28, §31, §37, §38): check.rs grants (a)–(f);
+- §61 TS2702/TS2713: `namespace_not_found.rs::report_cannot_find_namespace`;
+- §64 TS2417's chain: check.rs `check_static_side_assignability`;
+- §65 TS8023: check.rs `check_grammar_heritage_clauses`.
+
+*Routed, not this lane's* (each with its evidence in the section that
+found it):
+
+- the relater's chains under TS2416/TS2420/TS2430 (TS2326 signature
+  chains, TS2634 index signatures, a private member's declaring class);
+- JSDoc type references skipped by `check_type_reference_name`
+  (`names_in_jsdoc`, ~30 TS2749/TS2304 cases);
+- JSDoc `@import` tags never reaching `check_import_attributes` or TS1141;
+- TS1099/TS1098/TS1025/TS1013: the AST keeps no empty-but-present list or
+  trailing comma;
+- binder: TS2300's display name as written, TS2528's related information,
+  the UMD `GlobalExports` first-in-wins (§57);
+- members.rs: `get_property_of_type` misses an inherited member of a generic
+  interface reference (hides TS2320);
+- `import { X }` against `export =` of a const merged with a namespace
+  resolves value-only (`mergedDeclarations7`);
+- `this`-argument images not read by the relater (TS2415/TS2430 extras on
+  `this`-typed members: `thisTypeInFunctions3`, `contextualThisType`);
+- import_call_grammar.rs: TS1326 on `import<T>(…)`;
+- TS2439's caller still reporting TS2307 (§59).
+
+*Refused here.* Removing heritage_conformance.rs's default-library base
+decline (`has_default_library_declaration`) was measured with the CLI on
+`subclassUint8Array` and `classExtendingBuiltinType`. It reports a false
+TS2415 on both (the lib-merged member tables are incomplete). It stays.
