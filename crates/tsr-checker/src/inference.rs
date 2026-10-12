@@ -1004,10 +1004,19 @@ impl<'a> Checker<'a, '_> {
         // `error`, which reproduces the shortcut's answer exactly - the
         // machinery is run for its side effects, never to change the call's
         // own type.
+        //
+        // Nor when an argument is a literal the resolved signature re-reads
+        // (checkApplicableSignature, `checker.go:9256`): `all([true])` against
+        // `all<T>(list: T[]): boolean` infers `T = boolean`, and the writer
+        // reads `[true]` under `boolean[]` as `true[]`. The shortcut would
+        // leave the uninstantiated `T[]` check's `boolean[]` in place.
         let benign = !self.mentions_type_parameter(returned, &parameters, &names);
         if benign
             && instantiated.is_none()
-            && !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+            && !arguments.iter().any(|&argument| {
+                self.is_context_sensitive_argument(&argument)
+                    || self.resolved_literal_argument_recheck(call, argument).is_some()
+            })
         {
             return returned;
         }
