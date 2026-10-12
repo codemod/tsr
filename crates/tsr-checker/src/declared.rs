@@ -10307,10 +10307,33 @@ impl<'a> Checker<'a, '_> {
         }
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
+        let check_parameter =
+            conditional.check_type.and_then(|node| self.distributive_conditional_parameter(node));
+        let yes_is_check = check_parameter.is_some()
+            && self.distributive_conditional_parameter(yes) == check_parameter;
+        let extends = conditional.extends_type.map(|node| self.get_type_from_type_node(node));
         let yes = self.get_type_from_type_node(yes);
         let no = self.get_type_from_type_node(no);
         self.alias_evaluation_bindings.pop();
         self.instantiation_depth -= 1;
+        // getInferredTrueTypeFromConditionalType: a true branch that is the
+        // check type itself reads it as a substitution type
+        // (getConditionalFlowTypeOfType, checker.go:24952; getImpliedConstraint,
+        // :24989). Instantiated at a type variable, the substitution survives
+        // unless the extends type is a top type (instantiateType's
+        // Substitution arm: a restrictive type variable relates to nothing
+        // else), and its base constraint is getSubstitutionIntersection's.
+        let yes = match extends {
+            Some(extends)
+                if yes_is_check
+                    && extends != self.intrinsics.error
+                    && self.store.get(yes).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    && !self.store.get(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) =>
+            {
+                self.get_intersection_type(&[extends, yes], None)
+            }
+            _ => yes,
+        };
         if yes != self.intrinsics.error && no != self.intrinsics.error {
             self.conditional_constraint_branches.insert(id, (yes, no));
         }

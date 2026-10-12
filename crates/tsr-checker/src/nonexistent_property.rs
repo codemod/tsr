@@ -1976,8 +1976,9 @@ impl Checker<'_, '_> {
         match self.node_map.get(receiver) {
             // A `never` result carries no members whatever the return
             // modelling; `getApparentType(never)` misses every name.
-            Some(Node::CallExpression(_)) => {
+            Some(Node::CallExpression(call)) => {
                 self.store.get(flowed).flags.contains(crate::flags::TypeFlags::NEVER)
+                    || self.call_result_is_written(call, flowed)
             }
             Some(Node::Identifier(identifier)) => {
                 let text = identifier.text;
@@ -2020,6 +2021,32 @@ impl Checker<'_, '_> {
             }
             _ => true,
         }
+    }
+
+    /// Whether a call receiver's type is its callee's written answer: every
+    /// call signature of the callee (the overloads resolution picks among)
+    /// has a written return annotation and no type parameters, and all of
+    /// them return the call's type. No inference or overload choice can
+    /// then make native's answer differ (`r7-flow.md` §65). An inferred or
+    /// generic return is this port's inference, which the certificate does
+    /// not trust (§30: `super.returnThis()`'s inferred `this`).
+    fn call_result_is_written(
+        &mut self,
+        call: &tsr_ast::CallExpression<'_>,
+        flowed: TypeId,
+    ) -> bool {
+        let Some(callee) = call.expression else { return false };
+        if matches!(callee, tsr_ast::Expression::KeywordExpression(_)) {
+            return false;
+        }
+        let callee_type = self.check_expression(callee);
+        let Some(signatures) = self.call_signatures_of_type(callee_type) else { return false };
+        !signatures.is_empty()
+            && signatures.iter().all(|signature| {
+                signature.written_return.is_some()
+                    && signature.type_parameters.is_empty()
+                    && signature.r#type == flowed
+            })
     }
 
     /// Can no narrowing reach this identifier reference?
