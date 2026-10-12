@@ -360,7 +360,12 @@ impl Checker<'_, '_> {
             ) => {
                 name.node_id.map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id))
             }
-            _ => self.error_span(declaration),
+            // `getAdjustedNodeForError`: the declaration's name when it has
+            // one (a method signature's too, which `error_span` would not
+            // narrow to), else the declaration.
+            _ => self
+                .declaration_name_of(declaration)
+                .map_or_else(|| self.error_span(declaration), |name| self.error_span(name)),
         }
     }
 

@@ -13896,7 +13896,17 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
-        if let Some(name) = self.declaration_name_of(node) {
+        // The name-narrowing arm's kinds (`scanner.go:2598`): a method
+        // signature is not among them, and a reparsed function or method
+        // declaration keeps its own range.
+        let narrows = match self.nodes.kind(node) {
+            SyntaxKind::MethodSignature => false,
+            SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => {
+                !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED)
+            }
+            _ => true,
+        };
+        if narrows && let Some(name) = self.declaration_name_of(node) {
             return self.error_span(name);
         }
         let span = self.nodes.span(node);
