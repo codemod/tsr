@@ -1335,6 +1335,27 @@ third was tried and kept:
   noInferUnionExcessPropertyCheck1's one) go. The contextual-type half is
   routed.
 
+## 42. An overload failure with written type arguments instantiates by them
+
+`pickLongestCandidateSignature` (`checker.go:9510`) instantiates the
+longest generic candidate. With written type arguments it uses
+`createSignatureInstantiation(candidate, getTypeArgumentsFromNodes(…))`:
+the written list truncated to the candidate's type parameters, the tail
+filled with each parameter's default, else its constraint, else `unknown`.
+It infers (`inferSignatureInstantiationForOverloadFailure`) only when
+there are none. The transcribed walk's failure answer always inferred, and
+`check_generic_call_with` declines a written list longer than the
+candidate's type parameters. So `_.map<number, string, Date>(c2, (x, y) => …)`
+over `map<T, U>(…)` / `map<T, U, V>(…)` gapped: the walk was undone, the
+callback was left without contextual parameter types, and the TS2345 was
+lost.
+
+`instantiate_with_written_type_arguments` is the getTypeArgumentsFromNodes
+half that `written_type_argument_arity_failure` already had, now shared:
+the walk's failure answer takes it when the call has written type
+arguments. genericCombinators2 becomes exact (TS2345 at the callback,
+`r5a: Collection<any, any>`).
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

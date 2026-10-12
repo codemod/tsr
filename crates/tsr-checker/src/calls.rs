@@ -6831,6 +6831,14 @@ impl Checker<'_, '_> {
         if best.type_parameters.is_empty() {
             return Some(best.clone());
         }
+        // `pickLongestCandidateSignature` instantiates with the written type
+        // arguments when there are some (`getTypeArgumentsFromNodes`), else
+        // by `inferSignatureInstantiationForOverloadFailure`.
+        if let Some(call) = call {
+            if !self.call_type_arguments(call).is_empty() {
+                return self.instantiate_with_written_type_arguments(best.clone(), call);
+            }
+        }
         let mut instantiated = None;
         let _ = self.check_generic_call_with(best, call, arguments, Some(&mut instantiated));
         instantiated
@@ -6936,6 +6944,19 @@ impl Checker<'_, '_> {
         if best.type_parameters.is_empty() {
             return Some(best);
         }
+        self.instantiate_with_written_type_arguments(best, call)
+    }
+
+    /// `createSignatureInstantiation(candidate, getTypeArgumentsFromNodes(…))`
+    /// (`checker.go:9557`): the written type arguments truncated to the
+    /// candidate's type parameters, the tail filled with each parameter's
+    /// default, else its constraint, else `unknown`.
+    fn instantiate_with_written_type_arguments(
+        &mut self,
+        best: Signature,
+        call: tsr_ast::NodeId,
+    ) -> Option<Signature> {
+        let written = self.call_type_arguments(call);
         let parameters = self.type_parameter_types(&best)?;
         let mut arguments: Vec<TypeId> = written
             .iter()
