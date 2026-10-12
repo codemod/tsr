@@ -444,3 +444,46 @@ all of it inside the lib files' long comments:
 How it would be wrong: a `.ts` construct whose `@see`/`@link` comment is no
 longer attached, which shows up as lost `@link` references in the checker's
 JSDoc output (types suite) or in the exact oracle.
+
+## 12. Re-triage on `02301e3` with the exact oracle
+
+Measured 2026-10-12 by the replacement thread, after the queue's first four
+items turned out to be on main already (a206b053, bf980613, the scanner
+cluster, jsxAndTypeAssertion, importCallExpressionIncorrect2, the static-block
+await context). Native run frozen once (`oracle-native`, one worker, under
+`ulimit -v 4500000`: 12,796 cases, 1 `NATIVE_FAILED`, largeControlFlowGraph,
+which is the memory cap, not a parity fact). Base report: 10,295 / 12,797
+EXACT, the integrator's batch-48 number.
+
+`full_oracle_run rank` over the 2,502 non-exact cases, filtered to parse
+diagnostics (TS1xxx, TS17xxx), `parser.*`/`scanner.*` emitters and the
+`node-selection` class:
+
+- parse diagnostics are exact everywhere except the related-information file
+  (§6's `attachFileToDiagnostics` row, ≈21 cases);
+- `node-selection` is 3 cases: decoratorOnArrowFunction and
+  decoratorOnFunctionExpression wait on `Expression::MissingDeclaration` in
+  the generated AST (§1), manyCompilerErrorsInTheTwoFiles on §6's refused
+  full-start placement of missing identifiers (its other row was the
+  `scanString` fix);
+- every other parser-adjacent bucket is the checker's: TS1046 and TS1108
+  spans (`grammarErrorOnFirstToken`, `checkReturnStatement`), TS17004
+  (`checkJsxPreconditions`, unported), the list-fact readers of §10
+  (TS1098/TS1099/TS1092/TS1025/TS1013, 12 cases), TS1326, TS1200, TS1341,
+  TS1368, TS1141 on a JSDoc `@import` specifier, TS8023.
+
+Two parser ports wait on a checker partner, so they are held rather than
+landed alone:
+
+- an object-literal method takes native's `parseFunctionBlockOrSemicolon`
+  (no body at `;` or ASI), which needs `checkGrammarMethod`'s
+  `'{' expected` at `End() - 1` and no `checkFunctionOrConstructorSymbol`
+  for object-literal methods (native never calls it for them). The parser
+  half alone reports TS2391 on `var v = { foo(); }`. Converts
+  parser.asyncGenerators.objectLiteralMethods.es2018;
+- `parseEntityName` under `parseTypeReference` (§6, held), with
+  `resolveEntityName`'s skip of a missing name.
+
+Parse time is not a wall bottleneck: on domain-model TSR's parse phase is
+17–36 ms against tsgo's 53–66 ms (`--extendedDiagnostics`, noisy 4-core box),
+and the scanner is 8% of single-threaded Ir.
