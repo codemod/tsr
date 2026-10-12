@@ -9638,6 +9638,12 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(namespace_name) = self.identifier_text(left).map(str::to_string) else { return };
+        // `resolveEntityName` returns nil for a missing name
+        // (`ast.NodeIsMissing`, `checker.go:15773`): the parser's missing type
+        // name heading a dotted name, `<missing>.defer`.
+        if namespace_name.is_empty() {
+            return;
+        }
         let Some(member) = self.identifier_text(right).map(str::to_string) else { return };
         // `resolveEntityName(left, SymbolFlagsNamespace)`. `MODULE` rather than
         // the wider `NAMESPACE` keeps a class or enum from answering — the
