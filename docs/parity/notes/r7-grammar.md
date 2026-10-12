@@ -967,3 +967,17 @@ said so, but `check_return_container` (check.rs) reported through
 `multiLinePropertyAccessAndArrowFunctionIndent1`,
 `parserErrorRecovery_VariableList1`, `parserReturnStatement1`/`2` and
 `parserNotRegex1` (the `TS1108 span-only` buckets).
+
+## §53 An async or generator IIFE ends the same-scope walk
+
+`isSameScopeDescendentOf` (`checker.go:2090`) stops at a function-like that
+is not an immediately invoked one, **or** whose
+`GetFunctionFlags(n) & FunctionFlagsAsyncGenerator != 0`.
+`FunctionFlagsAsyncGenerator` is the two bits, Async and Generator, so the
+test is either of them. A use inside an async arrow or a generator IIFE in a
+variable's own initializer is therefore not "immediately used"
+(`const promise = (async () => { …; promise })()`). `is_async_generator`
+(check.rs, a declaration check) required both bits, and only on a function
+expression, so those uses were TS2448. It now reads either bit on any
+function-like (arrow: `async` only). Converted:
+`blockScopedVariablesUseBeforeDef`.
