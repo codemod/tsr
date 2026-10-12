@@ -5181,6 +5181,18 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, constraint]);
             }
+            // A deferred `keyof` source is instantiable too: the source
+            // switch's index arm relates the property-key domain
+            // (relater.go:3694; r7-reports §102).
+            if !result.is_success() && self.checker.deferred_keyof_operands.contains_key(&source) {
+                let keys = self.checker.get_union_type(&[
+                    self.checker.intrinsics.string,
+                    self.checker.intrinsics.number,
+                    self.checker.intrinsics.es_symbol,
+                ]);
+                let keys = self.is_related_to_with_flags(keys, target, RecursionFlags::SOURCE);
+                return RelationResult::any([result, keys]);
+            }
             // The same fallthrough for a type variable: `S extends "a" | "b"`
             // relates to `"a" | "b"` through its constraint, and `T["kind"]`
             // with `T extends { kind: SK }` to `SK` (relater.go:3652), not
@@ -5236,6 +5248,18 @@ impl Relater<'_, '_, '_> {
                 && let Some(constraint) = self.string_like_source_constraint(source, target)
             {
                 return RelationResult::any([result, constraint]);
+            }
+            // A deferred `keyof` source is instantiable too: the source
+            // switch's index arm relates the property-key domain
+            // (relater.go:3694; r7-reports §102).
+            if !result.is_success() && self.checker.deferred_keyof_operands.contains_key(&source) {
+                let keys = self.checker.get_union_type(&[
+                    self.checker.intrinsics.string,
+                    self.checker.intrinsics.number,
+                    self.checker.intrinsics.es_symbol,
+                ]);
+                let keys = self.is_related_to_with_flags(keys, target, RecursionFlags::SOURCE);
+                return RelationResult::any([result, keys]);
             }
             // The same fallthrough for a type variable: `S extends "a" | "b"`
             // relates to `"a" | "b"` through its constraint, and `T["kind"]`

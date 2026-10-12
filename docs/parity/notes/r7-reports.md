@@ -2812,3 +2812,31 @@ constraint, which is a source-only recursion as in §78. Union and
 intersection targets decline. `stringMappingOverPatternLiterals` and
 `templateLiteralTypes5` are EXACT. Quick oracles over `emplate`,
 `tringMapping` and `ntrinsic`: 0 lost.
+
+## 102. `keyof` sources and two generic mapped types
+
+- **A `keyof` source is instantiable** (`TypeFlagsIndex` is in
+  `InstantiableNonPrimitive`). After `unionOrIntersectionRelatedTo` fails,
+  the worker still runs the source switch's index arm (`relater.go:3694`),
+  which relates `string | number | symbol`. The port's deferred keyof is not
+  flagged instantiable, so against a union or intersection target its
+  failure was final: `keyof T → string | number | symbol` answered
+  NotRelated. That made `reportRelationError` choose the arbitrary-type line
+  where native says *'keyof T' is assignable to the constraint of type 'K'*.
+  Both fallthroughs in `relater.rs` now take the index arm for a deferred
+  keyof source.
+- **The retrace's index arms.** A `keyof` source explains as the key domain
+  (a source-only descent), after `keyof S → keyof T` has first related `T →
+  S` without reporting. A deferred mapped index declines. A primitive
+  against `keyof T`, where `T` is an unconstrained type parameter, is a leaf
+  (the target arm has no constraint to report through).
+- **`mappedTypeRelatedTo`** (`relater.go:3972`) for two generic mapped types:
+  the target's constraint against the source's, then the source template
+  under `P := Q` against the target's, each reporting. A modifier
+  difference or an `as` clause declines. `mappedTypeRelationships`' six
+  `{ [P in …]: … }` pairs now carry native's chains, including the
+  `'keyof T' is assignable to the constraint of type 'K'` descent.
+- **Measured.** Quick oracles against base24 (`keyof`, `apped`, `eneric`,
+  `onstrain`, `nion`, `ntersection`, `ndex`): 0 lost. The relater change
+  alters decisions, so the full gate's diagnostic comparison is the real
+  test.

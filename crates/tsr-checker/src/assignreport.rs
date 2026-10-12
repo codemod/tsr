@@ -6622,6 +6622,75 @@ impl Checker<'_, '_> {
                 _ => Some(()),
             };
         }
+        // A `keyof` source (`relater.go:3694`) relates `string | number |
+        // symbol`, reporting, unless it is a deferred mapped index. A
+        // `keyof T` target over a type with no constraint has nothing that
+        // reports for a source that is not a `keyof` (r7-reports §102).
+        if self.deferred_keyof_operands.contains_key(&source)
+            && !target_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+        {
+            let operand = self.deferred_keyof_operands[&source];
+            self.ensure_mapped_type_info(operand);
+            if self.mapped_types.contains_key(&operand) {
+                return None;
+            }
+            if let Some(&target_operand) = self.deferred_keyof_operands.get(&target) {
+                // `keyof S → keyof T` first relates `T → S` without reports.
+                if self.chain_relate(stack, target_operand, operand) != Ternary::NotRelated {
+                    return None;
+                }
+            }
+            let keys = self.get_union_type(&[
+                self.intrinsics.string,
+                self.intrinsics.number,
+                self.intrinsics.es_symbol,
+            ]);
+            return self.explain_constraint_descent(stack, keys, target, depth);
+        }
+        if let Some(&target_operand) = self.deferred_keyof_operands.get(&target)
+            && source_flags.intersects(TypeFlags::PRIMITIVE)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
+            && self.type_of(target_operand).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && self.constraint_of_type(target_operand) == crate::constraints::ConstraintOfType::Nil
+        {
+            return Some(());
+        }
+        // Two generic mapped types (`mappedTypeRelatedTo`, `relater.go:3972`):
+        // the target's constraint against the source's, then the source's
+        // template under `P := Q` against the target's, each reporting. A
+        // modifier difference or an `as` clause declines.
+        if self.is_generic_mapped_type(source) && self.is_generic_mapped_type(target) {
+            let source_info = self.mapped_types.get(&source)?.clone();
+            let target_info = self.mapped_types.get(&target)?.clone();
+            if source_info.optionality != target_info.optionality
+                || source_info.name_type.is_some()
+                || target_info.name_type.is_some()
+            {
+                return None;
+            }
+            return match self.chain_relate(stack, target_info.constraint, source_info.constraint) {
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, target_info.constraint, source_info.constraint, depth)
+                }
+                Ternary::Unknown => None,
+                Ternary::Related => {
+                    let map = [(source_info.parameter, target_info.parameter)];
+                    let template = self.mapped_template_type(&source_info);
+                    let source_template =
+                        self.instantiate_type(template, &map, &[source_info.parameter], &[]);
+                    if source_template == self.intrinsics.error {
+                        return None;
+                    }
+                    let target_template = self.mapped_template_type(&target_info);
+                    match self.chain_relate(stack, source_template, target_template) {
+                        Ternary::NotRelated => {
+                            self.explain_pair(stack, source_template, target_template, depth)
+                        }
+                        _ => None,
+                    }
+                }
+            };
+        }
         // An indexed-access source (the same type-variable case,
         // `relater.go:3665`) relates `getConstraintOfType`, reporting when
         // that is not `unknown` (a nil constraint reports nothing). Against
