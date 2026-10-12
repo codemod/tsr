@@ -6299,6 +6299,17 @@ impl Checker<'_, '_> {
         let target = self.single_base_normalized(target);
         let source_flags = self.type_of(source).flags;
         let target_flags = self.type_of(target).flags;
+        // The non-primitive `object` against an object type:
+        // `structuredTypeRelatedToWorker` relates its apparent type, the
+        // empty object type `{}` (`getApparentType`), whose structural
+        // report names `{}` (r7-reports §92).
+        if source_flags.contains(TypeFlags::NON_PRIMITIVE)
+            && target_flags.contains(TypeFlags::OBJECT)
+            && !target_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+        {
+            let empty = self.intrinsics.empty_object;
+            return self.explain_object_relation(stack, empty, target, depth, false);
+        }
         // An `any` source fails only where `isSimpleTypeRelatedTo` decided
         // it (a `never` target), and nothing structural reports below
         // (r7-reports §90).
@@ -7070,7 +7081,15 @@ impl Checker<'_, '_> {
             if self.get_type_of_property_of_type(source, name).is_none()
                 && !self.chain_property_is_optional(target, name)?
             {
-                let properties = match self.unmatched_property_report(source, target) {
+                // Under `IntersectionStateTarget` a fresh literal meets no
+                // excess-property check (`isPerformingExcessPropertyChecks`),
+                // so its regular type answers (r7-reports §92).
+                let unmatched_source = if stack.intersection_target {
+                    self.get_regular_type_of_object_literal(source)
+                } else {
+                    source
+                };
+                let properties = match self.unmatched_property_report(unmatched_source, target) {
                     Some(properties) => properties,
                     // `getUnmatchedProperties` over an intersection source of
                     // plain objects: the target's required members its

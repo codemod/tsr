@@ -2616,3 +2616,26 @@ and `{ 1?: string }`). Under strict null checks, a member type that lacks
 the `undefined` its optionality should add declines. So does
 exactOptionalPropertyTypes. Quick oracles over `ndexSignature`, `ndexer`
 and `ptionalProp`: 0 lost.
+
+## 92. `object` sources read as `{}`; fresh literals inside intersection targets
+
+- **`object → { foo: string }`.** `structuredTypeRelatedToWorker` relates
+  `getApparentType(object)`, the empty object type, so the structural
+  report reads *Property 'foo' is missing in type '{}' but required in type
+  '{ foo: string; }'.* The retrace had no arm for a non-primitive source. It
+  now explains the empty object against a plain object target
+  (`nonPrimitiveAssignError`).
+- **A fresh literal against one constituent of an intersection target.**
+  Under `IntersectionStateTarget`, `isRelatedTo` performs no excess-property
+  check. `unmatched_property_report` refuses a fresh literal on that
+  account, so the retrace now asks it about the literal's regular type
+  there. *Property 'b' is missing in type '{ a: 0; }' but required in type
+  '{ b: 0; }'.* is the chain under the elaborated member
+  (`excessPropertyCheckIntersectionWithIndexSignature`).
+- **Refused: `LinkedList<T> = T & { next: LinkedList<T> }`.** Native relates
+  the intersection constituent by constituent. The port mints the recursive
+  alias as a named object, which the intersection arms never see
+  (`recursiveIntersectionTypes`). The representation belongs to another
+  lane, so this is a note rather than a change.
+- **Measured.** Quick oracles over `onPrimitive`, `xcessProperty` and
+  `ntersection`: 0 lost.
