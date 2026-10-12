@@ -956,3 +956,14 @@ grammar check) reported the whole statement. It now takes
 `first_token_span`. Converted: `missingRequiredDeclare.d.ts`,
 `erasableSyntaxOnlyDeclaration` and seven `parser*.d.ts` cases (the
 `TS1046 span-only` buckets).
+
+## §52 TS1107/TS1108 on the `return` keyword
+
+`checkReturnStatement` reports TS1108 (and TS1107 in a class static block)
+with `grammarErrorOnFirstToken`, i.e. the `return` keyword. Its doc comment
+said so, but `check_return_container` (check.rs) reported through
+`report_grammar_at`, which takes the whole statement span. It now takes
+`first_token_span`. Converted: `fileWithNextLine3`,
+`multiLinePropertyAccessAndArrowFunctionIndent1`,
+`parserErrorRecovery_VariableList1`, `parserReturnStatement1`/`2` and
+`parserNotRegex1` (the `TS1108 span-only` buckets).
