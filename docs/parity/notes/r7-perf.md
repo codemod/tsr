@@ -1214,6 +1214,89 @@ The table bounds the gain on this pattern: the 41 ms at declaration
 would become use-time work only for the members a relation reads, and
 tsgo needs 30 ms for declaration and use together.
 
+## §38 generic-imports outside lib.dom.d.ts, and the BindableStatic order pair
+
+This section is placed before §21, after §37, for the same reason as §32.
+
+### §38.1 generic-imports: where the non-dom time goes
+
+The integrator asked on 2026-10-12 for generic-imports' costs other than
+lib.dom.d.ts. Measured at `box/r7-perf` `36eca74e`: callgrind
+`--singleThreaded` with a profiling build, and median wall of 31
+interleaved fresh processes (release; tsgo-pinned beside it).
+
+| run | TSR Ir | TSR wall | tsgo wall |
+|---|---:|---:|---:|
+| `--version` (process start and exit) | — | 2.9 ms | 7.9 ms |
+| empty file, `--lib es2022` (no dom libs) | 37.7 M | 15.0 ms | 25.9 ms |
+| empty file, default libs for es2022 | 192.0 M | 44.6 ms | 76.3 ms |
+| generic-imports | 197.0 M | 43.3 ms | 73.5 ms |
+
+- **The project's own three files cost nothing measurable.** generic-imports
+  runs the same as an empty file with the same libs. Its check is 4.6 M Ir
+  (2.3%).
+- **The dom libs are 80% of the Ir.** That is 153 M of 192 M, about 30 ms
+  of TSR's wall against about 50 ms of tsgo's: 0.60 on their own.
+- **Everything else** is process start (2.9 ms against tsgo's 7.9 ms)
+  plus the serial parse and bind of the other ~60 bundled libs: 15.0 ms
+  against 25.9 ms, 0.58.
+
+**Refused: preparing the non-dom libs on workers.** §25's lib
+preparation runs only above its root gate (≥128 KiB, ≥8 roots), so
+generic-imports parses every lib in place on the walk thread. A scratch
+variant (not committed) prepared the predicted libs except the largest
+on the dependency pool when the roots were under the gate, and left
+lib.dom.d.ts in place at its visit. Node-id order and output were
+unchanged. Interleaved over 41 pairs (dist) it measured **wall 1.045 and
+CPU 1.176** against main, with `Program time` going from 31.0 to 33.0 ms.
+The publication copy of the prepared libs (0.31–0.45 of their parse,
+r5-loader §6.2) and the pool's start cost more than the overlap saves.
+That is the same arithmetic as §34. Without ADR-0056's zero-copy
+publication, generic-imports has no remaining front-end lever in this
+lane's files, and the ADR stays unfunded (integrator, 2026-10-12).
+
+### §38.2 jsTyping's `BindableStatic*` pair is an alias-resolution order bug
+
+§35 found that `compiler/utilities.ts(4187,92)` TS2769 and
+`(4258,13)` TS2322 appear with the default 4 checkers but not with
+`--singleThreaded`. With a scratch hook in `checker_pool.rs` (not
+committed) that checks a chosen list of file indices on one checker:
+
+- `utilities.ts` alone reports both lines.
+- `--checkers` 2, 3, 4, 6 and 8 all report them; `--checkers 1` does not.
+- Checking either `types.ts` or `utilitiesPublic.ts` first removes
+  both. No other earlier file does.
+- In a scratch copy of the sources, one line at the top of `utilities.ts`,
+  `type __a = BindableStaticNameExpression;`, removes both. The same line
+  naming `BindableStaticAccessExpression`,
+  `BindableStaticElementAccessExpression`,
+  `LiteralLikeElementAccessExpression` or `EntityNameExpression` does
+  not.
+
+The reduction has no checker-mode dependence. TSR's answer depends only
+on which alias of a cycle is resolved first:
+
+```ts
+interface Expression { _expressionBrand: any }
+interface Identifier extends Expression { _identifierBrand: any }
+interface ElementAccessExpression extends Expression { readonly expression: Expression }
+type Element = ElementAccessExpression & { readonly expression: Name };
+type Name = Identifier | Element;
+export declare const n: Exclude<Name, Identifier>;
+export const k: number = n;
+// TSR:  TS2322 Type 'Name' is not assignable to type 'number'.
+// tsgo: TS2322 Type 'Element' is not assignable to type 'number'.
+// TSR with the two aliases swapped (Name first): 'Element', as tsgo.
+```
+
+When `Element` is resolved first, its type literal's `expression: Name`
+is resolved eagerly while `Element` is still in progress. The `Name`
+it publishes then fails `Exclude`'s distribution, so it is printed and
+related unfiltered. Native defers a type literal's member types, so the
+cycle never closes during resolution. This is r7-declared's alias road,
+the same eager-member theme as §37 and §30. It is routed through the
+integrator; nothing is built here.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
