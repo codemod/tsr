@@ -2899,3 +2899,32 @@ union constituent picked by best match (`(props: any) => React18ReactNode`)
 and its arity line now follow. That line still differs from native in the
 lib's `React.ForwardedRef` qualification, which is printing. Quick oracles
 over `tsx` and `lementType`: 0 lost.
+
+## 107. TS2352 carries the comparable relation's chain
+
+`checkAssertionDeferred` reports with `checkTypeComparableTo(exprType,
+targetType, errNode, Conversion_of_type_0_to_type_1_may_be_a_mistake…)`. The
+head message carries the pair's `reportRelationError` explanation
+(`'T' could be instantiated with an arbitrary type…`) and the comparable
+relation's chain below it (`Property 'anything' is missing in type …`). The
+port reported the bare head.
+
+- **A comparable mode in the retrace.** `ChainStack::comparable` makes
+  `chain_relate` and the constraint descent ask the comparable relation
+  (`relate_ternary_assuming` takes the relation now). The pair message
+  becomes `Type '{0}' is not comparable to type '{1}'.`, which is
+  `reportRelationError`'s first arm for that relation. A union source
+  reports only its last constituent (`someTypeRelatedToType` reports at
+  `i == len - 1`).
+- **The head.** `report_comparable_failure` builds the head through
+  `relation_diagnostic`, as the TS2322 heads do, with the chain and the
+  head's `extends` hint.
+- **Consumer hunk.** In `assertion_overlap.rs`,
+  `check_assertion_overlap_parts` now calls `report_comparable_failure`
+  instead of building the bare diagnostic. This is the integrator's default
+  grant for a small consumer hunk with the same root cause. Its unused
+  `Diagnostic` import is removed.
+- **Measured.** Quick oracles over `ssertion`, `asting`, `uzzy` and
+  `omparab`: `genericTypeAssertions4/5/6`, `typeAssertions`,
+  `typeAssertionsWithIntersectionTypes01`, `castingTuple`, `fuzzy` and
+  `genericWithNoConstraintComparableWithCurlyCurly` gained, 0 lost.

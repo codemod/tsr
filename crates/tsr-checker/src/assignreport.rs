@@ -3169,6 +3169,29 @@ impl<'a> Checker<'a, '_> {
         self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
 
+    /// `checkTypeComparableTo` with a head message (TS2352): the head with
+    /// the pair's `reportRelationError` explanation, the comparable chain
+    /// retraced under it, and the head's `extends` hint (r7-reports §107).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn report_comparable_failure(
+        &mut self,
+        at: NodeId,
+        file: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        message: &'static tsr_diagnostics::Message,
+        source_text: String,
+        target_text: String,
+    ) {
+        let chain = self.comparable_failure_chain(at, span, source, target);
+        let mut diagnostic =
+            self.relation_diagnostic(span, source, target, message, source_text, target_text);
+        add_relation_chain(&mut diagnostic, chain);
+        self.attach_chain_file(at, span, &mut diagnostic);
+        self.report_relation_head_diagnostic(file, source, target, diagnostic);
+    }
+
     /// `NewDiagnosticChain` gives every chain level the error node's file
     /// (`createDiagnosticChainFromErrorChain`); a chain child built here
     /// without one takes the head's (r7-reports §36).
@@ -5934,6 +5957,9 @@ struct ChainStack {
     /// `getTypeNamesForErrorDisplay`; r7-printer §61). `None` keeps the
     /// site-free print.
     site: Option<NodeId>,
+    /// Retracing a comparable relation (`checkTypeComparableTo`, TS2352)
+    /// rather than an assignable one (r7-reports §107).
+    comparable: bool,
 }
 
 impl std::ops::Deref for ChainStack {
@@ -6014,7 +6040,30 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<Diagnostic> {
-        let mut stack = ChainStack { site: Some(at), ..ChainStack::default() };
+        self.relation_failure_chain_in(at, span, source, target, false)
+    }
+
+    /// [`Self::relation_failure_chain`] for `checkTypeComparableTo`'s
+    /// comparable relation: TS2352's chain under its conversion head.
+    pub(crate) fn comparable_failure_chain(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Diagnostic> {
+        self.relation_failure_chain_in(at, span, source, target, true)
+    }
+
+    fn relation_failure_chain_in(
+        &mut self,
+        at: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        comparable: bool,
+    ) -> Option<Diagnostic> {
+        let mut stack = ChainStack { site: Some(at), comparable, ..ChainStack::default() };
         stack.assumed.push((source, target, false));
         stack.assumed_source_only.push(false);
         self.explain_relation(&mut stack, source, target, 0)?;
@@ -6151,7 +6200,9 @@ impl Checker<'_, '_> {
                 });
             }
         }
-        let message = if same_name {
+        let message = if stack.comparable {
+            &messages::TYPE_0_IS_NOT_COMPARABLE_TO_TYPE_1
+        } else if same_name {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_TWO_DIFFERENT_TYPES_WITH_THIS_NAME_EXIST_BUT_THEY_ARE_UNRELATED
         } else if self.exact_optional_object_mismatch(source, target) {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPES_OF_THE_TARGET_S_PROPERTIES
@@ -6388,6 +6439,11 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> crate::relater::Ternary {
+        let relation = if stack.comparable {
+            crate::relater::Relation::Comparable
+        } else {
+            crate::relater::Relation::Assignable
+        };
         if !stack.assumed.is_empty() {
             self.relate_ternary_assuming(
                 source,
@@ -6395,15 +6451,12 @@ impl Checker<'_, '_> {
                 &stack.assumed,
                 &stack.assumed_source_only,
                 stack.intersection_target,
+                relation,
             )
         } else if stack.intersection_target {
-            self.relate_ternary_in_intersection_target(
-                source,
-                target,
-                crate::relater::Relation::Assignable,
-            )
+            self.relate_ternary_in_intersection_target(source, target, relation)
         } else {
-            self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+            self.relate_ternary(source, target, relation)
         }
     }
 
@@ -6421,12 +6474,18 @@ impl Checker<'_, '_> {
         use crate::relater::Ternary;
         let mut source_only = stack.assumed_source_only.clone();
         source_only.push(true);
+        let relation = if stack.comparable {
+            crate::relater::Relation::Comparable
+        } else {
+            crate::relater::Relation::Assignable
+        };
         let answer = self.relate_ternary_assuming(
             constraint,
             target,
             &stack.assumed,
             &source_only,
             stack.intersection_target,
+            relation,
         );
         match answer {
             Ternary::NotRelated => {
@@ -6496,6 +6555,16 @@ impl Checker<'_, '_> {
         if let TypeData::Union { types, .. } = self.type_of(source).data.clone() {
             if source_flags.intersects(TypeFlags::PRIMITIVE) {
                 return Some(());
+            }
+            // Under the comparable relation a union source needs only some
+            // constituent (`someTypeRelatedToType`), and only the last
+            // constituent's failure is reported (r7-reports §107).
+            if stack.comparable {
+                let last = *types.last()?;
+                return match self.chain_relate(stack, last, target) {
+                    Ternary::NotRelated => self.explain_pair(stack, last, target, depth),
+                    _ => None,
+                };
             }
             for part in types {
                 match self.chain_relate(stack, part, target) {

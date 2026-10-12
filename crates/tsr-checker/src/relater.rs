@@ -1019,8 +1019,9 @@ impl Checker<'_, '_> {
         assumed: &[(TypeId, TypeId, bool)],
         source_only: &[bool],
         intersection_target: bool,
+        relation: Relation,
     ) -> Ternary {
-        let mut relater = Relater::new(self, Relation::Assignable, None);
+        let mut relater = Relater::new(self, relation, None);
         for (index, &(assumed_source, assumed_target, state)) in assumed.iter().enumerate() {
             for (s, t) in [
                 (assumed_source, assumed_target),
