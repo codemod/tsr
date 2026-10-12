@@ -2052,3 +2052,16 @@ symbol for the fallback either. Gated against main (base17 = 81e030785),
 when every constituent has the member. A filtered oracle reads all eight
 EXACT, and `indirectDiscriminantAndExcessProperty` (§61's case) stays
 EXACT.
+
+## 69. Refused again: the indexed-access source arm, with simplification
+
+§55's refusal named the missing distribution. This round added it locally
+(`getSimplifiedIndexedAccessType`'s union-index arm: `T[A | B]` →
+`T[A] | T[B]`, built with `resolved_indexed_access_type`). The chain then
+reads the right levels, but the distributed union prints `T[number] |
+T[string] | T[symbol]` where native prints `T[string] | T[number] |
+T[symbol]`: `unions.rs`' `compare_types` has no `CompareTypes` arm for two
+indexed accesses and falls back to creation order. Measured on
+`indexedAccessConstraints`, then reverted. Reopen when union ordering
+compares indexed accesses by object and then index (`CompareTypes`,
+`utilities.go`); that is not this lane's file.
