@@ -7971,18 +7971,42 @@ impl Checker<'_, '_> {
     /// no already-never constituent, and an intersection reducing to never.
     /// Keep this reduced view separate from the written intersection identity.
     pub(crate) fn intersection_has_never_discriminant(&mut self, ty: TypeId) -> bool {
-        let TypeData::Intersection { types, .. } = &self.store.get(ty).data else {
+        if !matches!(self.store.get(ty).data, TypeData::Intersection { .. }) {
             return false;
-        };
+        }
         if let Some(&reduced) = self.never_intersection_types.get(&ty) {
             return reduced;
         }
-        let types = types.clone();
         self.never_intersection_types.insert(ty, false);
+        let reduced = self.never_reduced_properties(ty, true).is_some();
+        if reduced {
+            self.never_intersection_types.insert(ty, true);
+        }
+        reduced
+    }
+
+    /// `elaborateNeverIntersection`'s property (`checker.go:21868`): of a
+    /// never-reduced intersection, the first discriminant property with a
+    /// `never` type, else the first conflicting private property, with
+    /// whether it is the private kind. `None` when `ty` is not reduced.
+    pub(crate) fn never_reduced_property(&mut self, ty: TypeId) -> Option<(String, bool)> {
+        self.never_reduced_properties(ty, false)
+    }
+
+    /// The scan behind [`Checker::intersection_has_never_discriminant`]
+    /// (`first`: stop at any never-reduced property) and
+    /// [`Checker::never_reduced_property`] (the first discriminant one,
+    /// else the first private one, as `elaborateNeverIntersection` finds
+    /// them over the property list).
+    fn never_reduced_properties(&mut self, ty: TypeId, first: bool) -> Option<(String, bool)> {
+        let TypeData::Intersection { types, .. } = &self.store.get(ty).data else {
+            return None;
+        };
+        let types = types.clone();
         let mut parts = Vec::new();
         let mut names = Vec::new();
         for part in types {
-            let Some(part_names) = self.get_property_names_of_type(part) else { return false };
+            let part_names = self.get_property_names_of_type(part)?;
             for name in &part_names {
                 if !names.contains(name) {
                     names.push(name.clone());
@@ -7990,6 +8014,7 @@ impl Checker<'_, '_> {
             }
             parts.push((part, part_names));
         }
+        let mut private_found = None;
         'property: for name in names {
             // A property contributed by only one constituent cannot acquire
             // a conflicting discriminant or private declaration. Avoid forcing
@@ -8003,8 +8028,13 @@ impl Checker<'_, '_> {
                     .iter()
                     .any(|&symbol| self.property_has_modifier(symbol, SyntaxKind::PrivateKeyword))
             {
-                self.never_intersection_types.insert(ty, true);
-                return true;
+                if first {
+                    return Some((name, true));
+                }
+                if private_found.is_none() {
+                    private_found = Some(name.clone());
+                }
+                continue;
             }
 
             let mut values = Vec::new();
@@ -8038,11 +8068,10 @@ impl Checker<'_, '_> {
                 && values.windows(2).any(|pair| pair[0] != pair[1])
                 && self.get_intersection_type(&values, None) == self.intrinsics.never
             {
-                self.never_intersection_types.insert(ty, true);
-                return true;
+                return Some((name, false));
             }
         }
-        false
+        private_found.map(|name| (name, true))
     }
 
     /// `getKeyPropertyName` with its constituent map

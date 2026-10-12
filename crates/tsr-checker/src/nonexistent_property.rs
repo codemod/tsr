@@ -612,16 +612,27 @@ impl Checker<'_, '_> {
         // typeToString (TypeFormatFlagsNoTypeReduction unset) prints
         // getReducedType of the containing type: a never-reduced
         // intersection, whose certified apparent type is `never`, is 'never'.
-        // elaborateNeverIntersection's chain (checker.go:21868) is message
-        // text this diagnostic model does not carry.
-        let shown = if apparent_receiver == self.intrinsics.never
-            && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION)
-        {
-            apparent_receiver
-        } else {
-            containing
-        };
+        let never_intersection = apparent_receiver == self.intrinsics.never
+            && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION);
+        let shown = if never_intersection { apparent_receiver } else { containing };
         let printed = self.type_to_string(shown);
+        // `elaborateNeverIntersection` (`checker.go:21868`), on the property
+        // access road only (`reportNonexistentProperty`): the intersection,
+        // printed unreduced, and the property that reduced it.
+        let union_miss = if never_intersection
+            && matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_)))
+            && let Some((property, private)) = self.never_reduced_property(containing)
+        {
+            let message = if private {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_EXISTS_IN_MULTIPLE_CONSTITUENTS_AND_IS_PRIVATE_IN_SOME
+            } else {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_HAS_CONFLICTING_TYPES_IN_SOME_CONSTITUENTS
+            };
+            let unreduced = self.type_to_string(containing);
+            Some(Diagnostic::with_args(message, span, [unreduced, property]))
+        } else {
+            union_miss
+        };
         // reportNonexistentProperty's last arm (checker.go:11580); the
         // element-access fallthrough to here is getPropertyTypeForIndexType's
         // plain TS2339, not this report.
