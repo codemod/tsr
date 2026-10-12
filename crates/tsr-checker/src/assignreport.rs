@@ -3450,9 +3450,9 @@ impl<'a> Checker<'a, '_> {
     /// `elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`): when some
     /// `kind` signature of the source returns a type (not `any`/`never`)
     /// related to the target, the failure is reported at the expression
-    /// itself — upstream adds "Did you mean to call this expression?" as
-    /// related information, which the suite does not compare. A pair the
-    /// relation does not reject falls through to the remaining arms.
+    /// itself, with "Did you mean to call this expression?" (or `new`) as
+    /// related information on its first diagnostic. A pair the relation
+    /// does not reject falls through to the remaining arms.
     fn elaborate_did_you_mean_to_call_or_construct(
         &mut self,
         node: NodeId,
@@ -3481,7 +3481,26 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let span = self.error_span(node);
-        self.report_relation_failure(node, span, None, source, target, head)
+        let before = self.diagnostics.len();
+        if !self.report_relation_failure(node, span, None, source, target, head) {
+            return false;
+        }
+        // `diags[0]` gains the hint at the expression (r7-reports §43).
+        if self.diagnostics.len() > before {
+            let message = if kind == crate::signatures::SignatureKind::Construct {
+                &messages::DID_YOU_MEAN_TO_USE_NEW_WITH_THIS_EXPRESSION
+            } else {
+                &messages::DID_YOU_MEAN_TO_CALL_THIS_EXPRESSION
+            };
+            let hint = self.related_diagnostic_at(node, message, span, Vec::new());
+            if hint.file().is_some() {
+                let diagnostic = &mut self.diagnostics[before].1;
+                let mut list = diagnostic.related_information().to_vec();
+                list.push(hint);
+                diagnostic.set_related_information(std::sync::Arc::new(list));
+            }
+        }
+        true
     }
 
     /// `getBestMatchingType` (`relater.go:879`) for an object-literal source
@@ -5991,10 +6010,11 @@ impl Checker<'_, '_> {
             return Some(None);
         }
         let reliability = self.variance_reliability(symbol, variances.len());
-        let covariant_void = target_arguments.iter().zip(&variances).any(|(&argument, variance)| {
-            *variance == Variance::Covariant
-                && self.type_of(argument).flags.intersects(TypeFlags::VOID)
-        });
+        let covariant_void =
+            target_arguments.iter().zip(&variances).any(|(&argument, variance)| {
+                *variance == Variance::Covariant
+                    && self.type_of(argument).flags.intersects(TypeFlags::VOID)
+            });
         if reliability.iter().any(|flags| !flags.is_empty())
             || covariant_void
             || variances.contains(&Variance::Invariant)

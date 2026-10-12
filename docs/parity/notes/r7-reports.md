@@ -1623,3 +1623,13 @@ and reverted in this commit. The case's verdict stays as it was.
   or an invariant parameter (upstream resets the variance errors to show
   the structural reason). Aliases relate through their own variance path
   in the relater and decline here.
+
+## 43. `Did you mean to call this expression?`
+
+`elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`) reports the
+relation at the expression itself and adds `Did you mean to call this
+expression?` (TS6212) or `Did you mean to use 'new' with this expression?`
+(TS6213) to the first diagnostic, after anything the relation attached
+(`'x' is declared here.` under TS2741). The port's doc comment had said
+"the suite does not compare" related information. The exact oracle does,
+so the hint is now attached.
