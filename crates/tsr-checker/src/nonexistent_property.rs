@@ -97,6 +97,16 @@ impl Checker<'_, '_> {
                 let Some(id) = argument.node_id() else { return };
                 let Some(Node::StringLiteral(literal)) = self.node_map.get(id) else {
                     if access.question_dot_token.is_none() {
+                        // `getIndexedAccessTypeOrUndefined` (`checker.go:26961`)
+                        // asks `getPropertyTypeForIndexType` once per literal
+                        // of the index type, a union distributing; any other
+                        // index is the computed-key road.
+                        if let Some(names) = self.literal_index_names(argument) {
+                            for name in names {
+                                self.check_nonexistent_name(node, receiver, &name, id);
+                            }
+                            return;
+                        }
                         self.check_computed_index_implicit_any(node, receiver, argument);
                     }
                     return;
@@ -111,7 +121,19 @@ impl Checker<'_, '_> {
         if optional {
             return;
         }
+        self.check_nonexistent_name(node, receiver, name_text, name_id);
+    }
 
+    /// The miss certificate and report for one property name of `node`'s
+    /// receiver: the property access's name, or one literal of an element
+    /// access's index (`name_id` is then the argument).
+    fn check_nonexistent_name(
+        &mut self,
+        node: NodeId,
+        receiver: tsr_ast::Expression<'_>,
+        name_text: &str,
+        name_id: NodeId,
+    ) {
         let Some(receiver_id) = receiver.node_id() else { return };
         let receiver_type = self.check_expression(receiver);
         if self.global_this_member_is_not_reported(receiver_type, name_text) {
@@ -568,6 +590,36 @@ impl Checker<'_, '_> {
             }
         }
         None
+    }
+
+    /// The literal names of a non-string-literal element-access index whose
+    /// type is a string or number literal, or a union of them (not
+    /// `boolean`), in the index type's order; `None` for any other index.
+    fn literal_index_names(&mut self, argument: tsr_ast::Expression<'_>) -> Option<Vec<String>> {
+        use crate::flags::TypeFlags;
+        let index_type = self.check_expression(argument);
+        let parts = match &self.store.get(index_type).data {
+            crate::types::TypeData::Union { types, .. }
+                if !self.store.get(index_type).flags.intersects(TypeFlags::BOOLEAN) =>
+            {
+                types.clone()
+            }
+            _ => vec![index_type],
+        };
+        parts
+            .into_iter()
+            .map(|part| {
+                if !self
+                    .store
+                    .get(part)
+                    .flags
+                    .intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
+                {
+                    return None;
+                }
+                self.property_name_from_index(part)
+            })
+            .collect()
     }
 
     /// `getPropertyTypeForIndexType`'s no-index-signature arm
