@@ -1168,3 +1168,38 @@ reached `K = "n"` through the live mapper, which the gate now skipped, so `v`
 widened to `string | number | boolean`. Not landed. It lands once phase-1
 inference into a `{ [P in K]: X }[K]` target yields that candidate natively,
 with the gate kept as written and the probe re-measured.
+
+## 41. Inference simplifies `{ [P in K]: E }[K]` with an instantiable index
+
+`inferFromTypes`' type-variable arm infers to `getSimplifiedType(target)`.
+For an indexed access, `getSimplifiedIndexedAccessType` (`checker.go`)
+distributes the object over the index only for a non-instantiable index, but
+its generic-mapped arm (`substituteIndexedMappedType`) takes any index, so
+`{ [P in K]: E }[K]` simplifies to `E` with `P := K`.
+`inference_simplified_indexed_access` returned `None` for every instantiable
+index, so `pr<K>(rec: UnionRecord<K>)` with `UnionRecord<K> = { [P in K]: {
+kind: P, … } }[K]` got no phase-1 candidate from `{ kind: 'n', … }` and gapped
+(probes: `UR2`/`UR3`-shaped calls now infer `"n"`, as tsgo d.ts emit does).
+The instantiable-index refusal now guards the intersection arm only.
+correlatedUnions: 12 → 5 non-RIGHT lines on the verdict dump; no loss across
+the 34,650 `*nfer*`/`*ontextual*`/`*apped*`/`*orrelated*`/`*ndexed*` verdict
+lines. Still divergent: `pr8<K>(rec: { [P in K]: { kind: P, f: (v:
+RecordMap[P]) => void } }[K])` with `{ kind: 'n', f: (v: number) => {} }` infers
+`keyof RecordMap` where native infers `"n"`. The written form `{ kind: K, f:
+(v: RecordMap[K]) => void }` is right, so the substituted template's
+`RecordMap[K]` contributes a contravariant candidate that the written one does
+not. That is the next step for §40's refusal as well.
+
+The first gate of §41 (against b67) measured types +18 / 0 lost, but
+correlatedUnions' diagnostics went EMPTY_RIGHT → EMPTY_WRONG: a false TS2345
+at `call(xx)`. `xx` is `{ letter: A, caller: ACaller } | { letter: B, caller:
+BCaller }`, and the simplified target is `{ letter: Record<K, …>, caller: (x:
+Record<K, …>) => void }`. tsgo's candidate log (TSGO_DBG) shows only the
+covariant `"A"`, `"B"`. `invokeOnce` memoizes the `(A, Record<K, …>)` pair from
+`letter`, so the contravariant visit from `caller`'s parameter is skipped. The
+port wrapped only the member walk in its invokeOnce; `infer_to_mapped_type`
+ran before the visited check, collected contravariant `"A"` and `"B"`, and
+inferred `never`. The visited-pair scope now covers the mapped-target arm and
+the unrelated test, as `inferFromObjectTypes` does inside `invokeOnce`
+(`call2(xx)` infers `"A" | "B"`, as tsgo's d.ts emit does). No loss across
+34,661 related verdict lines.
