@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 9053/9538 (94.92%)
-Assertion lines: 476448/478853 (99.50%)  — a gradient, not a pass rate
-Failed         : 485
+Passed         : 9056/9538 (94.95%)
+Assertion lines: 476468/478853 (99.50%)  — a gradient, not a pass rate
+Failed         : 482
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 485 failures:
+First 100 of 482 failures:
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a2 : (name: string, mixed: any, args_0: any) => any — expected >a2 : a2
 compiler/allowJscheckJsTypeParameterNoCrash
@@ -41,8 +41,6 @@ compiler/awaitedType
   awaitedType.ts: >T6 : any — expected >T6 : never
 compiler/awaitedTypeNoLib
   awaitedTypeNoLib.ts: >result : Thenable<NotPromise<TResult>> — expected >result : Thenable<NotPromise<TResult>> | NotPromise<TResult>
-compiler/badInferenceLowerPriorityThanGoodInference
-  badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
 compiler/baseConstraintOfDecorator
   baseConstraintOfDecorator.ts: >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : typeof decoratorFunc — expected >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : { new (...args: any[]): decoratorFunc; prototype: classExtender2.decoratorFunc; } & TFunction
 compiler/baseExpressionTypeParameters
@@ -213,3 +211,5 @@ compiler/deferredConditionalTypes2
   deferredConditionalTypes2.ts: >Add : Add<A, B> — expected >Add : [true, false] extends [IsEqual<A, Infinity>, IsEqual<B, -Infinity>] ? Infinity : "failed"
 compiler/discriminantPropertyCheck
   discriminantPropertyCheck.ts: >test : AllTests — expected >test : TestA | TestB
+compiler/discriminateWithDivergentAccessors1
+  discriminateWithDivergentAccessors1.ts: >weirdoBox : { get done(): true; set done(v: T | null); value: number; } — expected >weirdoBox : { get done(): true; set done(v: number | null); value: number; }
