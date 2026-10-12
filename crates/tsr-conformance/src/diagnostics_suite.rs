@@ -571,8 +571,8 @@ fn located_in_units<'d>(
 
 /// The checker's `EmitResolver` accessibility half as the declaration
 /// walk's resolver; the two result types mirror one another.
-struct EmitResolverAdapter<'c, 'a, 'n>(
-    tsr_checker::symbol_access::DeclarationEmitResolver<'c, 'a, 'n>,
+pub(crate) struct EmitResolverAdapter<'c, 'a, 'n>(
+    pub(crate) tsr_checker::symbol_access::DeclarationEmitResolver<'c, 'a, 'n>,
 );
 
 impl tsr_dts::accessibility::AccessibilityResolver for EmitResolverAdapter<'_, '_, '_> {

@@ -537,20 +537,58 @@ pub fn actual(source: &Path, request: &Request) -> Result<String> {
                 .into_iter()
                 .map(|d| (name.to_string(), d)),
         );
-        // `GetDeclarationDiagnostics` when `GetEmitDeclarations()`: only the
-        // isolatedDeclarations family has a TSR producer.
-        if emit_declarations
-            && options.isolated_declarations.is_true()
-            && !tsr_path::is_declaration_file_name(name)
-            && tsr_parser::ScriptKind::from_file_name(name) != tsr_parser::ScriptKind::Json
-        {
+    }
+    // `GetDeclarationDiagnostics` when `GetEmitDeclarations()`
+    // (`harnessutil.go:655`), for every file `getDeclarationDiagnostics`
+    // (`emitter.go:520`) transforms: not a declaration file, not JSON, not
+    // from an external library (`sourceFileMayBeEmitted`, `emitter.go:452`),
+    // and independent of `SkipTypeChecking`. The declaration transformer's
+    // diagnostics are the isolatedDeclarations family
+    // (`tsr_dts::analyze_with_options`) and the node builder's tracker over
+    // the emit resolver (`declaration_walk_diagnostics`), the same producer
+    // the legacy diagnostics suite runs. JavaScript files and `node_modules`
+    // files are declined by the walk, as there: their errors are missed,
+    // never invented (docs/parity/notes/oracle.md, "Declaration diagnostics").
+    if emit_declarations {
+        let isolated = options.isolated_declarations.is_true();
+        for f in files {
+            let name = f.file_name();
+            if tsr_path::is_declaration_file_name(name)
+                || tsr_parser::ScriptKind::from_file_name(name) == tsr_parser::ScriptKind::Json
+            {
+                continue;
+            }
+            let Some(id) = f.source_file().node_id else { continue };
+            if isolated {
+                found.extend(
+                    tsr_dts::analyze_with_options(
+                        f.source_file(),
+                        program.nodes(),
+                        tsr_dts::AnalysisOptions {
+                            strict_null_checks: options
+                                .strict_option_value(options.strict_null_checks),
+                        },
+                    )
+                    .into_iter()
+                    .map(|d| (name.to_string(), d)),
+                );
+            }
+            let javascript =
+                program.nodes().flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+            if javascript || name.contains("/node_modules/") {
+                continue;
+            }
+            let mut resolver = crate::diagnostics_suite::EmitResolverAdapter(
+                tsr_checker::symbol_access::DeclarationEmitResolver::new(&mut checker),
+            );
             found.extend(
-                tsr_dts::analyze_with_options(
-                    f.source_file(),
+                tsr_dts::accessibility::declaration_walk_diagnostics(
+                    id,
                     program.nodes(),
-                    tsr_dts::AnalysisOptions {
-                        strict_null_checks: options.strict_option_value(options.strict_null_checks),
-                    },
+                    program.node_map(),
+                    f.text(),
+                    tsr_dts::accessibility::WalkOptions { isolated_declarations: isolated },
+                    &mut resolver,
                 )
                 .into_iter()
                 .map(|d| (name.to_string(), d)),

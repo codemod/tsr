@@ -168,6 +168,49 @@ raw except the printed file name, which both sides pass through
 on both sides (no baseline or CLI prints it; native uses -1 or 0). Symbols
 baselines, JS/declaration emit and source maps are outside this oracle.
 
+## Declaration diagnostics (methodology change, r7-printer, 2026-10-12)
+
+The native producer's diagnostics are the test harness's `compileFilesWithHost`
+collection (`harnessutil.go:650`–`:661`). Whenever
+`GetEmitDeclarations()` holds (`declaration` or `composite`), it includes
+`GetDeclarationDiagnostics` for every file.
+`getDeclarationDiagnostics` (`emitter.go:520`) runs the declaration
+transformer on each file `sourceFileMayBeEmitted` admits (`emitter.go:452`):
+not a declaration file, not JSON, not from an external library. The
+transformer's diagnostics are the isolatedDeclarations family plus the node
+builder's `SymbolTracker` errors over the emit resolver (TS2883, TS2742,
+TS4xxx, TS2527, …). The collection does not depend on `SkipTypeChecking`.
+
+Before this change the TSR producer (`full_oracle.rs`) ran only the
+isolatedDeclarations family, and only for type-checked files. It now runs,
+under the same `GetEmitDeclarations()` condition, for every non-declaration,
+non-JSON file:
+- `tsr_dts::analyze_with_options` under `isolatedDeclarations`;
+- `tsr_dts::accessibility::declaration_walk_diagnostics` over
+  `DeclarationEmitResolver`, the tracker walk the legacy diagnostics suite
+  already ran (`diagnostics_suite.rs`).
+
+The walk declines JavaScript files (JS declaration emit goes through the node
+builder's JSDoc path) and `node_modules` files (standing in for
+`IsSourceFileFromExternalLibrary`). That narrows the producer relative to
+native and never widens it: those files' errors are missed, never invented.
+The pre-/post-emit count check of the harness is not modelled.
+
+**Measured** (results.tsv, case by case, both reports from the same TSR
+source `ba622dfed` crates, workers differing): the old producer gave exact
+11208 and the new one 11225. That is **+17 / −0**: no case exact under the old
+producer lost exactness. The 17 are TS2883 cases
+(`nodeModulesExportsSourceTs` ×4, `nodeModulesExportsBlocksSpecifierResolution`
+×4, `declarationEmitUnsafeImportSymbolName`, …) and TS4xxx cases
+(`declarationEmitInvalidExport`, `globalThisDeclarationEmit`, …). One
+already non-exact case gained an extra native-absent TS4094
+(`declarationEmitMixinPrivateProtected`).
+
+**Consequence for gates.** The producer source hash is part of a report's
+identity (`producer_source_sha256:full_oracle.rs`). Reports from before this
+change are not comparable with later ones: regenerate the base report with
+the new producer before an `exact-candidate` gate.
+
 ## Failure classes
 
 First difference, diagnostic half before type half. Diagnostic half: equal

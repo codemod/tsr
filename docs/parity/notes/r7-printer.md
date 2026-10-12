@@ -2197,3 +2197,13 @@ callable re-entry, the certified and deferred object roads) ask
   (`moduleExportsTypeNoExcessPropertyCheckFromContainedLiteral` wants
   `tseslint.Config`). The port binds a variable. That is a binder change,
   routed.
+
+## 67. The exact oracle's producer collects declaration diagnostics (integrator-granted)
+
+`full_oracle.rs` (the oracle lane's file, granted) now mirrors the native
+harness's `GetDeclarationDiagnostics` collection.
+`diagnostics_suite.rs`' `EmitResolverAdapter` is now `pub(crate)` so the
+producer can share it. Methodology, scope and measurement:
+`docs/parity/notes/oracle.md`, "Declaration diagnostics". Measured +17 / −0
+exact against the old producer's report of the same TSR source. Base reports
+must be regenerated with the new producer.
