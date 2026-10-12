@@ -1153,6 +1153,20 @@ parameter mapped to `unknown` and compares identities. If they match, it is
 the answer. It is consulted only after the inference road answered `error`,
 so every answer that road gives today stands.
 
+## 36. (held: needs a check.rs/checker.rs grant) Every reported chain child carries the file
+
+§30 gave the call chain builders' children the reported file. The held
+change does the same once, in `Checker::report`: any chain child without a
+file (at any depth) takes the reported file's image. The image is built
+once per file and kept in `chain_file_images`. Key: the source file node.
+Owner: `report`. It is built on the first chained report in that file, and
+nothing reads it before then. `set_chain_file` becomes `pub(crate)` for it.
+
+Per-case oracle against `cand22`: of the 664 WRONG cases whose native
+output has chain rows, 16 become exact, and no file-less chain row remains
+in any of them. The 435 EXACT cases with chain rows stay exact. What
+remains in the others is the chains' content (the relation reporter).
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

@@ -124,6 +124,11 @@ pub struct Checker<'a, 'n> {
     /// which is every call site the `checker_types` gradient runs through: the
     /// traversal is a second entry point, never a side effect of a query.
     pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
+    /// The file image a reported diagnostic's chain children take
+    /// (`Checker::report`), per file: built once on the first chained
+    /// report in that file. Key: the source file node; owner: `report`.
+    pub(crate) chain_file_images:
+        rustc_hash::FxHashMap<NodeId, std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
     /// Native `InitializerIsUndefinedComputed` / `InitializerIsUndefined`:
@@ -1515,6 +1520,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             regular_types: FxHashMap::default(),
             enum_member_owners: FxHashMap::default(),
             diagnostics: Vec::new(),
+            chain_file_images: rustc_hash::FxHashMap::default(),
             symbol_types,
             parameter_initializer_contains_undefined: FxHashMap::default(),
             this_expando_kinds: FxHashMap::default(),
