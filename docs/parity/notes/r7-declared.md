@@ -1385,3 +1385,27 @@ state.
 jsxNamespaceGlobalReexport 3, jsxNamespaceGlobalReexportMissingAliasTarget 3,
 jsxNamespaceImplicitImportJSXNamespace 3); diagnostics 0 / 0; jsTyping
 new_false 0 / lost_true 0; Ir gi 0.9998, dm 1.0000.
+
+## 42. A partially written qualified reference fills its defaults
+
+**Forcing constraint.** fillMissingTypeArguments fills a written list that is
+shorter than the parameter list when the missing parameters have defaults:
+`NS.CC<string>` over `interface CC<P = {}, S = any>` is `NS.CC<string,
+any>`, and a reused annotation keeps the written `NS.CC<string>`. §42 v2's
+generic qualified arm admitted only full lists, so a shorter one fell
+through to `unresolved_type_reference`: an `any` mint carrying the written
+text, so the reference was an unresolved type, not the interface instance.
+
+**Port.** `qualified_reference_missing_defaults` supplies the missing tail
+when every missing parameter has a default that resolves without mentioning
+a type parameter, and the §42 v2 arm builds its mint with the full argument
+list (printed) and the written list (reuse channel), as it does for a full
+list. No new state.
+
+**Measured** (unfiltered against the rebased `007e770e`): types 0 / 0,
+diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 0.9997, dm 1.0000. Kept for its
+semantics (the reference is now the instance the relater and member roads
+read, not an `any` mint); the corpus's rows of this shape
+(jsxExcessPropsAndAssignability's `React.ComponentClass<P, any>`) reach
+`React` through react16's `export =` namespace, a road this arm does not
+cover.
