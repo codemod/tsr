@@ -2701,6 +2701,21 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::ModuleExportName::Identifier(name) => (name.text, name.node_id?),
             tsr_ast::ModuleExportName::StringLiteral(name) => (name.text, name.node_id?),
         };
+        // `declarationName := declarationNameToString(name)`: the name as
+        // written, so a string-literal name prints with its quotes
+        // (`'"missing"'`, `arbitraryModuleNamespaceIdentifiers_importEmpty`,
+        // r7-shared.md §42).
+        let display = match name {
+            tsr_ast::ModuleExportName::Identifier(_) => text.to_string(),
+            tsr_ast::ModuleExportName::StringLiteral(_) => self
+                .source_file_of(name_id)
+                .and_then(|file| self.module_host?.source_text(file, self.nodes))
+                .and_then(|source| {
+                    let span = self.nodes.span(name_id);
+                    source.get(span.start as usize..span.end as usize).map(str::to_string)
+                })
+                .unwrap_or_else(|| format!("\"{text}\"")),
+        };
         // A missing name (parser recovery, `import { "a" } from …` with no
         // `as`) names nothing to report on; the empty STRING name
         // (`import { "" as foo }`) is a valid export name
@@ -2784,7 +2799,7 @@ impl<'a> Checker<'a, '_> {
             let mut diagnostic = Diagnostic::with_args(
                 &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
                 span,
-                [module_name, text.to_string(), suggestion.clone()],
+                [module_name, display.clone(), suggestion.clone()],
             );
             // `errorNoModuleMemberSymbol`: `'{0}' is declared here.` at the
             // suggestion's value declaration (`checker.go:14898`), r7-grammar §49.
@@ -2809,7 +2824,7 @@ impl<'a> Checker<'a, '_> {
                 Diagnostic::with_args(
                     &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1_DID_YOU_MEAN_TO_USE_IMPORT_1_FROM_0_INSTEAD,
                     span,
-                    [module_name, text.to_string()],
+                    [module_name, display.clone()],
                 ),
             );
             return None;
@@ -2841,7 +2856,7 @@ impl<'a> Checker<'a, '_> {
                         Diagnostic::with_args(
                             &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1,
                             span,
-                            [module_name, text.to_string()],
+                            [module_name, display.clone()],
                         ),
                     );
                 }
@@ -2862,13 +2877,13 @@ impl<'a> Checker<'a, '_> {
                 Diagnostic::with_args(
                     &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_EXPORTED_AS_2,
                     span,
-                    [module_name, text.to_string(), exported_name.to_string()],
+                    [module_name, display.clone(), exported_name.to_string()],
                 )
             } else {
                 Diagnostic::with_args(
                     &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_NOT_EXPORTED,
                     span,
-                    [module_name, text.to_string()],
+                    [module_name, display.clone()],
                 )
             };
             // `'{0}' is declared here.` then `and here.` at each of the local
@@ -2879,7 +2894,7 @@ impl<'a> Checker<'a, '_> {
                         declaration,
                         &messages::_0_IS_DECLARED_HERE,
                         self.error_span(declaration),
-                        vec![text.to_string()],
+                        vec![display.clone()],
                     )
                 } else {
                     self.related_diagnostic_at(
@@ -2899,7 +2914,7 @@ impl<'a> Checker<'a, '_> {
             Diagnostic::with_args(
                 &messages::MODULE_0_HAS_NO_EXPORTED_MEMBER_1,
                 span,
-                [module_name, text.to_string()],
+                [module_name, display.clone()],
             ),
         );
         None

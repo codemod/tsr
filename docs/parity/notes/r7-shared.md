@@ -1187,3 +1187,19 @@ body): every member is the module, typed `any`. So `export {x} from
 covered only an import made directly from the shorthand module. The rule now
 sits where native's does, in `get_external_module_member`, so a re-export
 chain reaches it.
+
+chain reaches it. The same native condition (`nameText != "" || name.Kind
+== KindStringLiteral`) corrects §38's empty-name decline: the empty *string*
+name (`import { "" as foo }`) is a valid export name and is decided
+(`arbitraryModuleNamespaceIdentifiers_importEmpty` was missing its TS2305
+with §38).
+
+## 42. TS2305's member is printed as written
+
+`errorNoModuleMemberSymbol` prints `declarationNameToString(name)`, the
+name's source text, in every message it chooses (TS2305, TS2724, TS2614,
+TS2459, TS2460 and the related "declared here"). A string-literal name
+therefore keeps its quotes: `Module '…' has no exported member
+'"missing"'` (`arbitraryModuleNamespaceIdentifiers_importEmpty`). The report
+printed the cooked text. It now reads the literal's source text through the
+host, falling back to a double-quoted string.
