@@ -1862,3 +1862,68 @@ before asking the site.
 site, the path a parameter without a carried text already took) is asked
 first, and the carried text is the fallback when the visitor declines. No
 cache or table.
+
+## 53. A spread member's declaration is reused before its type is printed
+
+**Forcing constraint.** `spreadIdenticalTypesRemoved` (2 lines):
+`{ ...(pet.owner && pet), paid: false }` over `interface Animal2 { name:
+string; owner?: string }` prints natively as
+`{ name?: string | undefined; owner?: string; paid: boolean; }`. The port
+printed `owner?: string | undefined`.
+
+**Cause.** `addPropertyToElementList` serializes each member through
+`serializeTypeForDeclaration(nil, type, propertySymbol, true)`
+(`nodebuilderimpl.go:2605`). That first reuses the property's declaration
+when its pseudo type is equivalent: `owner?: string` is optional-annotated,
+so `string | undefined` matches `string`, and `name: string` is not. §35's
+spread road re-printed the type at the site without asking the declaration,
+which the certified renderer does (`reused_property_type_text`).
+
+**The port.** `reprint_property_slots_at` (§35, §36, §38) asks
+`reused_property_type_text` for the member's origin first. No cache or table.
+
+## 54. Re-triage at `946e806c6` (exact report on main `2d1b3a4cf` + this lane)
+
+**Naming-only type cases.** 33 type cases differ from native only by
+qualification, `import()` roots, `_N` renames, quotes or an optional slot's
+`| undefined`, with diagnostics equal. Their owners:
+- Routed diffs: `callbackCrossModule`, `checkJsdocParamOnVariableDeclaredFunctionExpression`,
+  `jsDeclarationsMissingTypeParameters` and `jsDeclarationsUniqueSymbolUsage`
+  (§47).
+- Parameter serialization (signatures.rs' `serialized_parameter_type`, the
+  `| undefined` of an optional parameter):
+  - `arrayFlatNoCrashInference{,Declarations}`;
+  - `jsDocDeclarationEmitDoesNotUseNodeModulesPathWithoutError`;
+  - `optionalBindingParameters4`;
+  - `parserParameterList2`, where `a? = 0` takes its initializer's pseudo type.
+- A mapped member that reuses its source declaration (mapped.rs):
+  `declarationEmitExactOptionalPropertyTypesNodeNotReused`, and
+  `mappedTypeErrors`' `a?: number`.
+- An instantiated type literal's optional member, serialized with its
+  `undefined` (`genericCallInferenceInConditionalTypes1`). The port's
+  property type carries no `undefined`, so a non-reused optional member
+  prints without it.
+- Local classes with outer type parameters, `f.C<string>` (`localTypes3`,
+  `baseExpressionTypeParameters`). The port does not instantiate a local
+  class's outer type parameters: `v.x` is `X`, where native says `number`.
+- A generic type alias's declared type, the `Name<Params>` mint, carries no
+  alias symbol, so `type T<T> = {}` cannot be qualified as `globalThis.T<T>`
+  (`unusedTypeParameters*`).
+- JSDoc `@template` scopes that the binder's `resolve_name` does not see
+  (`jsFileMethodOverloads2`, `jsFileFunctionOverloads2`).
+- `exportNestedNamespaces`, `moduleExportNestedNamespaces`: a class
+  expression assigned to `exports.Classic` is contained by its file
+  (`getContainersOfSymbol`'s class-expression arm, `symbolaccessibility.go:306`,
+  not ported).
+- Single cases left as recorded above: `importTypeResolutionJSDocEOF`,
+  `genericClassesRedeclaration`, `typeAliasesDoNotMerge`,
+  `mergedClassWithNamespacePrototype`,
+  `declarationEmitImportInExportAssignmentModule` (§51) and
+  `reactImportDropped` (§26).
+
+**Message cases.** 59 `diag:chain` / `diag:message-text-only` cases differ only
+by the same naming classes in message text. Most are chain-level prints in
+assignreport.rs: `Type '…' is not assignable to type '…'` at depth, TS2741,
+TS2353, TS2559. Natively each prints with `TypeToString` or
+`getTypeNamesForErrorDisplay` (nil enclosing). §45's diff adopts the head
+sites; the chain sites are the reports lane's continuation of it.

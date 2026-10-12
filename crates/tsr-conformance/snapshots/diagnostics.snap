@@ -57,7 +57,7 @@ compiler/baseExpressionTypeParameters
 compiler/bigintArbirtraryIdentifier
   1 unexpected (first TS2304 at badImport.ts(1,16)), 0 missing
 compiler/bigintPropertyName
-  1 unexpected (first TS2322 at g.ts(26,18)), 13 missing
+  1 unexpected (first TS2322 at g.ts(26,18)), 4 missing
 compiler/bigintWithLib
   2 unexpected (first TS2769 at bigintWithLib.ts(19,33)), 6 missing
 compiler/bindingPatternCannotBeOnlyInferenceSource

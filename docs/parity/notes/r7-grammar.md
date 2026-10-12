@@ -1253,3 +1253,20 @@ found it):
 decline (`has_default_library_declaration`) was measured with the CLI on
 `subclassUint8Array` and `classExtendingBuiltinType`. It reports a false
 TS2415 on both (the lib-merged member tables are incomplete). It stays.
+
+## §67 TS1539, a bigint literal as a property name
+
+`A 'bigint' literal cannot be used as a property name.` has two native
+sites, both `c.error`s that stand in a file with parse diagnostics:
+
+- `checkVariableLikeDeclaration` (`checker.go:5890`), for a property
+  declaration or property signature named `4n`;
+- `checkGrammarObjectLiteralExpression`'s property-assignment arm
+  (`grammarchecks.go:1111`, `addErrorOrSuggestion(true, …)`), for `{ 1n: x }`.
+
+It had no emitter. `check_big_int_property_names` reports both from
+grammar.rs's per-node hook. A binding element's `{ 0n: f }` is neither
+(native reports TS2538 there, not this). Checked with the CLI against
+`target/tsgo-pinned` (object literal, class field, type-literal member).
+`bigintPropertyName`'s nine TS1539 lines are the oracle's measure. The case
+keeps other gaps.
