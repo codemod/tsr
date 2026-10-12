@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1033/1091 (94.68%)
-Failed         : 58
+Passed         : 1034/1091 (94.78%)
+Failed         : 57
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -85,8 +85,6 @@ compiler/useBeforeDeclaration_classDecorators.2(experimentaldecorators=false)
   6 unexpected (first TS2449 at useBeforeDeclaration_classDecorators.2.ts(46,22)), 0 missing
 conformance/ES5For-of30(target=es2015)
   1 missing (first TS2488 at ES5For-of30.ts(3,6))
-conformance/arrowFunctionContexts(alwaysstrict=true)
-  1 unexpected (first TS2331 at arrowFunctionContexts.ts(44,23)), 0 missing
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
   1 missing (first TS1058 at asyncFunctionDeclaration15_es5.ts(17,16))
 conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=false)
