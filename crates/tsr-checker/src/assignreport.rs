@@ -2074,16 +2074,15 @@ impl<'a> Checker<'a, '_> {
         // `getTypeNamesForErrorDisplay` (`relater.go:4345`; r7-printer §61).
         // Without a site, two types that print alike are still re-printed
         // fully qualified (r7-reports §108).
-        let (source_text, target_text) = match at {
-            Some(at) => self.type_names_for_error_display(source, target, at),
-            None => {
-                let (source_text, target_text) =
-                    (self.type_to_string(source), self.type_to_string(target));
-                if source_text == target_text {
-                    (self.type_name_for_error_display(source), self.type_name_for_error_display(target))
-                } else {
-                    (source_text, target_text)
-                }
+        let (source_text, target_text) = if let Some(at) = at {
+            self.type_names_for_error_display(source, target, at)
+        } else {
+            let (source_text, target_text) =
+                (self.type_to_string(source), self.type_to_string(target));
+            if source_text == target_text {
+                (self.type_name_for_error_display(source), self.type_name_for_error_display(target))
+            } else {
+                (source_text, target_text)
             }
         };
         let (message, args) = if properties.len() == 1 {
