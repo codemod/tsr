@@ -5468,11 +5468,21 @@ impl<'a> Checker<'a, '_> {
             && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
             && let Some(body) = self.evaluate_alias_body(symbol, &arguments)
             && body != target
-            && self.store.get(body).flags.intersects(
+            && (self.store.get(body).flags.intersects(
                 crate::flags::TypeFlags::INSTANTIABLE
                     | crate::flags::TypeFlags::UNION
                     | crate::flags::TypeFlags::INTERSECTION,
             )
+                // An alias of an alias instance (`PropValidator<T[K]>` =
+                // `PropOptions<T[K]>`) is that instance natively: continue
+                // down the chain (r7-contextual §52).
+                || self.type_reference_targets.get(&body).is_some_and(|(body_symbol, _)| {
+                    self.binder
+                        .symbols()
+                        .get(*body_symbol)
+                        .flags
+                        .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+                }))
         {
             let original = if original == target { body } else { original };
             self.infer_from_types_within(source, body, original, parameters, out, depth + 1);
@@ -5893,10 +5903,17 @@ impl<'a> Checker<'a, '_> {
         for kind in
             [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
         {
-            let (Some(target_signatures), Some(source_signatures)) = (
-                self.signatures_of_type_kind(target, kind),
-                self.signature_shapes_of_type_kind(source, kind),
-            ) else {
+            // An alias instance is its body's type natively; a signature read
+            // that cannot answer for the alias layer (`PropType<T[K]>`, an
+            // alias of the call-signature alias `Prop<T[K]>`) reads the body
+            // (r7-contextual §52).
+            let target_signatures = self.signatures_of_type_kind(target, kind).or_else(|| {
+                let body = self.binding_type_alias_body(target);
+                (body != target).then(|| self.signatures_of_type_kind(body, kind)).flatten()
+            });
+            let (Some(target_signatures), Some(source_signatures)) =
+                (target_signatures, self.signature_shapes_of_type_kind(source, kind))
+            else {
                 continue;
             };
             if source_signatures.is_empty() {
