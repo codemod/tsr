@@ -67,7 +67,8 @@ alone (`r6-triage.md` §2 row 9).
   cleared — the same instance the `instantiated` out-slot returns.
 - **Work boundary:** only array/object literals that are not
   context-sensitive and whose subtree holds no call, `new`, tagged template,
-  function, method, accessor or class (`literal_subtree_resolves`): native
+  function, method, accessor or class (`literal_subtree_resolves`; §31 later
+  replaced the call/`new`/tagged-template half by reusing the nested answer): native
   caches a nested resolved signature and a function's type from their first
   check, while re-checking them here would redo that resolution (an
   exponential cost in nesting depth). The eviction
@@ -923,3 +924,52 @@ contextual signature's return type (routed with §25's signatures.rs items).
 That case still needs the mapped-type member resolution routed in the report:
 the port does not resolve `{ [P in "bar" | "foo"]: P extends "foo" ? true :
 () => any }` into members at all.
+
+## 31. The held literal-call boundary (§8) lands: nested calls are reused, not excluded
+
+§8 held this diff (`r7-contextual-HELD-literal-call-boundary.diff`) at
++20 / −6 types, −1 diagnostics. It is rebased here onto the current
+boundary helpers. §1's re-check
+(`resolved_literal_argument_recheck`) now admits a literal holding a call,
+`new` or tagged template. `literal_subtree_holds_function_outside_calls`
+refuses only a function, method, accessor or class outside such a call.
+`evict_literal_subtree` stops at the nested call, so its answer is reused, as
+native's per-candidate re-check reuses the call's cached
+`links.resolvedSignature`. `Promise.all([fa(), fb()])` now keeps
+`Promise<[number[], string[]]>` (probed). `literal_subtree_resolves` had no
+remaining caller and is removed.
+
+The first gate (against b57) gained 27 types (mappedTypesGenericTuples2 10,
+awaitedType 8, correctOrderOfPromiseMethod 5, awaitedTypeStrictNull 4), plus
+1 diagnostics case, with no corpus loss. §8's two blockers no longer reproduce.
+The exact oracle, which checks diagnostics before the type walk, lost
+genericContextualTypes2 and 3: `entry` and its `assign(…)` printed `error`.
+`createMachine<{ count: number }>({ context, entry: assign({…}) })` writes its
+type argument, but phase 1's argument loop runs before the written-arguments
+arm. Its literal now passed the boundary, so the loop marked the active
+context `inferential`. The literal then read the uninstantiated
+`Config<TContext>`, and the nested `assign` call cached its answer under that
+context. Native does no inference with written type arguments: the argument
+is checked against the instantiated signature (`checkApplicableSignature`).
+Phase 1 now never marks the context `inferential` when the call writes type
+arguments (§30's object/array arm included). Instead it publishes the
+written-argument instance (`written_type_argument_map`, the
+`fillMissingTypeArguments` fill the written arm already used, now shared)
+through `call_inference_signatures` while such an argument is checked. A
+first cut that only dropped the `inferential` mark sent those literals to the
+stateless argument road, and the exact oracle lost tupleTypeInference:
+`$q.all<string, number>([$q.when<string>(), $q.when<number>()])` lost its
+`[IPromise<string>, IPromise<number>]` tuple context. With the instance
+published, genericContextualTypes2 and 3 are EXACT and tupleTypeInference is
+RIGHT under the oracle runner, no `Inference`-named case changes EXACT
+status, and the four gains above still hold on the verdict dump.
+
+A call with a spread argument keeps the previous `inferential` mark and
+publishes no instance. checkApplicableSignature reads such a call's
+non-array rest through `getSpreadArgumentType`, an indexed access into the
+rest type per element, which the instance's positional context does not
+port. The gate measured that boundary: publishing the instance there lost
+circularInlineMappedGenericTupleTypeNoCrash 0:17–0:18.
+`new Foo<[...Elements, "abc"]>(...this.elements, { bar: "abc" })` read
+`{ bar: "abc" }` where native prints `{ bar: string }`. With the boundary it is
+back to its b57 state (one non-RIGHT line, unchanged).

@@ -627,6 +627,50 @@ impl<'a> Checker<'a, '_> {
         Some(self.normalize_variadic_tuple(elements, readonly))
     }
 
+    /// `fillMissingTypeArguments` (`checker.go:21954`) over a written list no
+    /// longer than the parameters: it maps every unfilled position to
+    /// errorType before instantiating any default, so a default naming a later
+    /// parameter (`<T, U = V, V = C>`) is an invalid forward reference that
+    /// becomes errorType (ADR-0048's `native_error`, printed `any`): `f14<A>()`
+    /// is `[A, any, C]` (`genericDefaults`). `None` when a default does not
+    /// instantiate.
+    fn written_type_argument_map(
+        &mut self,
+        signature: &Signature,
+        written: &[TypeId],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> Option<Vec<(TypeId, TypeId)>> {
+        let mut map: Vec<_> = parameters
+            .iter()
+            .enumerate()
+            .map(|(position, &type_parameter)| {
+                (
+                    type_parameter,
+                    written.get(position).copied().unwrap_or(self.intrinsics.native_error),
+                )
+            })
+            .collect();
+        for position in written.len()..parameters.len() {
+            let image = match signature
+                .type_parameters
+                .get(position)
+                .and_then(|parameter| parameter.default)
+            {
+                Some(default) => {
+                    let filled = self.instantiate_type(default, &map, parameters, names);
+                    if filled == self.intrinsics.error {
+                        return None;
+                    }
+                    filled
+                }
+                None => self.intrinsics.unknown,
+            };
+            map[position].1 = image;
+        }
+        Some(map)
+    }
+
     fn check_generic_call_worker(
         &mut self,
         signature: &Signature,
@@ -698,6 +742,33 @@ impl<'a> Checker<'a, '_> {
         // positional spread calls still check their argument nodes first.
         let mut argument_types: Vec<TypeId> = Vec::with_capacity(arguments.len());
         let mut skipped_generic_arguments = vec![false; arguments.len()];
+        // checkApplicableSignature checks a call with written type arguments
+        // against the instantiated candidate, with no inference context. A
+        // spread argument instead takes getSpreadArgumentType's per-element
+        // read of the rest type, which the instance's positional context does
+        // not port, so a call with a spread keeps the previous context.
+        let has_spread =
+            arguments.iter().any(|argument| matches!(argument, Expression::SpreadElement(_)));
+        let written_instance = match (self.written_type_arguments(call), parameter_types.as_deref())
+        {
+            (Some(written), Some(parameters))
+                if !has_spread
+                    && written.len() <= parameters.len()
+                    && !written.contains(&error) =>
+            {
+                let names =
+                    signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+                self.written_type_argument_map(signature, &written, parameters, &names).and_then(
+                    |map| {
+                        let mut instance = signature.clone();
+                        instance.type_parameters.clear();
+                        self.instantiate_signature(instance, &map, parameters, &names)
+                    },
+                )
+            }
+            _ => None,
+        };
+        let written_type_arguments = self.written_type_arguments(call);
         let mut spread = false;
         let mut preceding_inferences = infos.clone();
         let infer_preceding = self.written_type_arguments(call).is_none()
@@ -754,7 +825,11 @@ impl<'a> Checker<'a, '_> {
                                 | Expression::ConditionalExpression(_)
                                 | Expression::ParenthesizedExpression(_)
                         );
+                // Written type arguments leave nothing to infer: native checks
+                // the argument against the instantiated signature
+                // (`checkApplicableSignature`), not under an inference context.
                 let previous_inferential = if use_active_context
+                    && (written_type_arguments.is_none() || has_spread)
                     && let Some(call) = call
                     && let Some(context) = self.active_inference_contexts.get_mut(&call)
                 {
@@ -762,7 +837,23 @@ impl<'a> Checker<'a, '_> {
                 } else {
                     None
                 };
+                let previous_instance = if use_active_context
+                    && let Some(call) = call
+                    && let Some(instance) = &written_instance
+                {
+                    Some(self.call_inference_signatures.insert(call, instance.clone()))
+                } else {
+                    None
+                };
                 let source = self.check_expression(argument);
+                if let Some(previous) = previous_instance
+                    && let Some(call) = call
+                {
+                    match previous {
+                        Some(previous) => self.call_inference_signatures.insert(call, previous),
+                        None => self.call_inference_signatures.remove(&call),
+                    };
+                }
                 if let Some(previous_inferential) = previous_inferential
                     && let Some(call) = call
                     && let Some(context) = self.active_inference_contexts.get_mut(&call)
@@ -961,39 +1052,11 @@ impl<'a> Checker<'a, '_> {
                 }
                 return error;
             }
-            // fillMissingTypeArguments (checker.go:21954) maps every unfilled
-            // position to errorType before instantiating any default, so a
-            // default naming a later parameter (`<T, U = V, V = C>`) is an
-            // invalid forward reference that becomes errorType (ADR-0048's
-            // `native_error`, printed `any`): `f14<A>()` is `[A, any, C]`
-            // (`genericDefaults`).
-            let mut map: Vec<_> = parameters
-                .iter()
-                .enumerate()
-                .map(|(position, &type_parameter)| {
-                    (
-                        type_parameter,
-                        written.get(position).copied().unwrap_or(self.intrinsics.native_error),
-                    )
-                })
-                .collect();
-            for position in written.len()..parameters.len() {
-                let image = match signature
-                    .type_parameters
-                    .get(position)
-                    .and_then(|parameter| parameter.default)
-                {
-                    Some(default) => {
-                        let filled = self.instantiate_type(default, &map, &parameters, &names);
-                        if filled == error {
-                            return error;
-                        }
-                        filled
-                    }
-                    None => self.intrinsics.unknown,
-                };
-                map[position].1 = image;
-            }
+            let Some(map) =
+                self.written_type_argument_map(signature, &written, &parameters, &names)
+            else {
+                return error;
+            };
             let answer = self.instantiate_type(returned, &map, &parameters, &names);
             if answer != error
                 && let Some(slot) = instantiated
@@ -1725,10 +1788,11 @@ impl<'a> Checker<'a, '_> {
     /// (`recheck_literal_arguments_in_context`). Only array/object literal
     /// arguments that are not context-sensitive (those are already checked
     /// in the fixing pass above) are re-checked, and only when their subtree
-    /// holds no nested call, `new`, tagged template, function, method,
-    /// accessor or class: upstream caches a nested resolved signature and a
-    /// function's type from their first check, while `evict_subtree` would drop
-    /// this port's copies. The instance is published through the existing
+    /// holds no function, method, accessor or class outside a nested call:
+    /// upstream caches a function's type from its first check. A nested call,
+    /// `new` or tagged template is not re-resolved: upstream caches its
+    /// resolved signature, and `evict_literal_subtree` keeps its answer
+    /// (r7-contextual §31). The instance is published through the existing
     /// per-call `call_inference_signatures` slot for the duration of each
     /// re-check only; no cache is added. Skipped when another reader already
     /// owns that slot, while a contextual read prefers uninstantiated types,
@@ -1830,7 +1894,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let id = argument.node_id()?;
-        (!self.literal_subtree_resolves(id)).then_some(id)
+        (!self.literal_subtree_holds_function_outside_calls(id)).then_some(id)
     }
 
     /// The end-of-inference counterpart of
@@ -1906,11 +1970,52 @@ impl<'a> Checker<'a, '_> {
             {
                 continue;
             }
+            // Native re-checks the literal per candidate, but
+            // `getResolvedSignature` returns a nested call's cached
+            // `links.resolvedSignature`, so its answer is reused
+            // (`Promise.all([fa(), fb()])` keeps its tuple context, §8).
+            if id != root
+                && matches!(
+                    self.nodes.kind(id),
+                    K::CallExpression | K::NewExpression | K::TaggedTemplateExpression
+                )
+            {
+                continue;
+            }
             self.node_types.remove(&id);
             if let Some(node) = self.node_map.get(id) {
                 tsr_ast::for_each_child_id(node, |child| stack.push(child));
             }
         }
+    }
+
+    /// [`Checker::literal_subtree_holds_function`] that does not descend into a
+    /// nested call, `new` or tagged template: §1's re-check reuses those
+    /// answers ([`Checker::evict_literal_subtree`] stops there), so a function
+    /// among their arguments is not re-derived.
+    fn literal_subtree_holds_function_outside_calls(&self, root: NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            match self.nodes.kind(id) {
+                K::FunctionExpression
+                | K::ArrowFunction
+                | K::ClassExpression
+                | K::MethodDeclaration
+                | K::GetAccessor
+                | K::SetAccessor => return true,
+                K::CallExpression | K::NewExpression | K::TaggedTemplateExpression
+                    if id != root =>
+                {
+                    continue;
+                }
+                _ => {}
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        false
     }
 
     /// Whether a literal's subtree holds a function, method, accessor or class:
@@ -1925,34 +2030,6 @@ impl<'a> Checker<'a, '_> {
             if matches!(
                 self.nodes.kind(id),
                 K::FunctionExpression
-                    | K::ArrowFunction
-                    | K::ClassExpression
-                    | K::MethodDeclaration
-                    | K::GetAccessor
-                    | K::SetAccessor
-            ) {
-                return true;
-            }
-            if let Some(node) = self.node_map.get(id) {
-                tsr_ast::for_each_child_id(node, |child| stack.push(child));
-            }
-        }
-        false
-    }
-
-    /// Whether a literal argument's subtree holds a node whose check resolves
-    /// and caches a signature or a function's own type upstream (the work
-    /// boundary of [`Checker::recheck_literal_arguments_in_resolved_signature`]).
-    fn literal_subtree_resolves(&self, root: NodeId) -> bool {
-        use tsr_ast::SyntaxKind as K;
-        let mut stack = vec![root];
-        while let Some(id) = stack.pop() {
-            if matches!(
-                self.nodes.kind(id),
-                K::CallExpression
-                    | K::NewExpression
-                    | K::TaggedTemplateExpression
-                    | K::FunctionExpression
                     | K::ArrowFunction
                     | K::ClassExpression
                     | K::MethodDeclaration
