@@ -1109,6 +1109,24 @@ when the resolved signature's `this` type is `void`
 `new` head reports it for the candidate it can tell
 (`new_head_candidate`): thisTypeInFunctionsNegative's `new VoidThis()`.
 
+## 33. (held: needs a jsx_component.rs grant) A JSX overload failure chains like a call's
+
+`reportCallResolutionErrors` (`checker.go:9649`) is shared by calls and JSX
+elements: with several `candidatesForArgumentError` the last candidate's
+report is chained under `The_last_overload_gave_the_following_error` and
+`No_overload_matches_this_call`, `The_last_overload_is_declared_here` is
+related, and `addImplementationSuccessElaboration` runs. `jsx_component.rs`
+rewrote each report's head message to TS2769 in place, which lost the chain
+level and the related line. The held change makes `chain_overload_failure`
+`pub(crate)` and calls it there.
+
+Per-case oracle against `cand21` (main `f666bbf2` plus §32): the 212 EXACT
+`.tsx` cases stay exact; tsxElementResolution9 becomes exact. Diff lines drop
+in tsxStatelessFunctionComponentOverload5 (52 → 6) and
+tsxStatelessFunctionComponentsWithTypeArguments4 (34 → 20). What remains
+there is the relation reporter's elaboration and a JSX TS2793 (the
+implementation check through JSX applicability is not ported).
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

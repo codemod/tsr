@@ -1697,7 +1697,7 @@ impl Checker<'_, '_> {
     /// its file). `addImplementationSuccessElaboration`'s TS2793 (a
     /// `chooseOverload` against the implementation signature) is not
     /// attached.
-    fn chain_overload_failure(&mut self, before: usize, last: tsr_ast::NodeId) {
+    pub(crate) fn chain_overload_failure(&mut self, before: usize, last: tsr_ast::NodeId) {
         // `last.declaration != nil`: a signature declaration. This port's
         // synthetic signatures borrow another node as their declaration
         // (a decorated declaration, a function whose arguments they model),
