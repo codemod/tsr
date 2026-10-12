@@ -895,10 +895,13 @@ non-array rest (`getSpreadArgumentType`); an undecided position or
 inference; several arity-matched candidates (the overload walk over
 synthetic arguments is still not ported).
 
-decoratorCallGeneric's TS1238 now reaches the applicability report, which
-stays silent: the relater does not decide `typeof C` → `I<C>` (a static
-method's `void` return against `T`), with or without a decorator
-(`const x: I<C> = C` is silent too). Routed to r7-reports.
+decoratorCallGeneric's TS1238 now reaches the applicability report. The
+corpus run reports it at the decorator, but without native's elaboration
+below `Argument of type 'typeof C' is not assignable to parameter of type
+'I<C>'` (`The types returned by 'm()' are incompatible…`). A CLI probe of
+the same file stays silent, and so does `const x: I<C> = C` there: the
+relater's answer for `typeof C` → `I<C>` (a static method's `void` return
+against `T`) is not settled. Routed to r7-reports.
 
 ## 29. A written type argument that relates to its constraint over type variables
 
@@ -1002,6 +1005,21 @@ property…`, TS6500) belongs to the relation reporter.
 have. That would come from an implementation the plain relation accepts
 where native's `chooseOverload` rejects it, or from a synthetic
 signature's borrowed declaration passing `is_signature_declaration`.
+
+**Measured** for §28–§30 (`e4c91f31`, `83c1a99e`, `482c4056`, stacked on
+§4's `9092f916`) against a fresh freeze of main `57e45ae7`:
+
+- corpus diagnostics: +6, 0 lost. Four of the six are this cluster's:
+  decoratorCallGeneric, decoratorOnClassMethod8,
+  genericCallWithObjectTypeArgsAndConstraints4/5; §4 has the other two,
+  assertionTypePredicates1/2. Types 0/0.
+- jsTyping: new_false 0, lost_true 0.
+- Ir: generic-imports 1.0000, domain-model 1.0008. §4 alone measured the
+  same 1.0008.
+- exact oracle: 9,884 → 9,985 (+101, 0 lost; 1 worker, per-process,
+  deadline 10). Nearly all of it is §30's related information and chain
+  files: about 98 of the 387 WRONG cases carrying a call diagnostic became
+  exact in a per-case run, and the 133 EXACT ones stayed exact.
 
 ## Proposed issues (for the integrator to file)
 
