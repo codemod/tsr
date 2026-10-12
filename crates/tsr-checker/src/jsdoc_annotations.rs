@@ -97,7 +97,7 @@ impl<'a> Checker<'a, '_> {
                     .declarations
                     .iter()
                     .find(|declaration| declaration.initializer.is_some())?;
-                if first.node_id != Some(parent) {
+                if first.node_id() != Some(parent) {
                     return None;
                 }
                 let statement = self.nodes.parent(list)?;
@@ -230,7 +230,7 @@ impl<'a> Checker<'a, '_> {
         let Some(annotation) = tag.type_expression.and_then(jsdoc_type_expression_type) else {
             return;
         };
-        let (Some(at), Some(span_node)) = (tag.node_id, tag.tag_name.node_id) else { return };
+        let (Some(at), Some(span_node)) = (tag.node_id(), tag.tag_name.node_id()) else { return };
         let span = self.nodes.span(span_node);
         self.check_satisfies_worker(at, expression, annotation, span);
     }

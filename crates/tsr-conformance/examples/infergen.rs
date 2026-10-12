@@ -387,7 +387,7 @@ fn type_parameter_types(
     };
     let symbols = declarations
         .iter()
-        .map(|declaration| declaration.node_id.and_then(|id| binder.symbol_of(id)))
+        .map(|declaration| declaration.node_id().and_then(|id| binder.symbol_of(id)))
         .collect::<Option<Vec<_>>>()?;
     Some(symbols.into_iter().map(|symbol| checker.get_declared_type_of_symbol(symbol)).collect())
 }

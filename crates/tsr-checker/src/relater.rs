@@ -721,7 +721,7 @@ impl Checker<'_, '_> {
             return None;
         };
         match alias.r#type? {
-            tsr_ast::TypeNode::TypeLiteralNode(literal) => literal.node_id,
+            tsr_ast::TypeNode::TypeLiteralNode(literal) => literal.node_id(),
             _ => None,
         }
     }
@@ -2389,12 +2389,12 @@ impl Relater<'_, '_, '_> {
         let variable = self.checker.binder.resolve_name(
             self.checker.nodes,
             self.checker.node_map,
-            name.node_id?,
+            name.node_id()?,
             name.text,
             SymbolFlags::TYPE_PARAMETER,
         )?;
         let slot = alias.type_parameters.iter().position(|p| {
-            p.node_id.and_then(|id| self.checker.binder.symbol_of(id)) == Some(variable)
+            p.node_id().and_then(|id| self.checker.binder.symbol_of(id)) == Some(variable)
         })?;
         let argument = *arguments.get(slot)?;
         let flags = self.checker.type_of(argument).flags;
@@ -2446,8 +2446,8 @@ impl Relater<'_, '_, '_> {
         self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
             match self.checker.node_map.get(declaration) {
                 Some(tsr_ast::Node::TypeAliasDeclaration(alias)) => match alias.r#type? {
-                    tsr_ast::TypeNode::TupleTypeNode(node) => node.node_id,
-                    tsr_ast::TypeNode::ArrayTypeNode(node) => node.node_id,
+                    tsr_ast::TypeNode::TupleTypeNode(node) => node.node_id(),
+                    tsr_ast::TypeNode::ArrayTypeNode(node) => node.node_id(),
                     _ => None,
                 },
                 _ => None,
@@ -6230,7 +6230,7 @@ impl Relater<'_, '_, '_> {
             };
             node
         };
-        let id = node.node_id?;
+        let id = node.node_id()?;
         let has_infer = self.checker.binder.locals(id).is_some_and(|locals| {
             locals.values().any(|&symbol| {
                 self.checker
@@ -6289,7 +6289,7 @@ impl Relater<'_, '_, '_> {
             tsr_ast::Node::TypeQueryNode(_) => return true,
             tsr_ast::Node::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
                 if let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
-                    && let Some(name_id) = name.node_id
+                    && let Some(name_id) = name.node_id()
                     && self.checker.binder.resolve_name(
                         self.checker.nodes,
                         self.checker.node_map,

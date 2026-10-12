@@ -522,7 +522,7 @@ impl Checker<'_, '_> {
         // both arms because the grammar chose the kind, not the meaning. §1039.
         let (left, right) = match self.node_map.get(name)? {
             Node::QualifiedName(qualified) => {
-                (qualified.left?.node_id()?, qualified.right?.node_id?)
+                (qualified.left?.node_id()?, qualified.right?.node_id()?)
             }
             Node::PropertyAccessExpression(access) => {
                 (access.expression?.node_id()?, access.name?.node_id()?)

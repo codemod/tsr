@@ -33,7 +33,7 @@ fn diagnostics(source: &str, has_parse_errors: bool) -> Vec<(String, Span, Strin
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
-    let file = parsed.source_file.node_id.expect("source identity");
+    let file = parsed.source_file.node_id().expect("source identity");
     let host = Source { file, nodes: &parsed.nodes, text: source };
     let mut checker =
         Checker::with_module_host(&bound, &parsed.nodes, &parsed.node_map, Some(&host));

@@ -82,7 +82,8 @@ pub struct Token<'a> {
     /// Which token this is.
     pub kind: SyntaxKind,
     /// Key into the side tables holding this node's kind, span, and parent.
-    pub node_id: Option<NodeId>,
+    /// Crate-private, as on every generated node (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 

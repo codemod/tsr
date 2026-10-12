@@ -95,7 +95,7 @@ impl<'a> Checker<'a, '_> {
         if !node.type_arguments.is_empty() {
             return node.type_arguments;
         }
-        node.node_id.and_then(|id| self.jsdoc_augments_type_arguments(id)).unwrap_or(&[])
+        node.node_id().and_then(|id| self.jsdoc_augments_type_arguments(id)).unwrap_or(&[])
     }
 
     /// `getBaseConstructorTypeOfClass` (`checker.go:16957`), keyed by the class
@@ -270,7 +270,7 @@ impl<'a> Checker<'a, '_> {
                 // getTypeFromClassOrInterfaceReference: the arity window and
                 // fillMissingTypeArguments, errorType outside the window.
                 let arguments = self.base_type_node_type_arguments(node);
-                self.instantiated_heritage_base(symbol, arguments, node.node_id)
+                self.instantiated_heritage_base(symbol, arguments, node.node_id())
                     .unwrap_or(self.intrinsics.error)
             }
             _ if flags.contains(TypeFlags::ANY) => constructor,
@@ -364,7 +364,7 @@ impl<'a> Checker<'a, '_> {
         }
         let parameters = self.type_parameter_types(&signature)?;
         let names: Vec<_> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
-        let is_js = node.node_id.is_some_and(|id| self.in_js_file(id));
+        let is_js = node.node_id().is_some_and(|id| self.in_js_file(id));
         let mut arguments: Vec<_> =
             written.iter().map(|&argument| self.get_type_from_type_node(argument)).collect();
         arguments.resize(parameters.len(), self.intrinsics.error);
@@ -499,7 +499,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 if !self.is_valid_base_type(base) {
                     // `c.error(node, An_interface_can_only_extend_…)`.
-                    if let Some(at) = entry.node_id
+                    if let Some(at) = entry.node_id()
                         && let Some(file) = self.source_file_of_for_diagnostics(at)
                     {
                         let span = self.error_span(at);
@@ -540,7 +540,7 @@ impl<'a> Checker<'a, '_> {
         let flags = self.binder.symbols().get(symbol).flags;
         if flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
             return self
-                .instantiated_heritage_base(symbol, entry.type_arguments, entry.node_id)
+                .instantiated_heritage_base(symbol, entry.type_arguments, entry.node_id())
                 .unwrap_or(error);
         }
         // `getTypeReferenceType` of a type parameter: its declared type; with

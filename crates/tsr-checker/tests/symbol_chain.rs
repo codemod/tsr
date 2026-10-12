@@ -99,7 +99,7 @@ fn declared_type_at(
     );
 
     let mut sites = Vec::new();
-    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), site_name, &mut sites);
+    identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), site_name, &mut sites);
     let site = *sites.get(site_index).expect("the site identifier occurs that many times");
 
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
@@ -229,12 +229,12 @@ fn a_namespace_local_has_no_container_and_stays_bare() {
     // Reached the way any reference inside `M` reaches it — through scope,
     // not through the export table.
     let mut inside = Vec::new();
-    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), "seen", &mut inside);
+    identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), "seen", &mut inside);
     let hidden = bound
         .resolve_name(&parsed.nodes, &parsed.node_map, inside[0], "Hidden", SymbolFlags::TYPE)
         .expect("a local resolves from inside its namespace");
     let mut sites = Vec::new();
-    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), "x", &mut sites);
+    identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), "x", &mut sites);
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_declared_type_of_symbol(bound.merged_symbol(hidden));
     assert_eq!(checker.type_to_string_at(id, sites[0]).expect("nameable"), "Hidden");
@@ -258,7 +258,7 @@ fn an_intrinsic_is_not_a_name_the_chain_can_touch() {
         tsr_binder::FileInfo { name: "t.ts", text: source },
     );
     let mut sites = Vec::new();
-    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), "x", &mut sites);
+    identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), "x", &mut sites);
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let number = checker.intrinsics().number;
     assert_eq!(checker.type_to_string_at(number, sites[0]).expect("nameable"), "number");
@@ -332,7 +332,7 @@ fn shadowed_at(
             .merged_symbol(*bound.symbols().get(symbol).exports.get(*step).expect("export step"));
     }
     let mut sites = Vec::new();
-    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), site_name, &mut sites);
+    identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), site_name, &mut sites);
     let site = *sites.get(site_index).expect("the site identifier occurs that many times");
     let name = bound.symbols().get(symbol).name;
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
@@ -426,7 +426,7 @@ fn a_private_container_alias_names_the_leaf_not_the_namespace_object() {
         tsr_binder::FileInfo { name: "t.ts", text: source },
     );
     let mut sites = Vec::new();
-    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), "instance", &mut sites);
+    identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), "instance", &mut sites);
     let hidden = bound
         .resolve_name(&parsed.nodes, &parsed.node_map, sites[0], "Hidden", SymbolFlags::NAMESPACE)
         .unwrap();
@@ -462,7 +462,7 @@ fn an_exported_qualified_alias_resolves_as_a_value_inside_its_namespace() {
         tsr_binder::FileInfo { name: "t.ts", text: source },
     );
     let mut sites = Vec::new();
-    identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), "Renamed", &mut sites);
+    identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), "Renamed", &mut sites);
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     for site in sites {
         let symbol = bound
@@ -514,7 +514,7 @@ fn a_qualified_type_only_alias_does_not_acquire_a_value_meaning() {
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     for (name, expected) in [("Value", Some("typeof Value")), ("TypeOnly", None)] {
         let mut sites = Vec::new();
-        identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), name, &mut sites);
+        identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), name, &mut sites);
         let site = *sites.last().unwrap();
         let symbol = bound
             .resolve_name(&parsed.nodes, &parsed.node_map, site, name, SymbolFlags::VALUE)
@@ -593,7 +593,7 @@ fn an_export_alias_does_not_rename_or_preserve_a_copied_unique_symbol() {
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     for (name, expected) in [("identity", "unique symbol"), ("copy", "symbol")] {
         let mut sites = Vec::new();
-        identifiers(&parsed.node_map, parsed.source_file.node_id.unwrap(), name, &mut sites);
+        identifiers(&parsed.node_map, parsed.source_file.node_id().unwrap(), name, &mut sites);
         let symbol = bound
             .resolve_name(&parsed.nodes, &parsed.node_map, sites[0], name, SymbolFlags::VALUE)
             .unwrap();
@@ -666,7 +666,7 @@ fn imported_class_names_at(library: &str) -> (String, String) {
             &mut map,
         );
         assert!(parsed.diagnostics.is_empty(), "fixture must parse");
-        roots.push(parsed.source_file.node_id.unwrap());
+        roots.push(parsed.source_file.node_id().unwrap());
         bound = tsr_binder::bind_into(
             bound,
             &arena,
@@ -730,7 +730,7 @@ fn class_namespace_imports_keep_distinct_module_value_identity() {
             &mut map,
         );
         assert!(parsed.diagnostics.is_empty());
-        roots.push(parsed.source_file.node_id.unwrap());
+        roots.push(parsed.source_file.node_id().unwrap());
         bound = tsr_binder::bind_into(
             bound,
             &arena,
@@ -816,7 +816,7 @@ fn module_class_clone_boundary_does_not_admit_other_export_meanings() {
                 &mut map,
             );
             assert!(parsed.diagnostics.is_empty());
-            roots.push(parsed.source_file.node_id.unwrap());
+            roots.push(parsed.source_file.node_id().unwrap());
             bound = tsr_binder::bind_into(
                 bound,
                 &arena,
@@ -873,7 +873,7 @@ fn a_module_clone_alias_does_not_name_an_inaccessible_original_class() {
             &mut map,
         );
         assert!(parsed.diagnostics.is_empty());
-        roots.push(parsed.source_file.node_id.unwrap());
+        roots.push(parsed.source_file.node_id().unwrap());
         bound = tsr_binder::bind_into(
             bound,
             &arena,
@@ -933,7 +933,7 @@ fn function_namespace_copies_preserve_default_and_runtime_member_identity() {
                     &mut map,
                 );
                 assert!(parsed.diagnostics.is_empty());
-                roots.push(parsed.source_file.node_id.unwrap());
+                roots.push(parsed.source_file.node_id().unwrap());
                 bound = tsr_binder::bind_into(
                     bound,
                     &arena,
@@ -1160,7 +1160,7 @@ fn module_copy_calls_require_a_certified_empty_global_function() {
                         &mut map,
                     );
                     assert!(parsed.diagnostics.is_empty());
-                    roots.push(parsed.source_file.node_id.unwrap());
+                    roots.push(parsed.source_file.node_id().unwrap());
                     bound = tsr_binder::bind_into(
                         bound,
                         &arena,

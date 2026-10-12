@@ -108,7 +108,7 @@ impl<'a> Parser<'a> {
                     );
                     let new_start = last
                         .opening_element
-                        .and_then(|o| o.node_id)
+                        .and_then(tsr_ast::JsxOpeningElement::node_id)
                         .map_or(end, |id| self.nodes.span(id).start);
                     let new_last = self.finish_node_with_end(
                         JsxElement::new(last.opening_element, last.children, Some(new_closing)),
@@ -214,7 +214,7 @@ impl<'a> Parser<'a> {
     /// opening element when it has none.
     fn jsx_children_end(&self, element: &'a JsxElement<'a>) -> u32 {
         let last = element.children.last().and_then(JsxChild::node_id);
-        let opening = element.opening_element.and_then(|o| o.node_id);
+        let opening = element.opening_element.and_then(tsr_ast::JsxOpeningElement::node_id);
         last.or(opening).map_or_else(|| self.node_end(), |id| self.nodes.span(id).end)
     }
 
@@ -255,7 +255,8 @@ impl<'a> Parser<'a> {
                 // closing element rather than at the end of the file.
                 match opening_tag {
                     JsxOpeningTag::Fragment(fragment, full_start) => {
-                        let end = fragment.node_id.map_or(full_start, |id| self.nodes.span(id).end);
+                        let end =
+                            fragment.node_id().map_or(full_start, |id| self.nodes.span(id).end);
                         let span = tsr_core::Span::new(full_start, end);
                         self.error_at(
                             &messages::JSX_FRAGMENT_HAS_NO_CORRESPONDING_CLOSING_TAG,
@@ -269,7 +270,7 @@ impl<'a> Parser<'a> {
                         // after the `<` (`!< {:>`), not at the next token.
                         let mut span = self.jsx_tag_name_span(element.tag_name);
                         if span.is_empty()
-                            && let Some(id) = element.node_id
+                            && let Some(id) = element.node_id()
                         {
                             let after_less_than = self.nodes.span(id).start + 1;
                             span = tsr_core::Span::at(after_less_than);

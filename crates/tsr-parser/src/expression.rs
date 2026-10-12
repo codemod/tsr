@@ -2860,7 +2860,7 @@ impl<'a> Parser<'a> {
     /// the name.
     fn report_private_identifier_in_optional_chain(&mut self, name: MemberName<'a>) {
         if let MemberName::PrivateIdentifier(private) = name
-            && let Some(id) = private.node_id
+            && let Some(id) = private.node_id()
         {
             let span = self.nodes.span(id);
             self.error_at(&messages::AN_OPTIONAL_CHAIN_CANNOT_CONTAIN_PRIVATE_IDENTIFIERS, span);

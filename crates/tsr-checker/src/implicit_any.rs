@@ -97,7 +97,7 @@ impl Checker<'_, '_> {
             let tsr_ast::ClassElement::ClassStaticBlockDeclaration(block) = each else {
                 return false;
             };
-            block.node_id.is_some_and(|block| self.subtree_assigns_this_member(block, text, 0))
+            block.node_id().is_some_and(|block| self.subtree_assigns_this_member(block, text, 0))
         })
     }
 
@@ -1151,13 +1151,13 @@ impl Checker<'_, '_> {
             _ => return,
         };
         for element in elements {
-            let Some(id) = element.node_id else { continue };
+            let Some(id) = element.node_id() else { continue };
             if element.initializer.is_some() {
                 continue;
             }
             match element.name {
                 Some(tsr_ast::BindingName::Identifier(name)) => {
-                    let Some(name_id) = name.node_id else { continue };
+                    let Some(name_id) = name.node_id() else { continue };
                     let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
                     let span = self.error_span(name_id);
                     self.report(
@@ -1189,7 +1189,7 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(tsr_ast::BindingName::Identifier(name)) = element.name else { continue };
-            let Some(name_id) = name.node_id else { continue };
+            let Some(name_id) = name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
             let span = self.error_span(name_id);
             self.report(
@@ -1228,7 +1228,7 @@ impl Checker<'_, '_> {
     /// The parameter nodes of a declaration this rule admits.
     fn implicit_any_candidates(&self, node: NodeId) -> Vec<NodeId> {
         let collect = |parameters: &[&tsr_ast::ParameterDeclaration<'_>]| -> Vec<NodeId> {
-            parameters.iter().filter_map(|parameter| parameter.node_id).collect()
+            parameters.iter().filter_map(|parameter| parameter.node_id()).collect()
         };
         match self.node_map.get(node) {
             Some(Node::FunctionDeclaration(n)) => collect(n.parameters),
@@ -1364,7 +1364,7 @@ impl Checker<'_, '_> {
         }
         // Falsifier 3: a binding pattern has its own reporter.
         let Some(tsr_ast::BindingName::Identifier(name)) = variable.name else { return };
-        let Some(name_id) = name.node_id else { return };
+        let Some(name_id) = name.node_id() else { return };
         // **A `catch (e)` binding is not an implicit-any site.** It is a
         // `VariableDeclaration` with neither annotation nor initializer, and in
         // a `.d.ts` it satisfied the ambient arm — `parserTryStatement1.d` was
@@ -1839,7 +1839,7 @@ impl Checker<'_, '_> {
         let diagnostic = match self.node_map.get(declaration) {
             Some(Node::VariableDeclaration(variable)) => {
                 let Some(tsr_ast::BindingName::Identifier(name)) = variable.name else { return };
-                let Some(name_id) = name.node_id else { return };
+                let Some(name_id) = name.node_id() else { return };
                 Diagnostic::with_args(
                     &messages::VARIABLE_0_IMPLICITLY_HAS_AN_1_TYPE,
                     self.nodes.span(name_id),

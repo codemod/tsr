@@ -44,7 +44,7 @@ fn ts2540_lines(source: &str) -> Vec<usize> {
         &mut nodes,
         &mut map,
     );
-    let root = parsed.source_file.node_id.expect("registered source file");
+    let root = parsed.source_file.node_id().expect("registered source file");
     let bound = tsr_binder::bind_into(
         bound,
         &arena,

@@ -35,7 +35,7 @@ fn type_of_binding(source: &str, name: &str) -> String {
                 for element in pattern.elements {
                     if matches!(element.name, Some(BindingName::Identifier(id)) if id.text == name)
                     {
-                        found = element.node_id;
+                        found = element.node_id();
                     }
                 }
             }

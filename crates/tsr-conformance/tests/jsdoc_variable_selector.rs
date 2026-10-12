@@ -21,7 +21,7 @@ fn declared(body: &str, js: bool, strict: bool, check_js: bool) -> BTreeMap<Stri
         if let Node::VariableDeclaration(variable) = node
             && let Some(BindingName::Identifier(name)) = variable.name
         {
-            let symbol = program.binder().symbol_of(variable.node_id.unwrap()).unwrap();
+            let symbol = program.binder().symbol_of(variable.node_id().unwrap()).unwrap();
             let cold = checker.get_type_of_symbol(symbol);
             let warm = checker.get_type_of_symbol(symbol);
             assert_eq!(cold, warm, "cached declared identity of {}", name.text);

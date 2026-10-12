@@ -120,8 +120,8 @@ fn relation_reports_ignore_source_host_and_keep_ambient_declines() {
     let program = types_producer::program_for_case(&arena, &case);
     let foreign_arena = Arena::new();
     let foreign = types_producer::program_for_case(&foreign_arena, &case);
-    let root = program.source_file("owner.ts").unwrap().source_file().node_id.unwrap();
-    assert_eq!(root, foreign.source_file("owner.ts").unwrap().source_file().node_id.unwrap());
+    let root = program.source_file("owner.ts").unwrap().source_file().node_id().unwrap();
+    assert_eq!(root, foreign.source_file("owner.ts").unwrap().source_file().node_id().unwrap());
     // With no parse-error gate the relation reports do not depend on the
     // module host's source text: every host reports Complete.ts's nine
     // TS2739s, and an ambient context still declines them all.

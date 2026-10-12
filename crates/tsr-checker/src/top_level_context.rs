@@ -24,10 +24,10 @@ impl Checker<'_, '_> {
         if let Some(parent) = self.nodes.parent(node) {
             let declared_name = match self.node_map.get(parent) {
                 Some(Node::ClassDeclaration(declaration)) => {
-                    declaration.name.and_then(|name| name.node_id)
+                    declaration.name.and_then(tsr_ast::Identifier::node_id)
                 }
                 Some(Node::FunctionDeclaration(declaration)) => {
-                    declaration.name.and_then(|name| name.node_id)
+                    declaration.name.and_then(tsr_ast::Identifier::node_id)
                 }
                 _ => None,
             };

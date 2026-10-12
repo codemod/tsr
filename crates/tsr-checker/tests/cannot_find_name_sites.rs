@@ -18,7 +18,7 @@ fn messages(source: &str) -> Vec<String> {
         &mut node_map,
     );
     let has_parse_errors = !file.diagnostics.is_empty();
-    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
+    let root: NodeId = file.source_file.node_id().expect("a parsed file has an id");
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
         &arena,

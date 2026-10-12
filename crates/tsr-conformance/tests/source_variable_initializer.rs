@@ -87,8 +87,11 @@ fn relation_reports_do_not_depend_on_the_source_host() {
     let program = types_producer::program_for_case(&arena, &case(SOURCE));
     let foreign_arena = Arena::new();
     let foreign = types_producer::program_for_case(&foreign_arena, &case(SOURCE));
-    let file = program.source_file("initializer.ts").unwrap().source_file().node_id.unwrap();
-    assert_eq!(file, foreign.source_file("initializer.ts").unwrap().source_file().node_id.unwrap());
+    let file = program.source_file("initializer.ts").unwrap().source_file().node_id().unwrap();
+    assert_eq!(
+        file,
+        foreign.source_file("initializer.ts").unwrap().source_file().node_id().unwrap()
+    );
     // With no parse-error gate the relation reports do not depend on the
     // module host's source text: every host reports SOURCE's nine.
     for host in [None, Some(&foreign as &dyn ModuleHost), Some(&program as &dyn ModuleHost)] {
@@ -166,7 +169,7 @@ fn swallowed_body_and_recovered_owner_report_as_native() {
 fn ambient_context_keeps_its_existing_decline() {
     let arena = Arena::new();
     let program = types_producer::program_for_case(&arena, &case(SOURCE));
-    let file = program.source_file("initializer.ts").unwrap().source_file().node_id.unwrap();
+    let file = program.source_file("initializer.ts").unwrap().source_file().node_id().unwrap();
     let mut checker = types_producer::configured_checker(&program);
     checker.check_source_file(file, FileContext { ambient: true, has_parse_errors: true });
     assert!(

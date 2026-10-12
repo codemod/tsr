@@ -1210,7 +1210,7 @@ impl<'a> Parser<'a> {
         let id =
             self.nodes.push(SyntaxKind::Identifier, Span::at(start), self.context_node_flags());
         let allocated = self.arena.alloc(node);
-        allocated.node_id = Some(id);
+        allocated.set_node_id(id);
         let allocated: &'a Identifier<'a> = allocated;
         self.node_map.push(allocated.into());
         allocated
@@ -1220,7 +1220,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn alloc_token(&mut self, kind: SyntaxKind, span: Span) -> &'a AstToken<'a> {
         let id = self.nodes.push(kind, span, self.context_node_flags());
         let allocated = self.arena.alloc(AstToken::new(kind));
-        allocated.node_id = Some(id);
+        allocated.set_node_id(id);
         let allocated: &'a AstToken<'a> = allocated;
         self.node_map.push(allocated.into());
         allocated
@@ -1305,7 +1305,7 @@ impl<'a> Parser<'a> {
             start,
         );
         if !self.source_flags.is_empty()
-            && let Some(id) = file.node_id
+            && let Some(id) = file.node_id()
         {
             self.nodes.add_flags(id, self.source_flags);
         }

@@ -335,7 +335,7 @@ impl<'a> Checker<'a, '_> {
         &self,
         binary: &tsr_ast::BinaryExpression<'_>,
     ) -> bool {
-        if !binary.node_id.is_some_and(|id| self.in_js_file(id))
+        if !binary.node_id().is_some_and(|id| self.in_js_file(id))
             || binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken)
         {
             return false;
@@ -522,7 +522,7 @@ impl<'a> Checker<'a, '_> {
         let target = self.binder.resolve_name(
             self.nodes,
             self.node_map,
-            receiver.node_id?,
+            receiver.node_id()?,
             receiver.text,
             SymbolFlags::VALUE,
         )?;

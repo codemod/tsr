@@ -307,7 +307,7 @@ impl Checker<'_, '_> {
         }
         let names: Vec<String> = parameters
             .iter()
-            .filter_map(|p| p.name.and_then(|n| n.node_id))
+            .filter_map(|p| p.name.and_then(tsr_ast::Identifier::node_id))
             .filter_map(|id| self.identifier_text(id).map(str::to_string))
             .collect();
         let mut found = Vec::new();

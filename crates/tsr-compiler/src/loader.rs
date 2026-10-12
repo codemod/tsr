@@ -1208,7 +1208,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             // root, so it carries the bit itself (`r5-jsdoc3.md` §3).
             for (_, docs) in parsed.jsdoc.iter() {
                 for doc in docs {
-                    if let Some(id) = doc.node_id {
+                    if let Some(id) = doc.node_id() {
                         self.nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
                     }
                 }

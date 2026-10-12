@@ -45,7 +45,7 @@ fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec
     );
     let source = program.source_file(file).expect("loaded");
     let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
-    let id = source.source_file().node_id.expect("id");
+    let id = source.source_file().node_id().expect("id");
     let mut checker = tsr_checker::Checker::with_module_host(
         program.binder(),
         program.nodes(),

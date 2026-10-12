@@ -88,7 +88,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         node: &'a FunctionTypeNode<'a>,
     ) -> TypeId {
-        let Some(id) = node.node_id else { return self.intrinsics.error };
+        let Some(id) = node.node_id() else { return self.intrinsics.error };
         self.signature_bearing_type_node(id)
     }
 
@@ -122,7 +122,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         node: &'a tsr_ast::ConstructorTypeNode<'a>,
     ) -> TypeId {
-        let Some(id) = node.node_id else { return self.intrinsics.error };
+        let Some(id) = node.node_id() else { return self.intrinsics.error };
         self.signature_bearing_type_node(id)
     }
 
@@ -297,7 +297,7 @@ mod node_identity_tests {
                     };
                     let symbol = checker
                         .binder
-                        .symbol_of(alias.type_parameters[0].node_id.unwrap())
+                        .symbol_of(alias.type_parameters[0].node_id().unwrap())
                         .unwrap();
                     let string = checker.intrinsics.string;
                     let number = checker.store.intern_literal(
@@ -443,7 +443,7 @@ mod node_identity_tests {
                     panic!("Guard alias")
                 };
                 let symbol =
-                    checker.binder.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+                    checker.binder.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap();
                 let node = nodes[0];
                 let id = Node::from(node).node_id().unwrap();
                 checker

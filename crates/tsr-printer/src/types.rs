@@ -201,7 +201,7 @@ impl Printer<'_> {
                 self.emit_parameters(function.parameters);
                 self.write(" => ");
                 if let Some(r#type) = &function.r#type {
-                    let synthesized = function.node_id.is_some_and(|id| {
+                    let synthesized = function.node_id().is_some_and(|id| {
                         self.nodes.flags(id).contains(tsr_ast::NodeFlags::SYNTHESIZED)
                     });
                     if synthesized {
@@ -249,7 +249,7 @@ impl Printer<'_> {
                 // context and reparsed JSDoc trees (`NodeFlagsReparsed`,
                 // `reparser.go`) are the two places that flag is set.
                 let single_line = self.single_line_type_depth > 0
-                    || mapped.node_id.is_some_and(|id| {
+                    || mapped.node_id().is_some_and(|id| {
                         self.nodes.flags(id).contains(tsr_ast::NodeFlags::REPARSED)
                     });
                 if single_line {

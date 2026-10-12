@@ -97,10 +97,10 @@ impl Checker<'_, '_> {
         if !is_const && self.is_ambient_declaration(parent) {
             return;
         }
-        let Some(index) = declaration.members.iter().position(|m| m.node_id == Some(node)) else {
+        let Some(index) = declaration.members.iter().position(|m| m.node_id() == Some(node)) else {
             return;
         };
-        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id)
+        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id())
         else {
             return;
         };
@@ -160,10 +160,10 @@ impl Checker<'_, '_> {
         if !is_const && self.is_ambient_declaration(parent) {
             return;
         }
-        let Some(index) = declaration.members.iter().position(|m| m.node_id == Some(node)) else {
+        let Some(index) = declaration.members.iter().position(|m| m.node_id() == Some(node)) else {
             return;
         };
-        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id)
+        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id())
         else {
             return;
         };
@@ -223,8 +223,8 @@ impl Checker<'_, '_> {
         if !is_const && self.is_ambient_declaration(parent) {
             return None;
         }
-        let index = declaration.members.iter().position(|m| m.node_id == Some(member))?;
-        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id)
+        let index = declaration.members.iter().position(|m| m.node_id() == Some(member))?;
+        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id())
         else {
             return Some(EnumConstant::Number(0.0));
         };

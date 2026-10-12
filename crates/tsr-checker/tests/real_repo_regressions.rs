@@ -223,7 +223,7 @@ fn codes(files: &[(&str, &str)]) -> Vec<String> {
     let mut roots: Vec<(&str, NodeId)> = Vec::new();
     let mut host = Fixtures { files: Vec::new() };
     for (name, source, source_file) in parsed {
-        let id = source_file.node_id.expect("a parsed file has an id");
+        let id = source_file.node_id().expect("a parsed file has an id");
         roots.push((name, id));
         host.files.push((name.to_string(), id));
         bound = tsr_binder::bind_into(

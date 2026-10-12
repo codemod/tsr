@@ -62,7 +62,7 @@ fn accessible(a: &str, b: &str, alias: &str, site: &str, meaning: SymbolFlags) -
             &mut map,
         );
         assert!(parsed.diagnostics.is_empty());
-        roots.push(parsed.source_file.node_id.unwrap());
+        roots.push(parsed.source_file.node_id().unwrap());
         bound = tsr_binder::bind_into(
             bound,
             &arena,
@@ -119,7 +119,7 @@ fn a_non_exported_alias_is_accessible_in_its_own_file() {
         &mut nodes,
         &mut map,
     );
-    let root = parsed.source_file.node_id.unwrap();
+    let root = parsed.source_file.node_id().unwrap();
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
         &arena,

@@ -85,10 +85,10 @@ impl Checker<'_, '_> {
             // (`:913`) — the same ambient gate, and the expression form is
             // reached only when it has a name.
             Node::FunctionDeclaration(declaration) if !ambient => {
-                declaration.name.and_then(|n| n.node_id)
+                declaration.name.and_then(tsr_ast::Identifier::node_id)
             }
             Node::FunctionExpression(declaration) if !ambient => {
-                declaration.name.and_then(|n| n.node_id)
+                declaration.name.and_then(tsr_ast::Identifier::node_id)
             }
             // `checkStrictModeBinaryExpression` (`binder.go:1384`) — the
             // left-hand side of an assignment, and only when it is one:
@@ -377,7 +377,7 @@ impl Checker<'_, '_> {
             Node::PropertyAccessExpression(n) => n.name.and_then(|name| name.node_id()),
             // `parent.AsQualifiedName().Right == node` — the LEFT of a
             // qualified name is a reference and is deliberately not covered.
-            Node::QualifiedName(n) => n.right.and_then(|right| right.node_id),
+            Node::QualifiedName(n) => n.right.and_then(tsr_ast::Identifier::node_id),
             // `parent.PropertyName() == node` — the `a` of `{ a: b }`, whose
             // `name` half (`b`) is a real binding and stays reportable.
             Node::BindingElement(n) => n.property_name.and_then(|name| name.node_id()),

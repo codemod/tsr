@@ -169,7 +169,7 @@ impl<'a> Parser<'a> {
             ModuleExportName::Identifier(id) => id,
             // A string export name must be renamed to be importable.
             ModuleExportName::StringLiteral(literal) => {
-                let span = literal.node_id.map_or(self.token.span, |id| self.nodes.span(id));
+                let span = literal.node_id().map_or(self.token.span, |id| self.nodes.span(id));
                 self.error_at(&messages::IDENTIFIER_EXPECTED, span);
                 self.missing_identifier()
             }

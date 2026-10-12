@@ -29,7 +29,7 @@ impl<'a> Checker<'a, '_> {
         let mut out = Vec::with_capacity(nodes.len());
         for node in nodes {
             let symbol = node
-                .node_id
+                .node_id()
                 .and_then(|id| self.binder.symbol_of(id))
                 .map(|symbol| self.binder.merged_symbol(symbol));
             if let Some(symbol) = symbol {

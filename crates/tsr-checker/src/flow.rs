@@ -852,8 +852,8 @@ impl Checker<'_, '_> {
             Some(Node::PropertyAccessExpression(access)) => {
                 let Some(member) = access.name else { return };
                 let (text, id) = match member {
-                    tsr_ast::MemberName::Identifier(name) => (name.text, name.node_id),
-                    tsr_ast::MemberName::PrivateIdentifier(name) => (name.text, name.node_id),
+                    tsr_ast::MemberName::Identifier(name) => (name.text, name.node_id()),
+                    tsr_ast::MemberName::PrivateIdentifier(name) => (name.text, name.node_id()),
                 };
                 (access.expression, text.to_string(), id)
             }
@@ -2018,7 +2018,7 @@ impl Checker<'_, '_> {
                 _ => None,
             };
             if let Some(tsr_ast::Expression::Identifier(identifier)) = target
-                && let Some(id) = identifier.node_id
+                && let Some(id) = identifier.node_id()
             {
                 targets.entry(identifier.text.into()).or_default().push(id);
             }
@@ -2309,7 +2309,7 @@ impl Checker<'_, '_> {
                 }
                 for expression in clause.types {
                     if let Some(tsr_ast::Expression::Identifier(identifier)) = expression.expression
-                        && let Some(id) = identifier.node_id
+                        && let Some(id) = identifier.node_id()
                     {
                         next =
                             self.resolve_identifier_memo(id, identifier.text, SymbolFlags::VALUE);
@@ -2661,7 +2661,7 @@ impl Checker<'_, '_> {
     fn is_some_symbol_assigned_worker(&mut self, name: tsr_ast::BindingName<'_>) -> bool {
         match name {
             tsr_ast::BindingName::Identifier(identifier) => {
-                let Some(id) = identifier.node_id else { return false };
+                let Some(id) = identifier.node_id() else { return false };
                 // `getSymbolOfDeclaration(node.Parent)` — the symbol is the
                 // DECLARATION's, and the name node is how it is reached.
                 let Some(declaration) = self.nodes.parent(id) else { return false };
@@ -2748,7 +2748,7 @@ impl Checker<'_, '_> {
                 continue;
             }
             if let Node::Identifier(identifier) = node
-                && let Some(id) = identifier.node_id
+                && let Some(id) = identifier.node_id()
                 && let kind = self.assignment_target_kind(id)
                 && kind != crate::expressions::AssignmentTargetKind::None
                 && let Some(symbol) =
@@ -2780,7 +2780,7 @@ impl Checker<'_, '_> {
 
     /// [`Checker::mark_node_assignments`]'s export-specifier arm.
     fn mark_exported_local(&mut self, specifier: &tsr_ast::ExportSpecifier<'_>) {
-        let Some(specifier_id) = specifier.node_id else { return };
+        let Some(specifier_id) = specifier.node_id() else { return };
         let Some(declaration) =
             self.nodes.parent(specifier_id).and_then(|exports| self.nodes.parent(exports))
         else {
@@ -2792,7 +2792,7 @@ impl Checker<'_, '_> {
         }
         let name = specifier.property_name.or(specifier.name);
         let Some(tsr_ast::ModuleExportName::Identifier(name)) = name else { return };
-        let Some(name_id) = name.node_id else { return };
+        let Some(name_id) = name.node_id() else { return };
         let Some(symbol) = self.resolve_identifier_memo(name_id, name.text, SymbolFlags::VALUE)
         else {
             return;
@@ -3308,7 +3308,7 @@ impl Checker<'_, '_> {
                     // Name equality is not identity: an inner scope may shadow
                     // the name. Resolve the target back to this symbol, exactly
                     // as `symbol_has_any_assignment` does.
-                    if target.node_id.is_some_and(|id| {
+                    if target.node_id().is_some_and(|id| {
                         self.resolve_identifier_memo(id, name, tsr_binder::SymbolFlags::VALUE)
                             .is_some_and(|found| found == symbol)
                     }) {
@@ -3377,7 +3377,8 @@ impl Checker<'_, '_> {
                 let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else {
                     return None;
                 };
-                let index = pattern.elements.iter().position(|item| item.node_id == Some(node))?;
+                let index =
+                    pattern.elements.iter().position(|item| item.node_id() == Some(node))?;
                 let key = self.store.intern_literal(
                     TypeFlags::NUMBER_LITERAL,
                     TypeData::NumberLiteral(index.to_string()),
@@ -4215,7 +4216,7 @@ impl Checker<'_, '_> {
             if first.r#type.is_none() {
                 return ThisParameterOfContainer::Present(None);
             }
-            let symbol = first.node_id.and_then(|id| self.binder.symbol_of(id));
+            let symbol = first.node_id().and_then(|id| self.binder.symbol_of(id));
             return ThisParameterOfContainer::Present(
                 symbol.map(|symbol| self.get_type_of_symbol(symbol)),
             );
@@ -5580,7 +5581,7 @@ impl Checker<'_, '_> {
     ) -> Option<SymbolId> {
         let symbol = match expression {
             tsr_ast::Expression::Identifier(identifier) => self.resolve_identifier_memo(
-                identifier.node_id?,
+                identifier.node_id()?,
                 identifier.text,
                 SymbolFlags::VALUE,
             )?,
@@ -5893,8 +5894,8 @@ impl Checker<'_, '_> {
                     return false;
                 }
                 let left_id = match left {
-                    tsr_ast::EntityName::Identifier(identifier) => identifier.node_id,
-                    tsr_ast::EntityName::QualifiedName(inner) => inner.node_id,
+                    tsr_ast::EntityName::Identifier(identifier) => identifier.node_id(),
+                    tsr_ast::EntityName::QualifiedName(inner) => inner.node_id(),
                 };
                 let (Some(left_id), Some(target_left)) = (left_id, target.expression_id()) else {
                     return false;
@@ -5930,7 +5931,7 @@ impl Checker<'_, '_> {
                             else {
                                 return None;
                             };
-                            let id = identifier.node_id?;
+                            let id = identifier.node_id()?;
                             let symbol = checker.resolve_identifier_memo(
                                 id,
                                 identifier.text,
@@ -6215,7 +6216,7 @@ impl Checker<'_, '_> {
         // The side-table node kind, NOT the token field — the §16
         // CaseKeyword trap's third application.
         let is_case = |checker: &Self, c: &tsr_ast::CaseOrDefaultClause<'_>| {
-            c.node_id.is_some_and(|id| checker.nodes.kind(id) == SyntaxKind::CaseClause)
+            c.node_id().is_some_and(|id| checker.nodes.kind(id) == SyntaxKind::CaseClause)
         };
         let default_index = clauses.iter().position(|c| !is_case(self, c));
         let has_default = clause_start == clause_end
@@ -7614,12 +7615,12 @@ impl Checker<'_, '_> {
         // a `?.()` call answers no predicate — the chain may have short-
         // circuited. §749.
         if !assume_true
-            && let Some(call_id) = call.node_id
+            && let Some(call_id) = call.node_id()
             && self.is_optional_chain(call_id)
         {
             return t;
         }
-        let Some(call_id) = call.node_id else { return t };
+        let Some(call_id) = call.node_id() else { return t };
         let Some(signature) = self.get_effects_signature(call_id, call) else { return t };
         let Some(predicate) = &signature.predicate else { return t };
         // `TypePredicateKindThis || TypePredicateKindIdentifier`.
@@ -8130,7 +8131,7 @@ impl Checker<'_, '_> {
                     return pattern
                         .elements
                         .iter()
-                        .position(|element| element.node_id == Some(access))
+                        .position(|element| element.node_id() == Some(access))
                         .map(|index| index.to_string());
                 }
                 if self.nodes.kind(parent) != SyntaxKind::ObjectBindingPattern {
@@ -8164,7 +8165,7 @@ impl Checker<'_, '_> {
                 };
                 parameters
                     .iter()
-                    .position(|parameter| parameter.node_id == Some(access))
+                    .position(|parameter| parameter.node_id() == Some(access))
                     .map(|index| index.to_string())
             }
             Node::ElementAccessExpression(node) => {
@@ -8749,7 +8750,7 @@ impl Checker<'_, '_> {
                     if !is_has_instance {
                         continue;
                     }
-                    let symbol = method.node_id.and_then(|id| self.binder.symbol_of(id))?;
+                    let symbol = method.node_id().and_then(|id| self.binder.symbol_of(id))?;
                     let member_type = self.get_type_of_symbol(symbol);
                     let signatures = self.signatures_of_type(member_type)?;
                     let [signature] = signatures.as_slice() else { return None };
@@ -8786,7 +8787,7 @@ impl Checker<'_, '_> {
                 if !is_has_instance {
                     continue;
                 }
-                let symbol = method.node_id.and_then(|id| self.binder.symbol_of(id))?;
+                let symbol = method.node_id().and_then(|id| self.binder.symbol_of(id))?;
                 let member_type = self.get_type_of_symbol(symbol);
                 let signatures = self.signatures_of_type(member_type)?;
                 let [signature] = signatures.as_slice() else { return None };
@@ -8888,7 +8889,7 @@ impl Checker<'_, '_> {
         if !self.is_matching_reference(state, target) {
             return t;
         }
-        let Some(name_id) = name.node_id else { return t };
+        let Some(name_id) = name.node_id() else { return t };
         let Some(class) = self.lexical_private_declaring_class(name_id, name.text) else {
             return t;
         };

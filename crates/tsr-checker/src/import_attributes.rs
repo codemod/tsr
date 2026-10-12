@@ -43,7 +43,7 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(attributes) = attributes else { return };
-        let Some(attributes_id) = attributes.node_id else { return };
+        let Some(attributes_id) = attributes.node_id() else { return };
         if !self.nodes.parent(node).is_some_and(|parent| {
             matches!(
                 self.nodes.kind(parent),
@@ -127,7 +127,7 @@ impl Checker<'_, '_> {
         let [element] = attributes.attributes else {
             report(
                 self,
-                attributes.node_id,
+                attributes.node_id(),
                 &messages::TYPE_IMPORT_ATTRIBUTES_SHOULD_HAVE_EXACTLY_ONE_KEY_RESOLUTION_MODE_WITH_VALUE_IMPORT_OR_REQUIRE,
             );
             return false;
@@ -136,14 +136,14 @@ impl Checker<'_, '_> {
         if name.text != "resolution-mode" {
             report(
                 self,
-                name.node_id,
+                name.node_id(),
                 &messages::RESOLUTION_MODE_IS_THE_ONLY_VALID_KEY_FOR_TYPE_IMPORT_ATTRIBUTES,
             );
             return false;
         }
         let value = match element.value.map(Node::from) {
-            Some(Node::StringLiteral(literal)) => (literal.text, literal.node_id),
-            Some(Node::NoSubstitutionTemplateLiteral(literal)) => (literal.text, literal.node_id),
+            Some(Node::StringLiteral(literal)) => (literal.text, literal.node_id()),
+            Some(Node::NoSubstitutionTemplateLiteral(literal)) => (literal.text, literal.node_id()),
             _ => return false,
         };
         if value.0 != "import" && value.0 != "require" {

@@ -35,7 +35,7 @@ impl<'a> Checker<'a, '_> {
         if node.is_type_of || node.qualifier.is_some() {
             return None;
         }
-        let site = node.node_id?;
+        let site = node.node_id()?;
         let tsr_ast::TypeNode::LiteralTypeNode(literal) = node.argument? else { return None };
         let specifier = literal.literal.and_then(|l| l.node_id())?;
         let inner = self.resolve_external_module_name(site, specifier)?;

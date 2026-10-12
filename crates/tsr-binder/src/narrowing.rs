@@ -509,7 +509,8 @@ pub(crate) fn is_potentially_executable_node(node: Node<'_>, nodes: &NodeTable) 
         // `let`/`const`/`using` are temporal-dead-zone observable even without an
         // initializer, so an unreachable one is still worth reporting; a bare
         // `var x;` is not.
-        let list_flags = list.node_id.map_or_else(NodeFlags::empty, |list_id| nodes.flags(list_id));
+        let list_flags =
+            list.node_id().map_or_else(NodeFlags::empty, |list_id| nodes.flags(list_id));
         if list_flags.intersects(NodeFlags::BLOCK_SCOPED) {
             return true;
         }

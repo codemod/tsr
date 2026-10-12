@@ -36,7 +36,7 @@ impl crate::Checker<'_, '_> {
         let declares = self.binder.symbol_of(binary_id).is_some();
         match receiver {
             Some(Expression::Identifier(identifier)) => {
-                let Some(reference) = identifier.node_id else { return false };
+                let Some(reference) = identifier.node_id() else { return false };
                 let Some(symbol) = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,

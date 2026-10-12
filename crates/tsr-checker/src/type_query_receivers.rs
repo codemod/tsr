@@ -50,7 +50,7 @@ impl Checker<'_, '_> {
                 self.check_qualified_name(inner)
             }
             EntityName::Identifier(identifier) if identifier.text == "this" => {
-                let Some(id) = identifier.node_id else { return };
+                let Some(id) = identifier.node_id() else { return };
                 self.check_this_expression(id)
             }
             EntityName::Identifier(identifier) => {
@@ -65,7 +65,7 @@ impl Checker<'_, '_> {
                 self.report_nullable_operand_of_type(Expression::Identifier(identifier), left_type);
             }
             EntityName::QualifiedName(inner) => {
-                let Some(id) = inner.node_id else { return };
+                let Some(id) = inner.node_id() else { return };
                 let message = match self.nullish_facts(left_type) {
                     (true, true) => &messages::OBJECT_IS_POSSIBLY_NULL_OR_UNDEFINED,
                     (false, true) => &messages::OBJECT_IS_POSSIBLY_UNDEFINED,

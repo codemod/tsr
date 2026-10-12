@@ -16,6 +16,6 @@ fn catch_initializer_remains_attached_without_parse_recovery_errors() {
             panic!("expected written initializer")
         };
         assert_eq!(initializer.text, "1");
-        assert_eq!(parsed.nodes.parent(initializer.node_id.unwrap()), variable.node_id);
+        assert_eq!(parsed.nodes.parent(initializer.node_id().unwrap()), variable.node_id());
     }
 }

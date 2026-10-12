@@ -297,7 +297,7 @@ fn forecast<'a>(
         } else {
             // `parameter_of` falls back to the symbol's type — the implicit
             // `any` — for an unannotated parameter.
-            let Some(id) = parameter.node_id.and_then(|id| binder.symbol_of(id)) else {
+            let Some(id) = parameter.node_id().and_then(|id| binder.symbol_of(id)) else {
                 return Err("an unannotated parameter has no symbol");
             };
             let t = checker.get_type_of_symbol(id);

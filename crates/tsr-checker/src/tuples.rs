@@ -725,7 +725,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else { return };
-        let Some(index) = pattern.elements.iter().position(|e| e.node_id == Some(node)) else {
+        let Some(index) = pattern.elements.iter().position(|e| e.node_id() == Some(node)) else {
             return;
         };
         let Some(holder) = self.nodes.parent(pattern_id) else { return };

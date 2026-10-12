@@ -158,7 +158,7 @@ fn search_binding(binding: BindingName<'_>, target: &str, found: &mut Option<tsr
     for element in pattern.elements {
         match element.name {
             Some(BindingName::Identifier(identifier)) if identifier.text == target => {
-                *found = element.node_id;
+                *found = element.node_id();
             }
             Some(nested) => search_binding(nested, target, found),
             None => {}

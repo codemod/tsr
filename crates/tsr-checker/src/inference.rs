@@ -418,10 +418,10 @@ impl<'a> Checker<'a, '_> {
         // pattern included): `const { f = (x: string) => x.length } =
         // id({ f: x => x.charAt })` gives `T` the return-mapper image
         // `{ f?: (x: string) => number; }`.
-        if self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern {
+        if self.nodes.kind(pattern.node_id()?) == tsr_ast::SyntaxKind::ObjectBindingPattern {
             return self.initializer_binding_pattern_context(declaration.name, call);
         }
-        if self.nodes.kind(pattern.node_id?) != tsr_ast::SyntaxKind::ArrayBindingPattern
+        if self.nodes.kind(pattern.node_id()?) != tsr_ast::SyntaxKind::ArrayBindingPattern
             || pattern.elements.is_empty()
         {
             return None;
@@ -429,7 +429,7 @@ impl<'a> Checker<'a, '_> {
         let any = self.intrinsics.any;
         let mut elements = Vec::with_capacity(pattern.elements.len());
         for element in pattern.elements {
-            let element_id = element.node_id?;
+            let element_id = element.node_id()?;
             match self.node_map.get(element_id)? {
                 Node::OmittedExpression(_) => elements.push(any),
                 Node::BindingElement(binding)
@@ -1476,7 +1476,7 @@ impl<'a> Checker<'a, '_> {
                     for &index in &deferred {
                         if let Some(Expression::ObjectLiteralExpression(literal)) =
                             arguments.get(index)
-                            && let Some(id) = literal.node_id
+                            && let Some(id) = literal.node_id()
                         {
                             self.intra_expression_member_maps.remove(&id);
                         }
@@ -6972,7 +6972,7 @@ impl<'a> Checker<'a, '_> {
             _ => return,
         };
         for (parameter, declaration) in signature.type_parameters.iter().zip(declarations) {
-            if let Some(symbol) = declaration.node_id.and_then(|id| self.binder.symbol_of(id)) {
+            if let Some(symbol) = declaration.node_id().and_then(|id| self.binder.symbol_of(id)) {
                 self.render_type_parameter_scope.push((parameter.name.clone(), symbol));
             }
         }
@@ -7068,7 +7068,7 @@ impl<'a> Checker<'a, '_> {
         for ((parameter, &own_type), declaration) in
             signature.type_parameters.iter().zip(&own).zip(declarations)
         {
-            let own_symbol = declaration.node_id.and_then(|id| self.binder.symbol_of(id));
+            let own_symbol = declaration.node_id().and_then(|id| self.binder.symbol_of(id));
             let render_shadow = own_symbol.is_some_and(|own_symbol| {
                 self.render_type_parameter_scope
                     .iter()
@@ -7423,7 +7423,7 @@ impl<'a> Checker<'a, '_> {
         };
         let symbols = declarations
             .iter()
-            .map(|declaration| declaration.node_id.and_then(|id| self.binder.symbol_of(id)))
+            .map(|declaration| declaration.node_id().and_then(|id| self.binder.symbol_of(id)))
             .collect::<Option<Vec<_>>>()?;
         Some(symbols.into_iter().map(|symbol| self.get_declared_type_of_symbol(symbol)).collect())
     }
@@ -7734,7 +7734,7 @@ const value = First.A;"#;
             panic!("owner function");
         };
         let signature = checker
-            .get_signatures_of_symbol(bound.symbol_of(owner.node_id.unwrap()).unwrap())
+            .get_signatures_of_symbol(bound.symbol_of(owner.node_id().unwrap()).unwrap())
             .unwrap()
             .remove(0);
         let parameters = checker.type_parameter_types(&signature).unwrap();
@@ -7790,8 +7790,8 @@ const value = First.A;"#;
         let Statement::EnumDeclaration(second) = parsed.source_file.statements[1] else {
             panic!("foreign enum");
         };
-        let foreign =
-            checker.get_declared_type_of_symbol(bound.symbol_of(second.node_id.unwrap()).unwrap());
+        let foreign = checker
+            .get_declared_type_of_symbol(bound.symbol_of(second.node_id().unwrap()).unwrap());
         assert_eq!(
             checker.relate_ternary(candidate, foreign, Relation::Assignable),
             Ternary::NotRelated
@@ -7858,7 +7858,7 @@ declare function deferred<U, V,
             panic!("owner function");
         };
         let signature = checker
-            .get_signatures_of_symbol(bound.symbol_of(owner.node_id.unwrap()).unwrap())
+            .get_signatures_of_symbol(bound.symbol_of(owner.node_id().unwrap()).unwrap())
             .unwrap()
             .remove(0);
         let parameters = checker.type_parameter_types(&signature).unwrap();
@@ -7906,7 +7906,7 @@ declare function deferred<U, V,
             panic!("deferred branch owner");
         };
         let deferred = checker
-            .get_signatures_of_symbol(bound.symbol_of(deferred.node_id.unwrap()).unwrap())
+            .get_signatures_of_symbol(bound.symbol_of(deferred.node_id().unwrap()).unwrap())
             .unwrap()
             .remove(0);
         let parameters = checker.type_parameter_types(&deferred).unwrap();
@@ -7949,7 +7949,7 @@ declare function owner<U extends string, V extends string, W,
         let Statement::FunctionDeclaration(declaration) = parsed.source_file.statements[4] else {
             panic!("the fixture must declare its owner function");
         };
-        let owner = bound.symbol_of(declaration.node_id.unwrap()).unwrap();
+        let owner = bound.symbol_of(declaration.node_id().unwrap()).unwrap();
         let signature = checker.get_signatures_of_symbol(owner).unwrap().remove(0);
         let variable = signature.type_parameters[5].constraint.unwrap();
         let restricted = signature.type_parameters[6].constraint.unwrap();
@@ -7991,14 +7991,14 @@ const value = First.A;"#;
             panic!("second enum");
         };
         let first =
-            checker.get_declared_type_of_symbol(bound.symbol_of(first.node_id.unwrap()).unwrap());
-        let second =
-            checker.get_declared_type_of_symbol(bound.symbol_of(second.node_id.unwrap()).unwrap());
+            checker.get_declared_type_of_symbol(bound.symbol_of(first.node_id().unwrap()).unwrap());
+        let second = checker
+            .get_declared_type_of_symbol(bound.symbol_of(second.node_id().unwrap()).unwrap());
         let Statement::FunctionDeclaration(owner) = parsed.source_file.statements[2] else {
             panic!("owner function");
         };
         let signature = checker
-            .get_signatures_of_symbol(bound.symbol_of(owner.node_id.unwrap()).unwrap())
+            .get_signatures_of_symbol(bound.symbol_of(owner.node_id().unwrap()).unwrap())
             .unwrap()
             .remove(0);
         let Statement::VariableStatement(variable) = parsed.source_file.statements[3] else {
@@ -8041,7 +8041,7 @@ const value = First.A;"#;
         let Statement::FunctionDeclaration(declaration) = parsed.source_file.statements[0] else {
             panic!("the fixture must declare a function");
         };
-        let owner = bound.symbol_of(declaration.node_id.unwrap()).unwrap();
+        let owner = bound.symbol_of(declaration.node_id().unwrap()).unwrap();
         let signature = checker.get_signatures_of_symbol(owner).unwrap().remove(0);
         let registered = checker.parameter_type(&signature.parameters[0]);
         assert!(checker.type_parameter_symbols.contains_key(&registered));
@@ -8163,7 +8163,7 @@ const value = First.A;"#;
             })
             .expect("the fixture must declare the function");
         let symbol = bound
-            .symbol_of(declaration.node_id.expect("a registered node"))
+            .symbol_of(declaration.node_id().expect("a registered node"))
             .expect("the function must be bound");
         let signatures = checker.get_signatures_of_symbol(symbol).expect("a signature");
         let [signature] = signatures.as_slice() else {
@@ -8183,7 +8183,7 @@ const value = First.A;"#;
         let Expression::CallExpression(call) = initialiser else {
             panic!("the initialiser must be a call");
         };
-        let id = checker.check_generic_call(&signature, call.node_id, call.arguments);
+        let id = checker.check_generic_call(&signature, call.node_id(), call.arguments);
         checker.type_to_string(id)
     }
 

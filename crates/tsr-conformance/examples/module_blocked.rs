@@ -746,7 +746,7 @@ fn mock_target(
     let Some(file) = resolve_specifier(program, nodes, declaration, specifier) else {
         return Mock::NoSuchFile;
     };
-    let Some(root) = file.source_file().node_id else { return Mock::NoSuchFile };
+    let Some(root) = file.source_file().node_id() else { return Mock::NoSuchFile };
     let Some(module) = bound.symbol_of(root) else { return Mock::NoSuchExport };
     let Some(&target) = bound.symbols().get(module).exports.get(name.as_str()) else {
         return Mock::NoSuchExport;

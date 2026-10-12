@@ -991,7 +991,7 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
             match self.checker.node_map.get(node) {
                 Some(tsr_ast::Node::ExportAssignment(assignment)) => {
                     if let Some(tsr_ast::Expression::Identifier(identifier)) = assignment.expression
-                        && let Some(id) = identifier.node_id
+                        && let Some(id) = identifier.node_id()
                     {
                         self.mark_linked_aliases(id, Some(identifier.text));
                     }
@@ -1756,7 +1756,7 @@ fn first_identifier_of_module_reference(
 ) -> Option<(NodeId, &str)> {
     let mut name = match reference {
         tsr_ast::ModuleReference::Identifier(identifier) => {
-            return Some((identifier.node_id?, identifier.text));
+            return Some((identifier.node_id()?, identifier.text));
         }
         tsr_ast::ModuleReference::QualifiedName(name) => name,
         tsr_ast::ModuleReference::ExternalModuleReference(_) => return None,
@@ -1764,7 +1764,7 @@ fn first_identifier_of_module_reference(
     loop {
         match name.left? {
             tsr_ast::EntityName::Identifier(identifier) => {
-                return Some((identifier.node_id?, identifier.text));
+                return Some((identifier.node_id()?, identifier.text));
             }
             tsr_ast::EntityName::QualifiedName(left) => name = left,
         }

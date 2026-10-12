@@ -93,7 +93,7 @@ fn cached_keyword_instance_still_completes_a_missing_original_owner() {
     for reverse in [false, true] {
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let parameter =
-            bound.symbol_of(checker.local_type_parameters_of(input)[0].node_id.unwrap()).unwrap();
+            bound.symbol_of(checker.local_type_parameters_of(input)[0].node_id().unwrap()).unwrap();
         let mut vectors = [
             vec![checker.intrinsics.string, checker.intrinsics.number],
             vec![checker.intrinsics.number, checker.intrinsics.string],

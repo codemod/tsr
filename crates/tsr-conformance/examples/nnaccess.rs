@@ -112,8 +112,8 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     match parent {
                         Some(Node::PropertyAccessExpression(access))
                             if access.name.and_then(|n| match n {
-                                tsr_ast::MemberName::Identifier(i) => i.node_id,
-                                tsr_ast::MemberName::PrivateIdentifier(i) => i.node_id,
+                                tsr_ast::MemberName::Identifier(i) => i.node_id(),
+                                tsr_ast::MemberName::PrivateIdentifier(i) => i.node_id(),
                             }) == Some(id) =>
                         {
                             ("member name", access.expression, access.question_dot_token.is_some())

@@ -228,7 +228,7 @@ impl<'a> Checker<'a, '_> {
         // exactly this shape.
         if let Some(iife) = self.immediately_invoked_call(function)
             && let Some(parameters) = self.contextualisable_parameters(function)
-            && let Some(index) = parameters.iter().position(|p| p.node_id == Some(parameter))
+            && let Some(index) = parameters.iter().position(|p| p.node_id() == Some(parameter))
         {
             let Some(Node::CallExpression(call)) = self.node_map.get(iife) else {
                 return None;
@@ -326,7 +326,7 @@ impl<'a> Checker<'a, '_> {
         // which is exactly what upstream's `GetThisParameter` subtraction on the
         // same line repairs; here it is a gap instead, so the two indices are
         // the same index or there is no answer.
-        let index = parameters.iter().position(|p| p.node_id == Some(parameter))?;
+        let index = parameters.iter().position(|p| p.node_id() == Some(parameter))?;
         if parameters.iter().any(|p| is_this_parameter(p)) {
             return None;
         }
@@ -855,13 +855,13 @@ impl<'a> Checker<'a, '_> {
         };
         object.properties.iter().any(|property| {
             let member = match property {
-                ObjectLiteralElementLike::MethodDeclaration(method) => method.node_id,
-                ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => accessor.node_id,
-                ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => accessor.node_id,
+                ObjectLiteralElementLike::MethodDeclaration(method) => method.node_id(),
+                ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => accessor.node_id(),
+                ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => accessor.node_id(),
                 ObjectLiteralElementLike::PropertyAssignment(assignment) => {
                     match assignment.initializer {
-                        Some(Expression::FunctionExpression(function)) => function.node_id,
-                        Some(Expression::ArrowFunction(function)) => function.node_id,
+                        Some(Expression::FunctionExpression(function)) => function.node_id(),
+                        Some(Expression::ArrowFunction(function)) => function.node_id(),
                         _ => None,
                     }
                 }
@@ -916,7 +916,7 @@ impl<'a> Checker<'a, '_> {
             && let Some(symbol) = self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
-                identifier.node_id?,
+                identifier.node_id()?,
                 identifier.text,
                 tsr_binder::SymbolFlags::VALUE,
             )
@@ -1429,12 +1429,12 @@ impl<'a> Checker<'a, '_> {
             }
             Node::JsxElement(_) => self.jsx_child_context(parent, node),
             Node::JsxOpeningElement(opening)
-                if opening.attributes.and_then(|attributes| attributes.node_id) == Some(node) =>
+                if opening.attributes.and_then(tsr_ast::JsxAttributes::node_id) == Some(node) =>
             {
                 self.jsx_attributes_context(parent)
             }
             Node::JsxSelfClosingElement(opening)
-                if opening.attributes.and_then(|attributes| attributes.node_id) == Some(node) =>
+                if opening.attributes.and_then(tsr_ast::JsxAttributes::node_id) == Some(node) =>
             {
                 self.jsx_attributes_context(parent)
             }
@@ -1468,7 +1468,7 @@ impl<'a> Checker<'a, '_> {
                     .arguments
                     .iter()
                     .position(|argument| argument.node_id() == Some(node))?;
-                if let Some(call) = new_expression.node_id {
+                if let Some(call) = new_expression.node_id() {
                     if self.contextual_prefers_uninstantiated
                         && let Some(context) = self.active_inference_contexts.get(&call).cloned()
                     {
@@ -2082,8 +2082,10 @@ impl<'a> Checker<'a, '_> {
             let Node::BindingPattern(pattern) = self.node_map.get(pattern)? else { return None };
             // Binding holes occupy positions, and the binding pattern's length
             // does not align a variadic source's ending fixed elements.
-            let index =
-                pattern.elements.iter().position(|element| element.node_id == Some(declaration))?;
+            let index = pattern
+                .elements
+                .iter()
+                .position(|element| element.node_id() == Some(declaration))?;
             return self.contextual_type_for_element_expression(
                 parent_type,
                 index,
@@ -2159,7 +2161,7 @@ impl<'a> Checker<'a, '_> {
                         let symbol = self.binder.resolve_name(
                             self.nodes,
                             self.node_map,
-                            receiver.node_id?,
+                            receiver.node_id()?,
                             receiver.text,
                             tsr_binder::SymbolFlags::VALUE,
                         )?;
@@ -2324,7 +2326,7 @@ impl<'a> Checker<'a, '_> {
         index: usize,
         substitution_count: usize,
     ) -> Option<TypeId> {
-        let call_id = tagged.node_id?;
+        let call_id = tagged.node_id()?;
         if let Some(memo) = self.call_inference_signatures.get(&call_id).cloned() {
             return self.contextual_argument_type(&memo, index, substitution_count);
         }
@@ -3014,7 +3016,7 @@ impl<'a> Checker<'a, '_> {
     /// contextual read declines to the previous answer: no implied context.
     /// Syntax and name resolution only; no state.
     fn pattern_initializer_references_own_element(&self, pattern: &BindingPattern<'a>) -> bool {
-        let Some(root) = pattern.node_id else { return true };
+        let Some(root) = pattern.node_id() else { return true };
         let mut patterns = vec![pattern];
         let mut expressions: Vec<Node<'a>> = Vec::new();
         while let Some(pattern) = patterns.pop() {
@@ -3029,7 +3031,7 @@ impl<'a> Checker<'a, '_> {
         }
         while let Some(node) = expressions.pop() {
             if let Node::Identifier(identifier) = node
-                && let Some(id) = identifier.node_id
+                && let Some(id) = identifier.node_id()
                 // The element's own initializer slot, or any value read
                 // below it (declaration and member names are not reads).
                 && (self.nodes.parent(id).is_some_and(|parent| {
@@ -3283,7 +3285,7 @@ impl<'a> Checker<'a, '_> {
         let Expression::TemplateExpression(template) = inner else {
             return Some(self.check_expression(expression));
         };
-        let id = template.node_id?;
+        let id = template.node_id()?;
         if let Some(crate::enum_initializer::EnumConstant::String(value)) =
             self.evaluate_constant(id, id)
         {
@@ -3364,7 +3366,7 @@ impl<'a> Checker<'a, '_> {
             let has_this = setter.parameters.len() == 2 && is_this_parameter(setter.parameters[0]);
             let parameter = setter.parameters.get(usize::from(has_this))?;
             parameter.r#type.or_else(|| {
-                self.jsdoc_parameter_annotation(parameter.node_id?)
+                self.jsdoc_parameter_annotation(parameter.node_id()?)
                     .map(|(annotation, _)| annotation)
             })
         })
@@ -3470,7 +3472,7 @@ impl<'a> Checker<'a, '_> {
         // The const/freshness query needs parameter identities before the
         // fixing mapper, including after a completed call memo is available.
         if self.contextual_prefers_uninstantiated {
-            if let Some(call_id) = call.node_id
+            if let Some(call_id) = call.node_id()
                 && let Some(context) = self.active_inference_contexts.get(&call_id).cloned()
             {
                 return self.contextual_argument_type(
@@ -3480,7 +3482,7 @@ impl<'a> Checker<'a, '_> {
                 );
             }
             let callee = call.expression?;
-            let Some(call_id) = call.node_id else {
+            let Some(call_id) = call.node_id() else {
                 return self.contextual_type_for_argument_resolving(call, callee, index);
             };
             if !self.resolving_signature_calls.insert(call_id) {
@@ -3491,7 +3493,7 @@ impl<'a> Checker<'a, '_> {
             return contextual;
         }
 
-        if let Some(call_id) = call.node_id
+        if let Some(call_id) = call.node_id()
             && let Some(context) = self
                 .active_inference_contexts
                 .get(&call_id)
@@ -3512,12 +3514,12 @@ impl<'a> Checker<'a, '_> {
         // instantiated candidate for THIS call outranks every stateless
         // road - it is what upstream's resolved-signature threading gives
         // the second pass.
-        if let Some(call_id) = call.node_id
+        if let Some(call_id) = call.node_id()
             && let Some(memo) = self.call_inference_signatures.get(&call_id).cloned()
         {
             return self.contextual_argument_type(&memo, index, call.arguments.len());
         }
-        if let Some(call_id) = call.node_id
+        if let Some(call_id) = call.node_id()
             && let Some(resolved) = self.resolved_call_signatures.get(&call_id).cloned()
         {
             return self.contextual_argument_type(&resolved, index, call.arguments.len());
@@ -3534,7 +3536,7 @@ impl<'a> Checker<'a, '_> {
         // exactly the resolving section — the memo consult above is upstream's
         // completed-`resolvedSignature` read and must stay reachable on
         // re-entry paths that arrive after pass-1 populated it.
-        let Some(call_id) = call.node_id else {
+        let Some(call_id) = call.node_id() else {
             return self.contextual_type_for_argument_resolving(call, callee, index);
         };
         if !self.resolving_signature_calls.insert(call_id) {
@@ -3634,7 +3636,7 @@ impl<'a> Checker<'a, '_> {
             let single = single.clone();
             return self.single_generic_candidate_argument_type(
                 &single,
-                call.node_id,
+                call.node_id(),
                 call.arguments,
                 call.type_arguments,
                 index,
@@ -3667,7 +3669,7 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(self.intrinsics.any);
         }
-        let call_id = call.node_id?;
+        let call_id = call.node_id()?;
         let class = self
             .nodes
             .ancestors(call_id)

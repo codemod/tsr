@@ -412,7 +412,7 @@ impl Checker<'_, '_> {
                 _ => None,
             }?;
             match specifier {
-                Expression::StringLiteral(literal) => literal.node_id,
+                Expression::StringLiteral(literal) => literal.node_id(),
                 _ => None,
             }
         };
@@ -432,7 +432,7 @@ impl Checker<'_, '_> {
                 Node::ImportEqualsDeclaration(declaration) => match declaration.module_reference? {
                     ModuleReference::ExternalModuleReference(external) => {
                         match external.expression? {
-                            Expression::StringLiteral(literal) => literal.node_id,
+                            Expression::StringLiteral(literal) => literal.node_id(),
                             _ => None,
                         }
                     }
@@ -453,7 +453,7 @@ impl Checker<'_, '_> {
                     return None;
                 }
                 match call.arguments[0] {
-                    Expression::StringLiteral(literal) => literal.node_id,
+                    Expression::StringLiteral(literal) => literal.node_id(),
                     _ => None,
                 }
             }
@@ -746,12 +746,12 @@ impl Checker<'_, '_> {
                     };
                     match call.arguments.first().map(|argument| tsr_ast::Node::from(*argument)) {
                         Some(tsr_ast::Node::StringLiteral(literal)) if callee_ok => {
-                            literal.node_id.map(|id| (id, literal.text))
+                            literal.node_id().map(|id| (id, literal.text))
                         }
                         Some(tsr_ast::Node::NoSubstitutionTemplateLiteral(literal))
                             if callee_ok =>
                         {
-                            literal.node_id.map(|id| (id, literal.text))
+                            literal.node_id().map(|id| (id, literal.text))
                         }
                         _ => None,
                     }
@@ -760,7 +760,7 @@ impl Checker<'_, '_> {
                     Some(tsr_ast::TypeNode::LiteralTypeNode(literal_type)) => {
                         match literal_type.literal {
                             Some(tsr_ast::Node::StringLiteral(literal)) => {
-                                literal.node_id.map(|id| (id, literal.text))
+                                literal.node_id().map(|id| (id, literal.text))
                             }
                             _ => None,
                         }

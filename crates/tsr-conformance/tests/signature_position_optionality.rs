@@ -45,7 +45,7 @@ fn positional_relations_distinguish_optional_defaults_and_body_writes() {
                 let target = checker.check_expression(binary.left.unwrap());
                 let value = checker.check_expression(binary.right.unwrap());
                 assignments.push((
-                    program.nodes().span(binary.node_id.unwrap()).start,
+                    program.nodes().span(binary.node_id().unwrap()).start,
                     checker.is_type_assignable_to(value, target),
                 ));
             } else if let tsr_ast::Node::VariableDeclaration(variable) = node
@@ -55,7 +55,7 @@ fn positional_relations_distinguish_optional_defaults_and_body_writes() {
                 let target = checker.get_type_from_type_node(annotation);
                 let value = checker.check_expression(initializer);
                 assignments.push((
-                    program.nodes().span(variable.node_id.unwrap()).start,
+                    program.nodes().span(variable.node_id().unwrap()).start,
                     checker.is_type_assignable_to(value, target),
                 ));
             }

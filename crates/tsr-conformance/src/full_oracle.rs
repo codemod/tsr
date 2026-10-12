@@ -467,10 +467,10 @@ pub fn actual(source: &Path, request: &Request) -> Result<String> {
             .iter()
             .zip(&admitted)
             .filter(|(_, c)| **c)
-            .filter_map(|(f, _)| f.source_file().node_id),
+            .filter_map(|(f, _)| f.source_file().node_id()),
     );
     for (f, _) in files.iter().zip(&admitted).filter(|(_, c)| **c) {
-        if let Some(id) = f.source_file().node_id {
+        if let Some(id) = f.source_file().node_id() {
             checker.check_source_file(
                 id,
                 tsr_checker::check::FileContext {
@@ -514,7 +514,7 @@ pub fn actual(source: &Path, request: &Request) -> Result<String> {
     for (i, f) in files.iter().enumerate() {
         let name = f.file_name();
         found.extend(f.diagnostics().iter().cloned().map(|d| (name.to_string(), d)));
-        let Some(id) = f.source_file().node_id else { continue };
+        let Some(id) = f.source_file().node_id() else { continue };
         found.extend(
             checker.js_syntax_diagnostics(id).into_iter().map(|(_, d)| (name.to_string(), d)),
         );

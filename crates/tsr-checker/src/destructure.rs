@@ -270,7 +270,7 @@ impl Checker<'_, '_> {
                     return error;
                 };
                 let Some(index) =
-                    pattern.elements.iter().position(|e| e.node_id == Some(declaration))
+                    pattern.elements.iter().position(|e| e.node_id() == Some(declaration))
                 else {
                     return error;
                 };
@@ -999,7 +999,7 @@ impl Checker<'_, '_> {
         }?;
         match name {
             tsr_ast::BindingName::BindingPattern(pattern) => {
-                Some(self.nodes.kind(pattern.node_id?))
+                Some(self.nodes.kind(pattern.node_id()?))
             }
             tsr_ast::BindingName::Identifier(_) => None,
         }
@@ -1103,7 +1103,7 @@ impl Checker<'_, '_> {
         let mut computed_keys: Vec<TypeId> = Vec::new();
         let mut unnamed_key = false;
         for sibling in pattern.elements {
-            if sibling.node_id == Some(declaration) {
+            if sibling.node_id() == Some(declaration) {
                 continue;
             }
             if let Some(PropertyName::ComputedPropertyName(computed)) = sibling.property_name {
@@ -1152,7 +1152,7 @@ impl Checker<'_, '_> {
             // `getUnionType(map(properties, getLiteralTypeFromPropertyName))`
             // (`:17802`) — the names BOUND by the sibling elements.
             for element in pattern.elements {
-                if element.node_id == Some(declaration) {
+                if element.node_id() == Some(declaration) {
                     continue;
                 }
                 if matches!(element.property_name, Some(PropertyName::ComputedPropertyName(_))) {

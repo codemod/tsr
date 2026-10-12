@@ -151,7 +151,7 @@ pub fn properties_of<'a>(
             let value = value_expression.map_or(ConfigValue::Null, |value| value_of(value, nodes));
             let span = value_expression
                 .and_then(|value| span_of(Node::from(value), nodes))
-                .or_else(|| property.node_id.map(|id| nodes.span(id)))
+                .or_else(|| property.node_id().map(|id| nodes.span(id)))
                 .unwrap_or_default();
             let name_span = span_of(Node::from(property.name), nodes).unwrap_or(span);
             Some(ConfigProperty { name, value, value_expression, span, name_span })
@@ -172,7 +172,7 @@ pub fn value_of(expression: Expression<'_>, nodes: &NodeTable) -> ConfigValue {
             literal.text.parse().map_or(ConfigValue::Null, ConfigValue::Number)
         }
         Node::KeywordExpression(keyword) => {
-            match keyword.node_id.map(|id| nodes.kind(id)) {
+            match keyword.node_id().map(|id| nodes.kind(id)) {
                 Some(SyntaxKind::TrueKeyword) => ConfigValue::Bool(true),
                 Some(SyntaxKind::FalseKeyword) => ConfigValue::Bool(false),
                 // `null`, and anything else a keyword expression could be.

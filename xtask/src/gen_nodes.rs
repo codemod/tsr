@@ -462,7 +462,11 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
              /// interior mutability. That is what makes every node `Sync` and the\n    \
              /// tree shareable across threads — see\n    \
              /// `docs/adr/0012-ast-is-sync.md`.\n    \
-             pub node_id: Option<NodeId>,"
+             ///\n    \
+             /// Crate-private: read it through `node_id()` and write it through\n    \
+             /// `HasNodeId::set_node_id`, so its representation can change behind\n    \
+             /// them (ADR-0056).\n    \
+             pub(crate) node_id: Option<NodeId>,"
         )?;
         // Nodes such as `KeywordExpression` carry only a kind, so nothing in the
         // struct mentions `'a`. Keep the parameter for uniformity — every node is

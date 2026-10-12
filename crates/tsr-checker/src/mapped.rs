@@ -157,7 +157,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) -> MappedNodeType {
-        let key = node.node_id.map(|id| self.type_literal_key(id));
+        let key = node.node_id().map(|id| self.type_literal_key(id));
         if let Some(key) = &key
             && let Some(&ty) = self.type_literal_types.get(key)
         {
@@ -465,11 +465,11 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<MappedTypeInfo> {
         let evaluation_start = self.store.len();
         let parameter = node.type_parameter?;
-        let symbol = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+        let symbol = parameter.node_id().and_then(|id| self.binder.symbol_of(id))?;
         let parameter_type = self.get_declared_type_of_symbol(symbol);
         let constraint = parameter.constraint?;
         let template = node.r#type?;
-        let node_key = node.node_id.map(|id| std::rc::Rc::new(self.type_literal_key(id)));
+        let node_key = node.node_id().map(|id| std::rc::Rc::new(self.type_literal_key(id)));
         let mut constraint_node = constraint;
         while let TypeNode::ParenthesizedTypeNode(node) = constraint_node {
             let Some(inner) = node.r#type else { break };
@@ -548,7 +548,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         Some(MappedTypeInfo {
-            declaration: node.node_id?,
+            declaration: node.node_id()?,
             parameter: parameter_type,
             constraint,
             constraint_intersection,
@@ -733,7 +733,7 @@ impl<'a> Checker<'a, '_> {
         let frame = alias
             .type_parameters
             .iter()
-            .filter_map(|p| p.node_id)
+            .filter_map(|p| p.node_id())
             .filter_map(|id| self.binder.symbol_of(id))
             .zip(arguments.iter().copied())
             .collect();
@@ -1312,7 +1312,7 @@ impl<'a> Checker<'a, '_> {
         let TypeNode::ConditionalTypeNode(conditional) = body else { return None };
         let parameter = self.distributive_conditional_parameter(conditional.check_type?)?;
         node.type_parameters.iter().position(|declared| {
-            declared.node_id.and_then(|id| self.binder.symbol_of(id)) == Some(parameter)
+            declared.node_id().and_then(|id| self.binder.symbol_of(id)) == Some(parameter)
         })
     }
 
@@ -2064,10 +2064,9 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return None;
         };
-        let slot = alias
-            .type_parameters
-            .iter()
-            .position(|p| p.node_id.and_then(|id| self.binder.symbol_of(id)) == Some(parameter))?;
+        let slot = alias.type_parameters.iter().position(|p| {
+            p.node_id().and_then(|id| self.binder.symbol_of(id)) == Some(parameter)
+        })?;
         let replace_source = |checker: &mut Self, source: TypeId| {
             let mut arguments = arguments.to_vec();
             arguments[slot] = source;
@@ -2432,7 +2431,7 @@ impl<'a> Checker<'a, '_> {
                 return None;
             };
             let index = alias.type_parameters.iter().position(|p| {
-                p.node_id.and_then(|id| self.binder.symbol_of(id)) == Some(parameter)
+                p.node_id().and_then(|id| self.binder.symbol_of(id)) == Some(parameter)
             })?;
             arguments[index] = base;
             Some(self.create_type_reference(symbol, arguments))

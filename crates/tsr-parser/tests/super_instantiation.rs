@@ -34,10 +34,10 @@ fn malformed_super_owns_a_property_and_preserves_the_following_token() {
         assert_eq!(keyword.kind, SyntaxKind::SuperKeyword);
         let Some(MemberName::Identifier(name)) = property.name else { panic!() };
         assert_eq!(name.text, name_text);
-        assert_eq!(parsed.nodes.span(name.node_id.unwrap()), name_span);
-        assert_eq!(parsed.nodes.span(property.node_id.unwrap()), property_span);
-        assert_eq!(parsed.nodes.parent(name.node_id.unwrap()), property.node_id);
-        assert_eq!(parsed.nodes.parent(keyword.node_id.unwrap()), property.node_id);
+        assert_eq!(parsed.nodes.span(name.node_id().unwrap()), name_span);
+        assert_eq!(parsed.nodes.span(property.node_id().unwrap()), property_span);
+        assert_eq!(parsed.nodes.parent(name.node_id().unwrap()), property.node_id());
+        assert_eq!(parsed.nodes.parent(keyword.node_id().unwrap()), property.node_id());
     }
 }
 
@@ -68,7 +68,7 @@ fn super_call_absorbs_type_arguments_and_retains_raw_diagnostic_range() {
     assert_eq!(call.arguments.len(), 1);
     let Some(Expression::KeywordExpression(keyword)) = call.expression else { panic!() };
     assert_eq!(keyword.kind, SyntaxKind::SuperKeyword);
-    assert_eq!(parsed.nodes.parent(keyword.node_id.unwrap()), call.node_id);
+    assert_eq!(parsed.nodes.parent(keyword.node_id().unwrap()), call.node_id());
 }
 
 #[test]

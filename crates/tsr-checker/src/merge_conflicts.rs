@@ -324,7 +324,7 @@ impl Checker<'_, '_> {
         match self.node_map.get(declaration) {
             Some(tsr_ast::Node::NamespaceExportDeclaration(export)) => export
                 .name
-                .and_then(|name| name.node_id)
+                .and_then(tsr_ast::Identifier::node_id)
                 .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
             // `GetNameOfDeclaration`'s import and export arms: the local
             // name (`export import VNode = react.ReactNode` reports at
@@ -338,9 +338,9 @@ impl Checker<'_, '_> {
                 | tsr_ast::Node::ImportSpecifier(tsr_ast::ImportSpecifier {
                     name: Some(name), ..
                 }),
-            ) => {
-                name.node_id.map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id))
-            }
+            ) => name
+                .node_id()
+                .map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id)),
             Some(tsr_ast::Node::ExportSpecifier(tsr_ast::ExportSpecifier {
                 name: Some(name),
                 ..
@@ -357,9 +357,9 @@ impl Checker<'_, '_> {
                     name: Some(tsr_ast::JSDocFullName::Identifier(name)),
                     ..
                 }),
-            ) => {
-                name.node_id.map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id))
-            }
+            ) => name
+                .node_id()
+                .map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id)),
             _ => self.error_span(declaration),
         }
     }

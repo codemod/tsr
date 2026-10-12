@@ -282,7 +282,7 @@ pub fn run_compilation(
     let pool_size = crate::checker_pool::checker_count(&options, program.source_files().len());
     let list_only_needs_checker = options.list_files_only.is_true()
         && program.source_files().iter().any(|file| {
-            file.source_file().node_id.is_some_and(|id| {
+            file.source_file().node_id().is_some_and(|id| {
                 program.nodes().flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
             })
         });
@@ -315,7 +315,7 @@ pub fn run_compilation(
         }
         let mut js_syntax = Vec::new();
         for (index, file) in program.source_files().iter().enumerate() {
-            if let Some(id) = file.source_file().node_id {
+            if let Some(id) = file.source_file().node_id() {
                 js_syntax
                     .extend(checker.js_syntax_diagnostics(id).into_iter().map(|(_, d)| (index, d)));
             }
@@ -578,7 +578,7 @@ pub fn full_check_exclusion(
     {
         return Some(reason);
     }
-    if program.source_files()[file_index].source_file().node_id.is_none() {
+    if program.source_files()[file_index].source_file().node_id().is_none() {
         return Some("missing_source_node");
     }
     None

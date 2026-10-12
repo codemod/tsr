@@ -12,7 +12,7 @@ fn sites(map: &NodeMap<'_>, root: NodeId, name: &str) -> Vec<NodeId> {
         if let Node::Identifier(node) = node
             && node.text == name
         {
-            sites.push(node.node_id.unwrap());
+            sites.push(node.node_id().unwrap());
         }
         push_children(node, &mut stack);
     }
@@ -24,7 +24,7 @@ fn views(source: &str, name: &str, expected: &[&str]) {
     for reverse in [false, true] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,

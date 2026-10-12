@@ -166,7 +166,7 @@ fn sibling_optional_properties_distinguish_missing_from_explicit_undefined() {
                     let target = checker.check_expression(binary.left.expect("write target"));
                     let source = checker.check_expression(binary.right.expect("write value"));
                     writes.push((
-                        program.nodes().span(binary.node_id.expect("registered")).start,
+                        program.nodes().span(binary.node_id().expect("registered")).start,
                         checker.type_to_string(target),
                         checker.is_type_assignable_to(source, target),
                     ));
@@ -321,7 +321,7 @@ fn configured_typedef_diagnostics(source: &str) -> Vec<(u32, u32, u32)> {
     let program = types_producer::program_for_case(&arena, &case);
     let mut checker = types_producer::configured_checker(&program);
     let file = program.source_file("complete.js").expect("fixture file");
-    let id = file.source_file().node_id.expect("registered file");
+    let id = file.source_file().node_id().expect("registered file");
     checker.set_checked_files([id]);
     checker.check_source_file(
         id,
@@ -386,7 +386,7 @@ fn declared_jsdoc_variance_orders_both_assignment_directions() {
             let target = checker.check_expression(binary.left.expect("assignment target"));
             let source = checker.check_expression(binary.right.expect("assignment value"));
             assignments.push((
-                program.nodes().span(binary.node_id.expect("registered")).start,
+                program.nodes().span(binary.node_id().expect("registered")).start,
                 checker.is_type_assignable_to(source, target),
             ));
         }
@@ -412,7 +412,7 @@ fn unannotated_jsdoc_objects_measure_variance_instead_of_defaulting_covariant() 
     let arena = tsr_core::Arena::new();
     let program = types_producer::program_for_case(&arena, &case);
     let mut checker = types_producer::configured_checker(&program);
-    let root = program.source_file("a.js").unwrap().source_file().node_id.unwrap();
+    let root = program.source_file("a.js").unwrap().source_file().node_id().unwrap();
     let text = checker.intrinsics().string;
     let wide = checker.intrinsics().unknown;
     let unrelated = checker.intrinsics().number;

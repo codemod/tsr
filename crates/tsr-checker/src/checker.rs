@@ -1475,7 +1475,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     ) {
         for (host, docs) in entries {
             for doc in docs {
-                if let Some(doc_id) = doc.node_id {
+                if let Some(doc_id) = doc.node_id() {
                     self.jsdoc_hosts.insert(doc_id, host);
                 }
             }
@@ -5886,7 +5886,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             && let Some(parent) = self.nodes.parent(entity_name)
             && match self.node_map.get(parent) {
                 Some(Node::QualifiedName(qualified)) => {
-                    qualified.right.and_then(|right| right.node_id) == Some(entity_name)
+                    qualified.right.and_then(tsr_ast::Identifier::node_id) == Some(entity_name)
                 }
                 Some(Node::PropertyAccessExpression(access)) => {
                     access.name.and_then(|name| name.node_id()) == Some(entity_name)

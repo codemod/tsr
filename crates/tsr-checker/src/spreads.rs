@@ -28,17 +28,22 @@ impl Checker<'_, '_> {
         &mut self,
         node: &ObjectLiteralExpression<'_>,
     ) -> TypeId {
-        let readonly = node.node_id.is_some_and(|id| self.is_const_context(id));
-        let owner = node.node_id.and_then(|id| self.binder.symbol_of(id));
+        let readonly = node.node_id().is_some_and(|id| self.is_const_context(id));
+        let owner = node.node_id().and_then(|id| self.binder.symbol_of(id));
         let mut result = self.intrinsics.empty_object;
         let mut start = 0;
         for (index, property) in node.properties.iter().enumerate() {
             let ObjectLiteralElementLike::SpreadAssignment(spread) = property else { continue };
             if start < index {
-                let batch = ObjectLiteralExpression {
-                    node_id: node.node_id,
-                    properties: &node.properties[start..index],
-                    multi_line: node.multi_line,
+                let batch = {
+                    let mut copy = ObjectLiteralExpression::new(
+                        &node.properties[start..index],
+                        node.multi_line,
+                    );
+                    if let Some(id) = node.node_id() {
+                        tsr_ast::HasNodeId::set_node_id(&mut copy, id);
+                    }
+                    copy
                 };
                 let right = self.check_object_literal_members(&batch);
                 if !self.anonymous_properties.contains_key(&right) {
@@ -69,10 +74,13 @@ impl Checker<'_, '_> {
             }
         }
         if start < node.properties.len() {
-            let batch = ObjectLiteralExpression {
-                node_id: node.node_id,
-                properties: &node.properties[start..],
-                multi_line: node.multi_line,
+            let batch = {
+                let mut copy =
+                    ObjectLiteralExpression::new(&node.properties[start..], node.multi_line);
+                if let Some(id) = node.node_id() {
+                    tsr_ast::HasNodeId::set_node_id(&mut copy, id);
+                }
+                copy
             };
             let right = self.check_object_literal_members(&batch);
             if !self.anonymous_properties.contains_key(&right) {
@@ -83,7 +91,7 @@ impl Checker<'_, '_> {
         if result == self.intrinsics.empty_object {
             result = self.mint_spread_properties(Vec::new(), Vec::new(), owner);
         }
-        if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+        if node.node_id().is_some_and(|id| self.in_js_file(id)) {
             let parts = match self.store.get(result).data.clone() {
                 TypeData::Union { types, .. } => types,
                 _ => vec![result],

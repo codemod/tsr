@@ -158,7 +158,7 @@ impl<'a> Checker<'a, '_> {
             }
             tsr_ast::Node::ArrayLiteralExpression(outer) => {
                 let index = outer.elements.iter().position(|e| e.node_id() == Some(literal))?;
-                let outer_id = outer.node_id?;
+                let outer_id = outer.node_id()?;
                 match self.destructuring_array_pattern_slot(outer_id)? {
                     PatternSlot::Binding(pattern) => match pattern.elements.get(index)?.name {
                         Some(tsr_ast::BindingName::BindingPattern(inner))
@@ -194,7 +194,7 @@ impl<'a> Checker<'a, '_> {
     /// (`var [x, ...a] = [1, 2, 3]` records `[number, number, number]`).
     fn array_binding_pattern_implies_tuple(&self, pattern: &tsr_ast::BindingPattern<'_>) -> bool {
         pattern
-            .node_id
+            .node_id()
             .is_some_and(|p| self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern)
             && match pattern.elements {
                 [] => false,
@@ -265,7 +265,7 @@ impl Checker<'_, '_> {
         }
         if let Some(new) = enclosing_new {
             let has_const_parameter =
-                new.node_id.and_then(|id| self.active_inference_contexts.get(&id)).is_some_and(
+                new.node_id().and_then(|id| self.active_inference_contexts.get(&id)).is_some_and(
                     |context| context.signature.type_parameters.iter().any(|p| p.is_const),
                 );
             return has_const_parameter && self.literal_has_const_contextual_target(id, true);
@@ -292,7 +292,7 @@ impl Checker<'_, '_> {
             return false;
         }
         {
-            let Some(call_id) = call.node_id else { return false };
+            let Some(call_id) = call.node_id() else { return false };
             let has_const_parameter =
                 if let Some(context) = self.active_inference_contexts.get(&call_id) {
                     context.signature.type_parameters.iter().any(|p| p.is_const)
@@ -423,13 +423,13 @@ impl Checker<'_, '_> {
         &mut self,
         node: &ArrayLiteralExpression<'_>,
     ) -> TupleContext {
-        if let Some(id) = node.node_id
+        if let Some(id) = node.node_id()
             && self.destructuring_array_pattern_slot(id).is_some()
         {
             return TupleContext::Destructured;
         }
         let decided = 'context: {
-            let Some(id) = node.node_id else { break 'context TupleContext::No };
+            let Some(id) = node.node_id() else { break 'context TupleContext::No };
             let Some(parent) = self.nodes.parent(id) else {
                 break 'context TupleContext::No;
             };
@@ -525,7 +525,7 @@ impl Checker<'_, '_> {
                     match binary.left {
                         Some(tsr_ast::Expression::Identifier(identifier)) => {
                             let annotated = identifier
-                                .node_id
+                                .node_id()
                                 .and_then(|left_id| {
                                     self.binder.resolve_name(
                                         self.nodes,
@@ -595,7 +595,7 @@ impl Checker<'_, '_> {
             return decided;
         }
         // §888: the generic question, behind the seven arms.
-        match node.node_id {
+        match node.node_id() {
             Some(id) if self.array_literal_has_a_tuple_contextual_type(id) => {
                 TupleContext::Annotated
             }
@@ -681,7 +681,7 @@ impl Checker<'_, '_> {
         // instantiated parameter only, as the writer's read does natively.
         if self.nodes.parent(id).and_then(|parent| self.node_map.get(parent)).is_some_and(
             |node| matches!(node, tsr_ast::Node::CallExpression(call) if call.type_arguments.is_empty()
-                && !call.node_id.and_then(|call| self.call_inference_signatures.get(&call)).is_some_and(|signature| signature.type_parameters.is_empty())),
+                && !call.node_id().and_then(|call| self.call_inference_signatures.get(&call)).is_some_and(|signature| signature.type_parameters.is_empty())),
         ) {
             let saved = self.contextual_prefers_uninstantiated;
             self.contextual_prefers_uninstantiated = true;
@@ -726,7 +726,7 @@ impl Checker<'_, '_> {
         // element (`checker.go:8034-8065`); the normalizer places both, so
         // `[...a, x] = [1, 2, 3]` with `a: [number, number, number]` is
         // `[number, number, number, number]`.
-        if let Some(id) = node.node_id
+        if let Some(id) = node.node_id()
             && self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
         {
             let mut has_omitted = false;
@@ -848,7 +848,7 @@ impl Checker<'_, '_> {
                 .elements
                 .iter()
                 .any(|element| matches!(element, Expression::OmittedExpression(_)))
-            && (node.node_id.is_some_and(|id| {
+            && (node.node_id().is_some_and(|id| {
                 self.is_const_context(id) || self.literal_in_const_type_variable_context(id)
             }) || self.array_literal_in_tuple_context(node));
         if has_spread || omitted_tuple {
@@ -905,9 +905,10 @@ impl Checker<'_, '_> {
                 });
             }
             if supported {
-                let const_argument =
-                    node.node_id.is_some_and(|id| self.literal_in_const_type_variable_context(id));
-                let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
+                let const_argument = node
+                    .node_id()
+                    .is_some_and(|id| self.literal_in_const_type_variable_context(id));
+                let const_context = node.node_id().is_some_and(|id| self.is_const_context(id));
                 if const_context || const_argument || self.array_literal_in_tuple_context(node) {
                     return self
                         .normalize_variadic_tuple(arguments, const_context && !const_argument);
@@ -956,8 +957,8 @@ impl Checker<'_, '_> {
         // SYNTACTICALLY and const-ness here depends on the callee's resolved
         // signature. Same seam §793 used for the tuple-context arm.
         let const_argument =
-            node.node_id.is_some_and(|id| self.literal_in_const_type_variable_context(id));
-        if (const_argument || node.node_id.is_some_and(|id| self.is_const_context(id)))
+            node.node_id().is_some_and(|id| self.literal_in_const_type_variable_context(id));
+        if (const_argument || node.node_id().is_some_and(|id| self.is_const_context(id)))
             && !has_tuple_spread
         {
             let mut elements = Vec::with_capacity(node.elements.len());
@@ -995,7 +996,9 @@ impl Checker<'_, '_> {
                 // (checkArrayLiteral, checker.go:8087), so `[1] as const
                 // satisfies unknown[]` is the mutable `[1]`.
                 let readonly = !const_argument
-                    && !node.node_id.is_some_and(|id| self.array_literal_contextual_is_mutable(id));
+                    && !node
+                        .node_id()
+                        .is_some_and(|id| self.array_literal_contextual_is_mutable(id));
                 return self.create_tuple_type(elements, readonly);
             }
             return error;
@@ -1046,7 +1049,7 @@ impl Checker<'_, '_> {
                 Decline,
             }
             let context = 'context: {
-                let Some(id) = node.node_id else { break 'context Context::Decline };
+                let Some(id) = node.node_id() else { break 'context Context::Decline };
                 let Some(parent) = self.nodes.parent(id) else { break 'context Context::Decline };
                 match self.node_map.get(parent) {
                     Some(tsr_ast::Node::VariableDeclaration(declaration))
@@ -1075,7 +1078,7 @@ impl Checker<'_, '_> {
                         // narrowed form the tuple table does not hold.
                         let target = match binary.left {
                             Some(Expression::Identifier(identifier)) => identifier
-                                .node_id
+                                .node_id()
                                 .and_then(|left_id| {
                                     self.binder.resolve_name(
                                         self.nodes,
@@ -1237,7 +1240,7 @@ impl Checker<'_, '_> {
                 // so only the provably-uncontextual position — an
                 // un-annotated variable initialiser — takes the §9 reduction
                 // (§13); everything else stays this arm's gap.
-                let uncontextual = node.node_id.is_some_and(|id| self.has_no_contextual_type(id));
+                let uncontextual = node.node_id().is_some_and(|id| self.has_no_contextual_type(id));
                 // §7 (`checker-notes-arrays.md`): an element union with no
                 // FRESHABLE literal constituent is context-independent —
                 // `isLiteralOfContextualType` has nothing to preserve — so

@@ -31,7 +31,7 @@ fn with_bound(
         tsr_ast::push_children(node, &mut pending);
         match node {
             Node::FunctionExpression(node) if node.name.is_some_and(|n| n.text == "named") => {
-                function = node.node_id;
+                function = node.node_id();
             }
             Node::ReturnStatement(node) => reference = node.expression.and_then(|n| n.node_id()),
             _ => {}

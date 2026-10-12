@@ -57,7 +57,7 @@ fn parameter_types(source: &str) -> Vec<String> {
             .parameters
             .iter()
             .map(|parameter| {
-                let id = parameter.node_id.expect("registered");
+                let id = parameter.node_id().expect("registered");
                 let symbol = bound.symbol_of(id).expect("a parameter symbol");
                 let t = checker.get_type_of_symbol(symbol);
                 checker.type_to_string(t)

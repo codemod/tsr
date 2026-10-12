@@ -120,7 +120,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             else {
                 continue;
             };
-            let Some(slot) = pattern.elements.iter().position(|e| e.node_id == Some(element_id))
+            let Some(slot) = pattern.elements.iter().position(|e| e.node_id() == Some(element_id))
             else {
                 continue;
             };

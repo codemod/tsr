@@ -1148,10 +1148,10 @@ fn n22_verdict(
         return "receiver is not a bare name — unclassified";
     };
     let symbol = name
-        .node_id
+        .node_id()
         .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE))
         .or_else(|| {
-            name.node_id
+            name.node_id()
                 .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
         });
     let Some(symbol) = symbol else { return "receiver name does not resolve" };
@@ -1198,10 +1198,10 @@ fn base_walk_verdict(
         return "receiver is not a bare name — unclassified";
     };
     let symbol = name
-        .node_id
+        .node_id()
         .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
         .or_else(|| {
-            name.node_id
+            name.node_id()
                 .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE))
         });
     let Some(symbol) = symbol else { return "receiver name does not resolve" };
@@ -1230,7 +1230,7 @@ fn base_walk_verdict(
                 // `CLASS | INTERFACE`; a base naming a type alias or an import
                 // alias fails that test and makes the whole lookup a miss, and
                 // the owner of *that* is the alias surface, not this file.
-                let base_symbol = base_name.node_id.and_then(|id| {
+                let base_symbol = base_name.node_id().and_then(|id| {
                     bound.resolve_name(nodes, map, id, base_name.text, SymbolFlags::TYPE)
                 });
                 let Some(base_symbol) = base_symbol else {
@@ -1280,7 +1280,7 @@ fn base_walk_verdict(
             for clause in clauses {
                 for base in clause.types {
                     if let Some(tsr_ast::Expression::Identifier(name)) = base.expression
-                        && let Some(next) = name.node_id.and_then(|id| {
+                        && let Some(next) = name.node_id().and_then(|id| {
                             bound.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE)
                         })
                     {
@@ -1675,7 +1675,7 @@ fn symbol_of_reason(
     }
     match map.get(node) {
         Some(Node::Identifier(identifier)) => identifier
-            .node_id
+            .node_id()
             .and_then(|id| bound.resolve_name(nodes, map, id, identifier.text, SymbolFlags::VALUE)),
         _ => None,
     }

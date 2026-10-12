@@ -215,7 +215,7 @@ pub struct Program<'a> {
     ///
     /// The `SourceFile` node of each file, by its id.
     ///
-    /// The reverse of `files[i].source_file().node_id`. It exists because the
+    /// The reverse of `files[i].source_file().node_id()`. It exists because the
     /// checker's currency for "which file" is a `NodeId` — under
     /// [ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)
     /// one node table spans the program, so a `SourceFile`'s id names a file
@@ -378,7 +378,7 @@ impl<'a> Program<'a> {
                     // the file, and a comment's root has no parent edge.
                     for (_, docs) in into.jsdoc.iter() {
                         for doc in docs {
-                            if let Some(id) = doc.node_id {
+                            if let Some(id) = doc.node_id() {
                                 nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
                             }
                         }
@@ -1106,7 +1106,7 @@ impl<'a> Program<'a> {
         mode: ResolutionMode,
     ) -> Option<NodeId> {
         let target = self.resolution(importing_file, specifier, mode)?.resolved_file?;
-        self.files[target].source_file().node_id
+        self.files[target].source_file().node_id()
     }
 
     /// The file `import "<specifier>"` resolved to, for a caller that cannot
@@ -1115,7 +1115,7 @@ impl<'a> Program<'a> {
     #[must_use]
     pub fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId> {
         let target = self.agreed_resolution(importing_file, specifier)?;
-        self.files[target.resolved_file?].source_file().node_id
+        self.files[target.resolved_file?].source_file().node_id()
     }
 
     /// `p.resolvedModules[file.Path()].Get({Name, Mode})`.
@@ -1267,7 +1267,7 @@ impl<'a> Program<'a> {
         }
         if let Some(Node::CallExpression(import_call)) = self.node_map.get(call)
             && let Some(Expression::KeywordExpression(keyword)) = import_call.expression
-            && keyword.node_id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)
+            && keyword.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)
         {
             return loader::UsageSyntax::ImportCall;
         }
@@ -1298,7 +1298,7 @@ impl<'a> Program<'a> {
         match (&first.resolved, first.resolved_file) {
             (None, _) => ImportHelpersModule::NotFound,
             (Some(_), target) => target
-                .and_then(|target| self.files[target].source_file().node_id)
+                .and_then(|target| self.files[target].source_file().node_id())
                 .map_or(ImportHelpersModule::OutsideProgram, ImportHelpersModule::File),
         }
     }
@@ -1573,7 +1573,7 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
                                 template
                                     .type_parameters
                                     .iter()
-                                    .filter_map(|parameter| parameter.node_id),
+                                    .filter_map(|parameter| parameter.node_id()),
                             );
                         }
                     }
@@ -1656,7 +1656,7 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
 fn source_file_index(files: &[ProgramFile<'_>]) -> FxHashMap<NodeId, usize> {
     let mut index = FxHashMap::default();
     for (position, file) in files.iter().enumerate() {
-        if let Some(id) = file.source_file().node_id {
+        if let Some(id) = file.source_file().node_id() {
             index.insert(id, position);
         }
     }
@@ -2021,8 +2021,11 @@ mod tests {
                 ("plain.ts", "export const value = 1;"),
             ],
         );
-        let roots: Vec<_> =
-            program.source_files().iter().map(|file| file.source_file().node_id.unwrap()).collect();
+        let roots: Vec<_> = program
+            .source_files()
+            .iter()
+            .map(|file| file.source_file().node_id().unwrap())
+            .collect();
         assert_eq!(program.files_by_source_file.len(), roots.len());
         assert_ne!(roots[0], roots[1], "same-path inputs have distinct parsed identities");
         assert_eq!(program.jsx_factory_namespace(roots[0]).as_deref(), Some("First"));
@@ -2428,7 +2431,7 @@ mod tests {
         let a = program.source_file("/a.ts").expect("the root file is in the program");
         let lib = &program.lib_files()[0];
         let resolve = |name: &str| {
-            a.source_file().node_id.and_then(|id| {
+            a.source_file().node_id().and_then(|id| {
                 program.binder().resolve_name(
                     program.nodes(),
                     program.node_map(),
@@ -2464,7 +2467,7 @@ mod tests {
             .source_file(name)
             .expect("the file is in the program")
             .source_file()
-            .node_id
+            .node_id()
             .expect("a parsed file's SourceFile is registered")
     }
 

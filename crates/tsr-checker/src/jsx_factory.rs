@@ -293,7 +293,9 @@ impl Checker<'_, '_> {
             Node::JsxOpeningElement(_) => match self.nodes.parent(node) {
                 Some(parent) => match self.node_map.get(parent) {
                     Some(Node::JsxElement(element))
-                        if element.opening_element.and_then(|opening| opening.node_id)
+                        if element
+                            .opening_element
+                            .and_then(tsr_ast::JsxOpeningElement::node_id)
                             == Some(node) =>
                     {
                         parent
@@ -343,7 +345,7 @@ impl Checker<'_, '_> {
         let node = self.node_map.get(root)?;
         match node {
             Node::JsxElement(_) | Node::JsxSelfClosingElement(_) => return Some(root),
-            Node::JsxFragment(fragment) => return fragment.opening_fragment?.node_id,
+            Node::JsxFragment(fragment) => return fragment.opening_fragment?.node_id(),
             _ => {}
         }
         let mut children = Vec::new();

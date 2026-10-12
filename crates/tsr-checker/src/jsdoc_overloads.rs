@@ -65,7 +65,7 @@ impl<'a> Checker<'a, '_> {
         docs.iter()
             .flat_map(|doc| doc.tags.iter())
             .filter_map(|tag| match tag {
-                JSDocTag::JSDocOverloadTag(overload) => overload.node_id,
+                JSDocTag::JSDocOverloadTag(overload) => overload.node_id(),
                 _ => None,
             })
             .collect()
@@ -102,7 +102,7 @@ impl<'a> Checker<'a, '_> {
     pub(crate) fn jsdoc_overload_error_span(&self, tag: NodeId) -> Option<Span> {
         self.jsdoc_overload_host(tag)?;
         let Some(Node::JSDocOverloadTag(overload)) = self.node_map.get(tag) else { return None };
-        Some(self.nodes.span(overload.tag_name.node_id?))
+        Some(self.nodes.span(overload.tag_name.node_id()?))
     }
 
     /// The checks `checkSourceElement` runs on the declarations
@@ -154,7 +154,7 @@ impl<'a> Checker<'a, '_> {
         let Some(TypeNode::FunctionTypeNode(function)) = overload.type_expression else {
             return None;
         };
-        let mut signature = self.get_signature_from_declaration(function.node_id?)?;
+        let mut signature = self.get_signature_from_declaration(function.node_id()?)?;
         if self.nodes.kind(host) != SyntaxKind::Constructor {
             let doc = self.nodes.parent(tag)?;
             let mut type_parameters = Vec::new();

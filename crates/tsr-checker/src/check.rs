@@ -261,7 +261,7 @@ impl Checker<'_, '_> {
                 // lookup (`crate::namespace_not_found`).
                 if let Some(tsr_ast::ModuleReference::Identifier(name)) =
                     declaration.module_reference
-                    && let Some(name) = name.node_id
+                    && let Some(name) = name.node_id()
                 {
                     self.check_import_equals_identifier_reference(name);
                 }
@@ -270,7 +270,7 @@ impl Checker<'_, '_> {
                 // not. §559.
                 if let Some(tsr_ast::ModuleReference::QualifiedName(name)) =
                     declaration.module_reference
-                    && let Some(name) = name.node_id
+                    && let Some(name) = name.node_id()
                 {
                     self.check_qualified_type_name_at(
                         name,
@@ -352,7 +352,7 @@ impl Checker<'_, '_> {
                     && !self.file_is_ambient
                     && !has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
                     && let Some(tsr_ast::ModuleName::StringLiteral(name)) = declaration.name
-                    && let Some(at) = name.node_id
+                    && let Some(at) = name.node_id()
                     && let Some(file) = self.source_file_of_for_diagnostics(at)
                 {
                     let span = self.nodes.span(at);
@@ -413,7 +413,7 @@ impl Checker<'_, '_> {
                 self.check_exports_on_merged_declarations(node);
                 self.check_enum_first_member_initializers(node);
                 for member in declaration.members {
-                    if let Some(at) = member.node_id {
+                    if let Some(at) = member.node_id() {
                         self.check_enum_member_name(at);
                         self.check_computed_enum_member_initializer(at, ambient);
                         self.check_const_enum_member_value(at);
@@ -741,7 +741,7 @@ impl Checker<'_, '_> {
                     && let Some(Node::BinaryExpression(binary)) = self.node_map.get(inner)
                     && let Some(token) = binary.operator_token
                     && token.kind == SyntaxKind::EqualsToken
-                    && let Some(at) = token.node_id
+                    && let Some(at) = token.node_id()
                     && self
                         .nodes
                         .parent(node)
@@ -1400,7 +1400,7 @@ impl Checker<'_, '_> {
                     _ => continue,
                 };
                 let tsr_ast::PropertyName::PrivateIdentifier(private) = name else { continue };
-                let Some(id) = private.node_id else { continue };
+                let Some(id) = private.node_id() else { continue };
                 let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
                 let span = self.nodes.span(id);
                 self.report(
@@ -1436,7 +1436,7 @@ impl Checker<'_, '_> {
                 _ => continue,
             };
             let tsr_ast::PropertyName::PrivateIdentifier(private) = name else { continue };
-            let Some(id) = private.node_id else { continue };
+            let Some(id) = private.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
             let span = self.nodes.span(id);
             self.report(
@@ -1820,8 +1820,8 @@ impl Checker<'_, '_> {
             Some(Node::VariableDeclaration(declaration)) => {
                 declaration.name.and_then(|name| name.node_id())
             }
-            Some(Node::FunctionDeclaration(f)) => f.name.and_then(|n| n.node_id),
-            Some(Node::ClassDeclaration(c)) => c.name.and_then(|n| n.node_id),
+            Some(Node::FunctionDeclaration(f)) => f.name.and_then(tsr_ast::Identifier::node_id),
+            Some(Node::ClassDeclaration(c)) => c.name.and_then(tsr_ast::Identifier::node_id),
             Some(Node::ModuleDeclaration(m)) => m.name.and_then(|n| n.node_id()),
             _ => return,
         };
@@ -1894,7 +1894,7 @@ impl Checker<'_, '_> {
         if !class.type_parameters.is_empty() {
             return;
         }
-        let Some(name_id) = class.name.and_then(|name| name.node_id) else { return };
+        let Some(name_id) = class.name.and_then(tsr_ast::Identifier::node_id) else { return };
         let Some(extends) = class
             .heritage_clauses
             .iter()
@@ -2549,7 +2549,7 @@ impl Checker<'_, '_> {
                     for (parameter, argument) in
                         target_alias.type_parameters.iter().zip(reference.type_arguments)
                     {
-                        bindings.push((parameter.node_id?, argument.node_id()?, frame));
+                        bindings.push((parameter.node_id()?, argument.node_id()?, frame));
                     }
                     let body = target_alias.r#type?.node_id()?;
                     // The alias body sees only its own parameters.
@@ -2622,7 +2622,7 @@ impl Checker<'_, '_> {
             if found {
                 continue;
             }
-            let Some(id) = constructor.node_id else { continue };
+            let Some(id) = constructor.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
             let span = self.constructor_error_span(id);
             self.report(
@@ -2686,7 +2686,7 @@ impl Checker<'_, '_> {
             if self.subtree_has_super_call(body) {
                 continue;
             }
-            let Some(id) = constructor.node_id else { continue };
+            let Some(id) = constructor.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
             let span = self.error_span(id);
             self.report(
@@ -2769,7 +2769,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::LabeledStatement(statement)) = self.node_map.get(node) else { return };
-        let Some(label) = statement.label.and_then(|label| label.node_id) else { return };
+        let Some(label) = statement.label.and_then(tsr_ast::Identifier::node_id) else { return };
         let Some(text) = self.identifier_text(label).map(str::to_string) else { return };
         for ancestor in self.nodes.ancestors(node) {
             if self.is_function_like_or_static_block(ancestor) {
@@ -2778,7 +2778,7 @@ impl Checker<'_, '_> {
             let Some(Node::LabeledStatement(outer)) = self.node_map.get(ancestor) else { continue };
             let same = outer
                 .label
-                .and_then(|label| label.node_id)
+                .and_then(tsr_ast::Identifier::node_id)
                 .and_then(|id| self.identifier_text(id))
                 .is_some_and(|outer_text| outer_text == text);
             if !same {
@@ -2804,7 +2804,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::LabeledStatement(statement)) = self.node_map.get(node) else { return };
-        let Some(label) = statement.label.and_then(|label| label.node_id) else { return };
+        let Some(label) = statement.label.and_then(tsr_ast::Identifier::node_id) else { return };
         if !self.binder.facts(label).contains(tsr_binder::NodeFacts::UNUSED_LABEL) {
             return;
         }
@@ -2824,7 +2824,7 @@ impl Checker<'_, '_> {
     /// member is missing, because the answer would be "all of them". §487.
     fn check_module_has_default_export(&mut self, node: NodeId) {
         let Some(Node::ImportClause(clause)) = self.node_map.get(node) else { return };
-        let Some(name) = clause.name.and_then(|name| name.node_id) else { return };
+        let Some(name) = clause.name.and_then(tsr_ast::Identifier::node_id) else { return };
         let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
         let Some(declaration) = self.nodes.parent(node) else { return };
         let Some(Node::ImportDeclaration(import)) = self.node_map.get(declaration) else { return };
@@ -3065,7 +3065,7 @@ impl Checker<'_, '_> {
         };
         let [first, rest @ ..] = declarations.declarations else { return };
         if let Some(second) = rest.first()
-            && let Some(id) = second.node_id
+            && let Some(id) = second.node_id()
             && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
             let span = self.error_span(id);
@@ -3091,7 +3091,7 @@ impl Checker<'_, '_> {
             return;
         }
         if first.r#type.is_some()
-            && let Some(id) = first.node_id
+            && let Some(id) = first.node_id()
             && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
             let span = self.error_span(id);
@@ -3272,8 +3272,12 @@ impl Checker<'_, '_> {
             Some(Node::VariableDeclaration(v)) => {
                 v.name.as_ref().and_then(tsr_ast::BindingName::node_id) == Some(node)
             }
-            Some(Node::FunctionExpression(f)) => f.name.and_then(|n| n.node_id) == Some(node),
-            Some(Node::FunctionDeclaration(f)) => f.name.and_then(|n| n.node_id) == Some(node),
+            Some(Node::FunctionExpression(f)) => {
+                f.name.and_then(tsr_ast::Identifier::node_id) == Some(node)
+            }
+            Some(Node::FunctionDeclaration(f)) => {
+                f.name.and_then(tsr_ast::Identifier::node_id) == Some(node)
+            }
             _ => false,
         };
         if !named {
@@ -3320,7 +3324,11 @@ impl Checker<'_, '_> {
     /// so it never reaches here — the seven kinds are about body position. §395.
     fn check_block_scoped_statement_container(&mut self, node: NodeId) {
         let Some(Node::VariableStatement(statement)) = self.node_map.get(node) else { return };
-        let Some(list) = statement.declaration_list.and_then(|l| l.node_id) else { return };
+        let Some(list) =
+            statement.declaration_list.and_then(tsr_ast::VariableDeclarationList::node_id)
+        else {
+            return;
+        };
         let flags = self.nodes.flags(list);
         let keyword = if flags.contains(tsr_ast::NodeFlags::USING) {
             if flags.contains(tsr_ast::NodeFlags::CONSTANT)
@@ -4122,7 +4130,7 @@ impl Checker<'_, '_> {
             // property is what the `None` arm is for. §43 records the two that
             // were being swept up with it.
             let Some(name) = declaration_name_to_string(property.name) else { continue };
-            let Some(id) = property.node_id else { continue };
+            let Some(id) = property.node_id() else { continue };
             let Some(symbol) = self.binder.symbol_of(id) else { continue };
             let declared = self.get_type_of_symbol(symbol);
             // `t.flags&TypeFlagsAnyOrUnknown` (`checker.go:4946`) — and
@@ -6101,7 +6109,7 @@ impl Checker<'_, '_> {
     fn report_let_named_bindings(&mut self, name: tsr_ast::BindingName<'_>) {
         match name {
             tsr_ast::BindingName::Identifier(identifier) if identifier.text == "let" => {
-                let Some(at) = identifier.node_id else { return };
+                let Some(at) = identifier.node_id() else { return };
                 let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
                 let span = self.nodes.span(at);
                 self.report(
@@ -7367,7 +7375,7 @@ impl Checker<'_, '_> {
     ) {
         let mut seen_default = false;
         for (index, parameter) in parameters.iter().enumerate() {
-            let Some(id) = parameter.node_id else { continue };
+            let Some(id) = parameter.node_id() else { continue };
             if let Some(default) = parameter.default_type {
                 seen_default = true;
                 self.check_type_parameters_not_referenced(default, parameters, index);
@@ -7384,7 +7392,7 @@ impl Checker<'_, '_> {
             let Some(symbol) = self.binder.symbol_of(id) else { continue };
             let duplicate = parameters[..index].iter().any(|earlier| {
                 earlier
-                    .node_id
+                    .node_id()
                     .and_then(|earlier| self.binder.symbol_of(earlier))
                     .is_some_and(|earlier| earlier == symbol)
             });
@@ -7392,7 +7400,7 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(name) = parameter.name else { continue };
-            let Some(name_id) = name.node_id else { continue };
+            let Some(name_id) = name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
             let span = self.error_span(name_id);
             self.report(
@@ -7424,7 +7432,7 @@ impl Checker<'_, '_> {
                     self.get_type_from_type_node(tsr_ast::TypeNode::TypeReferenceNode(reference));
                 if self.store.get(t).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
                     for later in &parameters[index..] {
-                        let Some(symbol) = later.node_id.and_then(|id| self.binder.symbol_of(id))
+                        let Some(symbol) = later.node_id().and_then(|id| self.binder.symbol_of(id))
                         else {
                             continue;
                         };
@@ -7460,7 +7468,7 @@ impl Checker<'_, '_> {
         else {
             // An empty `<>`: the list's `Pos() == End()`, right after the
             // `<`, so the report is zero-width there.
-            let Some(id) = node.node_id else { return };
+            let Some(id) = node.node_id() else { return };
             let Some(list) = self
                 .written_list(id, crate::resolution::WrittenListKind::TypeParameters)
                 .filter(|list| list.empty)
@@ -7477,7 +7485,7 @@ impl Checker<'_, '_> {
             );
             return;
         };
-        let (Some(start), Some(end)) = (first.node_id, last.node_id) else { return };
+        let (Some(start), Some(end)) = (first.node_id(), last.node_id()) else { return };
         let Some(file) = self.source_file_of_for_diagnostics(start) else { return };
         let span =
             tsr_core::Span { start: self.nodes.span(start).start, end: self.nodes.span(end).end };
@@ -7534,7 +7542,9 @@ impl Checker<'_, '_> {
         // The `kind` field is a **discriminator token** and holds the brace,
         // not the node kind — `OpenBraceToken` for an object pattern. The node
         // table is what answers the question. §847.
-        if pattern.node_id.is_none_or(|id| self.nodes.kind(id) != SyntaxKind::ObjectBindingPattern)
+        if pattern
+            .node_id()
+            .is_none_or(|id| self.nodes.kind(id) != SyntaxKind::ObjectBindingPattern)
         {
             return;
         }
@@ -7888,7 +7898,7 @@ impl Checker<'_, '_> {
             let Some(id) = member.node_id() else { continue };
             if let ClassElement::ConstructorDeclaration(constructor) = member {
                 for parameter in constructor.parameters {
-                    let Some(parameter_id) = parameter.node_id else { continue };
+                    let Some(parameter_id) = parameter.node_id() else { continue };
                     let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else {
                         continue;
                     };
@@ -7897,7 +7907,7 @@ impl Checker<'_, '_> {
                     if self.binder.symbol_of(parameter_id).is_some_and(|symbol| {
                         self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::PROPERTY)
                     }) {
-                        push(parameter_id, name.node_id, 1, false);
+                        push(parameter_id, name.node_id(), 1, false);
                     }
                 }
                 continue;
@@ -8116,7 +8126,7 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(name) = name else { return };
-        self.check_type_name_is_reserved(name.node_id, name.text, message);
+        self.check_type_name_is_reserved(name.node_id(), name.text, message);
     }
 
     /// TS2431 — `Enum name cannot be '{0}'.`
@@ -8125,7 +8135,11 @@ impl Checker<'_, '_> {
     /// reached from `checkEnumDeclarationWorker` for every enum declaration.
     fn check_reserved_enum_name(&mut self, declaration: &tsr_ast::EnumDeclaration<'_>) {
         let Some(name) = declaration.name else { return };
-        self.check_type_name_is_reserved(name.node_id, name.text, &messages::ENUM_NAME_CANNOT_BE_0);
+        self.check_type_name_is_reserved(
+            name.node_id(),
+            name.text,
+            &messages::ENUM_NAME_CANNOT_BE_0,
+        );
     }
 
     /// TS2438 — `Import name cannot be '{0}'.`
@@ -8194,7 +8208,7 @@ impl Checker<'_, '_> {
             return;
         }
         self.check_type_name_is_reserved(
-            name.node_id,
+            name.node_id(),
             name.text,
             &messages::IMPORT_NAME_CANNOT_BE_0,
         );
@@ -8787,7 +8801,7 @@ impl Checker<'_, '_> {
         // two readings are indistinguishable; `var { x: x = 0 }` separates
         // them — the element starts at the *property* name and upstream reports
         // at the bound one. §718.
-        let at = name.node_id.unwrap_or(node);
+        let at = name.node_id().unwrap_or(node);
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         if !self
@@ -8933,7 +8947,7 @@ impl Checker<'_, '_> {
         let mut seen_extends = false;
         let mut seen_implements = false;
         for clause in clauses {
-            let at = clause.token.node_id;
+            let at = clause.token.node_id();
             match clause.token.kind {
                 SyntaxKind::ExtendsKeyword => {
                     if seen_extends {
@@ -8950,7 +8964,7 @@ impl Checker<'_, '_> {
                         }
                         if let Some(second) = clause.types.get(1) {
                             self.report_grammar_at(
-                                second.node_id,
+                                second.node_id(),
                                 &messages::CLASSES_CAN_ONLY_EXTEND_A_SINGLE_CLASS,
                             );
                             return;
@@ -9006,9 +9020,9 @@ impl Checker<'_, '_> {
             };
             let name = declaration.name.as_ref().and_then(tsr_ast::BindingName::node_id);
             // The reparsed token's location is its `@param` tag's.
-            let question = declaration.question_token.map(|token| token.node_id).or_else(|| {
+            let question = declaration.question_token.map(tsr_ast::Token::node_id).or_else(|| {
                 let slot = reparsed.get(index).filter(|slot| slot.question)?;
-                Some(slot.tag?.node_id)
+                Some(slot.tag?.node_id())
             });
             if let Some(rest) = declaration.dot_dot_dot_token {
                 // `checkGrammarForDisallowedTrailingComma(parameters, …)`
@@ -9022,7 +9036,7 @@ impl Checker<'_, '_> {
                     );
                 }
                 let (at, message) = if index != count - 1 {
-                    (rest.node_id, &messages::A_REST_PARAMETER_MUST_BE_LAST_IN_A_PARAMETER_LIST)
+                    (rest.node_id(), &messages::A_REST_PARAMETER_MUST_BE_LAST_IN_A_PARAMETER_LIST)
                 } else if let Some(question) = question {
                     (question, &messages::A_REST_PARAMETER_CANNOT_BE_OPTIONAL)
                 } else if declaration.initializer.is_some() {
@@ -9682,7 +9696,7 @@ impl Checker<'_, '_> {
     ) {
         let Some(Node::QualifiedName(qualified)) = self.node_map.get(node) else { return };
         let Some(left) = qualified.left.and_then(|left| left.node_id()) else { return };
-        let Some(right) = qualified.right.and_then(|right| right.node_id) else { return };
+        let Some(right) = qualified.right.and_then(tsr_ast::Identifier::node_id) else { return };
         // **A deeper chain reports its innermost failure.** §187 declined
         // `A.B.C` outright; the corpus wants the middle segment, which is the
         // `right` of the inner qualified name. The outer level — `A.B` resolving
@@ -10315,7 +10329,7 @@ impl Checker<'_, '_> {
         ) {
             return;
         }
-        let Some(label) = labeled.label.and_then(|label| label.node_id) else { return };
+        let Some(label) = labeled.label.and_then(tsr_ast::Identifier::node_id) else { return };
         let Some(file) = self.source_file_of_for_diagnostics(label) else { return };
         let span = self.nodes.span(label);
         self.report(file, Diagnostic::new(&messages::A_LABEL_IS_NOT_ALLOWED_HERE, span));
@@ -10343,7 +10357,7 @@ impl Checker<'_, '_> {
             }
             Node::QualifiedName(qualified) => {
                 let left = qualified.left.and_then(|left| left.node_id())?;
-                let right = qualified.right.and_then(|right| right.node_id)?;
+                let right = qualified.right.and_then(tsr_ast::Identifier::node_id)?;
                 let namespace = self.resolve_entity_name_to_namespace(left)?;
                 let text = self.identifier_text(right)?.to_string();
                 let member = *self.binder.symbols().get(namespace).exports.get(text.as_str())?;
@@ -10419,8 +10433,8 @@ impl Checker<'_, '_> {
         while let Some(next) = frontier.pop() {
             if next == symbol {
                 let name = match typed {
-                    Node::InterfaceDeclaration(n) => n.name.and_then(|n| n.node_id),
-                    Node::ClassDeclaration(n) => n.name.and_then(|n| n.node_id),
+                    Node::InterfaceDeclaration(n) => n.name.and_then(tsr_ast::Identifier::node_id),
+                    Node::ClassDeclaration(n) => n.name.and_then(tsr_ast::Identifier::node_id),
                     _ => None,
                 };
                 let at = name.unwrap_or(node);
@@ -10601,7 +10615,7 @@ impl Checker<'_, '_> {
         }
         match typed {
             Node::InterfaceDeclaration(n) => {
-                if let Some(name) = n.name.and_then(|name| name.node_id) {
+                if let Some(name) = n.name.and_then(tsr_ast::Identifier::node_id) {
                     self.report_js_only(
                         name,
                         &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
@@ -10610,7 +10624,7 @@ impl Checker<'_, '_> {
                 }
             }
             Node::EnumDeclaration(n) => {
-                if let Some(name) = n.name.and_then(|name| name.node_id) {
+                if let Some(name) = n.name.and_then(tsr_ast::Identifier::node_id) {
                     self.report_js_only(
                         name,
                         &messages::_0_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
@@ -10619,7 +10633,7 @@ impl Checker<'_, '_> {
                 }
             }
             Node::TypeAliasDeclaration(n) => {
-                if let Some(name) = n.name.and_then(|name| name.node_id) {
+                if let Some(name) = n.name.and_then(tsr_ast::Identifier::node_id) {
                     self.report_js_only(
                         name,
                         &messages::TYPE_ALIASES_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
@@ -10762,10 +10776,10 @@ impl Checker<'_, '_> {
         // Over the whole list, `list.Loc` (`parser.go:6777`): `class B<T:
         // BaseA>` recovers `BaseA` as a second parameter, and the report
         // spans `T: BaseA`, not `T`.
-        if let Some(first) = type_parameters.first().and_then(|p| p.node_id) {
+        if let Some(first) = type_parameters.first().and_then(|p| p.node_id()) {
             self.report_js_only_over(
                 first,
-                type_parameters.iter().filter_map(|p| p.node_id),
+                type_parameters.iter().filter_map(|p| p.node_id()),
                 &messages::TYPE_PARAMETER_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
             );
         }
@@ -10800,8 +10814,8 @@ impl Checker<'_, '_> {
             && n.modifiers.iter().any(|m| matches!(m, tsr_ast::ModifierLike::Token(_)))
         {
             let ids = n.modifiers.iter().filter_map(|m| match m {
-                tsr_ast::ModifierLike::Token(token) => token.node_id,
-                tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id,
+                tsr_ast::ModifierLike::Token(token) => token.node_id(),
+                tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id(),
             });
             self.report_js_only_over(
                 node,
@@ -10834,7 +10848,7 @@ impl Checker<'_, '_> {
         };
         if let Some(question) = question
             .filter(|token| token.kind == SyntaxKind::QuestionToken)
-            .and_then(|token| token.node_id)
+            .and_then(tsr_ast::Token::node_id)
         {
             self.report_js_only(
                 question,
@@ -10872,7 +10886,7 @@ impl Checker<'_, '_> {
                 ) {
                     continue;
                 }
-                let Some(at) = token.node_id else { continue };
+                let Some(at) = token.node_id() else { continue };
                 let text = js_only_modifier_text(token.kind).to_string();
                 self.report_js_only(
                     at,
@@ -11026,7 +11040,7 @@ impl Checker<'_, '_> {
                     .enumerate()
                     .filter_map(|(index, binding)| {
                         (binding.dot_dot_dot_token.is_some() && index != last)
-                            .then_some(binding.node_id)
+                            .then_some(binding.node_id())
                             .flatten()
                     })
                     .take(if self.nodes.kind(node) == SyntaxKind::ObjectBindingPattern {
@@ -11049,7 +11063,7 @@ impl Checker<'_, '_> {
                         tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread)
                             if index != last =>
                         {
-                            spread.node_id
+                            spread.node_id()
                         }
                         _ => None,
                     })
@@ -11067,7 +11081,7 @@ impl Checker<'_, '_> {
                     .enumerate()
                     .filter_map(|(index, element)| match element {
                         tsr_ast::Expression::SpreadElement(spread) if index != last => {
-                            spread.node_id
+                            spread.node_id()
                         }
                         _ => None,
                     })
@@ -11172,7 +11186,7 @@ impl Checker<'_, '_> {
             Node::MethodDeclaration(n) => (n.asterisk_token, n.body.is_some()),
             _ => return,
         };
-        let Some(asterisk) = asterisk.and_then(|token| token.node_id) else { return };
+        let Some(asterisk) = asterisk.and_then(tsr_ast::Token::node_id) else { return };
         let message = if self.declaration_is_in_an_ambient_context(node) {
             &messages::GENERATORS_ARE_NOT_ALLOWED_IN_AN_AMBIENT_CONTEXT
         } else if !body_is_present {
@@ -11233,7 +11247,7 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let Some(at) = computed.node_id else { return };
+        let Some(at) = computed.node_id() else { return };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.nodes.span(at);
         self.report(file, Diagnostic::new(message, span));
@@ -11365,7 +11379,7 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
-        let Some(at) = literal.node_id else { return };
+        let Some(at) = literal.node_id() else { return };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.nodes.span(at);
         self.report(
@@ -12708,7 +12722,7 @@ impl Checker<'_, '_> {
         members
             .iter()
             .filter_map(|member| match member {
-                ClassElement::ConstructorDeclaration(constructor) => constructor.node_id,
+                ClassElement::ConstructorDeclaration(constructor) => constructor.node_id(),
                 _ => None,
             })
             // A JS constructor's `@overload` declarations precede it.
@@ -12918,7 +12932,7 @@ impl Checker<'_, '_> {
         }
         let span = match module.modifiers.first() {
             Some(tsr_ast::ModifierLike::Token(token)) => {
-                token.node_id.map(|id| self.nodes.span(id))
+                token.node_id().map(|id| self.nodes.span(id))
             }
             _ => None,
         };
@@ -12951,7 +12965,7 @@ impl Checker<'_, '_> {
     fn check_nested_ambient_module(&mut self, node: NodeId) {
         let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
         let Some(tsr_ast::ModuleName::StringLiteral(name)) = module.name else { return };
-        let Some(name) = name.node_id else { return };
+        let Some(name) = name.node_id() else { return };
         let Some(block) = self.nodes.parent(node) else { return };
         if self.nodes.kind(block) != SyntaxKind::ModuleBlock {
             return;
@@ -13085,12 +13099,12 @@ impl Checker<'_, '_> {
         // `!ast.IsExternalModuleReference(moduleReference)` — `import x =
         // require("m")` takes the other branch.
         let first = match declaration.module_reference {
-            Some(ModuleReference::Identifier(name)) => name.node_id,
+            Some(ModuleReference::Identifier(name)) => name.node_id(),
             Some(ModuleReference::QualifiedName(qualified)) => {
                 let mut left = qualified.left;
                 loop {
                     match left {
-                        Some(tsr_ast::EntityName::Identifier(name)) => break name.node_id,
+                        Some(tsr_ast::EntityName::Identifier(name)) => break name.node_id(),
                         Some(tsr_ast::EntityName::QualifiedName(inner)) => left = inner.left,
                         None => break None,
                     }
@@ -13167,7 +13181,9 @@ impl Checker<'_, '_> {
             return;
         }
         let name = match self.node_map.get(node) {
-            Some(Node::ClassDeclaration(class)) => class.name.and_then(|name| name.node_id),
+            Some(Node::ClassDeclaration(class)) => {
+                class.name.and_then(tsr_ast::Identifier::node_id)
+            }
             _ => None,
         };
         let Some(name) = name else { return };
@@ -13261,7 +13277,7 @@ impl Checker<'_, '_> {
         if has_modifier(class.modifiers, SyntaxKind::AbstractKeyword) {
             return;
         }
-        let Some(name) = class.name.and_then(|name| name.node_id) else { return };
+        let Some(name) = class.name.and_then(tsr_ast::Identifier::node_id) else { return };
         // **A local enumeration, not `class_member_shape`.** That helper omitted
         // methods on purpose — it serves TS2610's property-versus-accessor
         // question — and widening it would move a measured rule to serve this
@@ -13334,7 +13350,7 @@ impl Checker<'_, '_> {
         heritage
             .types
             .first()
-            .and_then(|first| first.node_id)
+            .and_then(|first| first.node_id())
             .is_some_and(|first| first != with_arguments)
     }
 
@@ -13355,7 +13371,7 @@ impl Checker<'_, '_> {
         clauses
             .iter()
             .find(|each| each.token.kind == this.token.kind)
-            .and_then(|first| first.node_id)
+            .and_then(|first| first.node_id())
             .is_some_and(|first| first != clause)
     }
 
@@ -13382,7 +13398,7 @@ impl Checker<'_, '_> {
         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
         let Some(property_name) = element.property_name else { return };
         let Some(tsr_ast::BindingName::Identifier(name)) = element.name else { return };
-        let Some(name_id) = name.node_id else { return };
+        let Some(name_id) = name.node_id() else { return };
         // `IsPartOfParameterDeclaration` — the walk out of nested patterns ends
         // at a parameter — and `NodeIsMissing(GetContainingFunction(node).Body())`.
         let mut at = self.nodes.parent(node);
@@ -13540,25 +13556,37 @@ impl Checker<'_, '_> {
     pub(crate) fn declaration_name_of(&self, node: NodeId) -> Option<NodeId> {
         match self.node_map.get(node)? {
             Node::FunctionDeclaration(declaration) => {
-                declaration.name.and_then(|name| name.node_id)
+                declaration.name.and_then(tsr_ast::Identifier::node_id)
             }
             Node::MethodDeclaration(declaration) => declaration.name.node_id(),
             Node::MethodSignatureDeclaration(signature) => signature.name.node_id(),
             Node::VariableDeclaration(declaration) => declaration.name.and_then(|n| n.node_id()),
             Node::BindingElement(element) => element.name.and_then(|n| n.node_id()),
-            Node::ClassDeclaration(declaration) => declaration.name.and_then(|name| name.node_id),
-            Node::ClassExpression(expression) => expression.name.and_then(|name| name.node_id),
-            Node::InterfaceDeclaration(declaration) => declaration.name.and_then(|n| n.node_id),
+            Node::ClassDeclaration(declaration) => {
+                declaration.name.and_then(tsr_ast::Identifier::node_id)
+            }
+            Node::ClassExpression(expression) => {
+                expression.name.and_then(tsr_ast::Identifier::node_id)
+            }
+            Node::InterfaceDeclaration(declaration) => {
+                declaration.name.and_then(tsr_ast::Identifier::node_id)
+            }
             Node::ModuleDeclaration(declaration) => declaration.name.and_then(|n| n.node_id()),
-            Node::EnumDeclaration(declaration) => declaration.name.and_then(|n| n.node_id),
+            Node::EnumDeclaration(declaration) => {
+                declaration.name.and_then(tsr_ast::Identifier::node_id)
+            }
             Node::EnumMember(member) => member.name.node_id(),
-            Node::FunctionExpression(expression) => expression.name.and_then(|name| name.node_id),
+            Node::FunctionExpression(expression) => {
+                expression.name.and_then(tsr_ast::Identifier::node_id)
+            }
             Node::GetAccessorDeclaration(accessor) => accessor.name.node_id(),
             Node::SetAccessorDeclaration(accessor) => accessor.name.node_id(),
-            Node::TypeAliasDeclaration(declaration) => declaration.name.and_then(|n| n.node_id),
+            Node::TypeAliasDeclaration(declaration) => {
+                declaration.name.and_then(tsr_ast::Identifier::node_id)
+            }
             Node::PropertyDeclaration(declaration) => declaration.name.node_id(),
             Node::PropertySignatureDeclaration(signature) => signature.name.node_id(),
-            Node::NamespaceImport(import) => import.name.and_then(|n| n.node_id),
+            Node::NamespaceImport(import) => import.name.and_then(tsr_ast::Identifier::node_id),
             _ => None,
         }
     }
@@ -13636,7 +13664,7 @@ impl Checker<'_, '_> {
                     let body_span = self.nodes.span(body);
                     let full_start = arrow
                         .equals_greater_than_token
-                        .and_then(|token| token.node_id)
+                        .and_then(tsr_ast::Token::node_id)
                         .map_or(body_span.start, |token| self.nodes.span(token).end);
                     if let Some(rest) = text.get(full_start as usize..body_span.end as usize)
                         && let Some(line_break) = rest.find(['\n', '\r', '\u{2028}', '\u{2029}'])

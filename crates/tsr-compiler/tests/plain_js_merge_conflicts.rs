@@ -56,7 +56,7 @@ fn diagnostics(files: &[(&str, &str)], check_js: Tristate) -> Vec<(String, usize
     checker.apply_compiler_options(program.compiler_options());
     let mut ids = Vec::new();
     for (name, _) in files {
-        let id = program.source_file(name).expect("loaded").source_file().node_id.expect("id");
+        let id = program.source_file(name).expect("loaded").source_file().node_id().expect("id");
         ids.push((id, *name));
         checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
     }

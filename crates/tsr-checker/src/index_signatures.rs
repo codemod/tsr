@@ -363,7 +363,7 @@ impl<'a> Checker<'a, '_> {
                 self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
-                    name.node_id?,
+                    name.node_id()?,
                     name.text,
                     tsr_binder::SymbolFlags::TYPE,
                 )?
@@ -656,8 +656,11 @@ impl<'a> Checker<'a, '_> {
                 }
                 for entry in clause.types {
                     let base = self.base_symbol_of_heritage_entry(entry, false)?;
-                    let base_type =
-                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)?;
+                    let base_type = self.instantiated_heritage_base(
+                        base,
+                        entry.type_arguments,
+                        entry.node_id(),
+                    )?;
                     for inherited in self.index_infos_of_symbol(base, false, visiting)? {
                         // Own indexes and earlier bases win for the same key.
                         if !infos.iter().any(|own| own.key == inherited.key) {
@@ -1093,7 +1096,7 @@ impl<'a> Checker<'a, '_> {
             .filter(|&key| self.is_valid_index_key_type(key))
             .map(|key| IndexInfo {
                 components: None,
-                declaration: signature.node_id,
+                declaration: signature.node_id(),
                 key,
                 value,
                 readonly: signature.modifiers.iter().any(|modifier| {
@@ -1187,7 +1190,7 @@ impl<'a> Checker<'a, '_> {
                     expression = left;
                 }
                 Expression::Identifier(identifier) => {
-                    let Some(location) = identifier.node_id else { return false };
+                    let Some(location) = identifier.node_id() else { return false };
                     let Some(symbol) = self.binder.resolve_name(
                         self.nodes,
                         self.node_map,
@@ -1765,7 +1768,7 @@ function enclosing<X>() {{ type Captured<T> = Array<T | X>; let local!: Captured
                 if let Node::VariableDeclaration(declaration) = node
                     && matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "local")
                 {
-                    break checker.binder.symbol_of(declaration.node_id.unwrap()).unwrap();
+                    break checker.binder.symbol_of(declaration.node_id().unwrap()).unwrap();
                 }
                 tsr_ast::push_children(node, &mut walk);
             };

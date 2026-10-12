@@ -466,10 +466,10 @@ impl Checker<'_, '_> {
     /// (`checker.go:5155`).
     fn collision_declaration_name(&self, node: NodeId) -> Option<NodeId> {
         match self.node_map.get(node)? {
-            Node::ImportEqualsDeclaration(n) => n.name.and_then(|name| name.node_id),
-            Node::ImportClause(n) => n.name.and_then(|name| name.node_id),
-            Node::NamespaceImport(n) => n.name.and_then(|name| name.node_id),
-            Node::ImportSpecifier(n) => n.name.and_then(|name| name.node_id),
+            Node::ImportEqualsDeclaration(n) => n.name.and_then(tsr_ast::Identifier::node_id),
+            Node::ImportClause(n) => n.name.and_then(tsr_ast::Identifier::node_id),
+            Node::NamespaceImport(n) => n.name.and_then(tsr_ast::Identifier::node_id),
+            Node::ImportSpecifier(n) => n.name.and_then(tsr_ast::Identifier::node_id),
             _ => self.declaration_name_of(node),
         }
     }
@@ -739,7 +739,7 @@ impl Checker<'_, '_> {
         if only.constraint.is_some() || self.file_has_parse_errors {
             return;
         }
-        let Some(parameter) = only.node_id else { return };
+        let Some(parameter) = only.node_id() else { return };
         if !self.is_mts_or_cts_file(parameter) {
             return;
         }
@@ -1120,13 +1120,14 @@ impl Checker<'_, '_> {
             }
             Node::ForInOrOfStatement(statement) => {
                 if self.nodes.kind(node) == SyntaxKind::ForOfStatement
-                    && let Some(modifier) = statement.await_modifier.and_then(|m| m.node_id)
+                    && let Some(modifier) =
+                        statement.await_modifier.and_then(tsr_ast::Token::node_id)
                 {
                     self.check_for_await_grammar(node, modifier);
                 }
                 if let Some(tsr_ast::ForInitializer::VariableDeclarationList(list)) =
                     statement.initializer
-                    && let Some(list) = list.node_id
+                    && let Some(list) = list.node_id()
                 {
                     self.check_await_using_list_in_file_with_parse_errors(list);
                 }
@@ -1134,13 +1135,15 @@ impl Checker<'_, '_> {
             Node::ForStatement(statement) => {
                 if let Some(tsr_ast::ForInitializer::VariableDeclarationList(list)) =
                     statement.initializer
-                    && let Some(list) = list.node_id
+                    && let Some(list) = list.node_id()
                 {
                     self.check_await_using_list_in_file_with_parse_errors(list);
                 }
             }
             Node::VariableStatement(statement) => {
-                if let Some(list) = statement.declaration_list.and_then(|list| list.node_id) {
+                if let Some(list) =
+                    statement.declaration_list.and_then(tsr_ast::VariableDeclarationList::node_id)
+                {
                     self.check_await_using_list_in_file_with_parse_errors(list);
                 }
             }

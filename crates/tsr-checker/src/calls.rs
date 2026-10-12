@@ -2676,11 +2676,11 @@ impl Checker<'_, '_> {
                 match expression.template_spans.last().and_then(|span| span.literal) {
                     Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => {
                         tail.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
-                            || tail.node_id.is_none_or(|id| self.nodes.span(id).is_empty())
+                            || tail.node_id().is_none_or(|id| self.nodes.span(id).is_empty())
                     }
                     Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(middle)) => {
                         middle.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
-                            || middle.node_id.is_none_or(|id| self.nodes.span(id).is_empty())
+                            || middle.node_id().is_none_or(|id| self.nodes.span(id).is_empty())
                     }
                     None => true,
                 }
@@ -2913,7 +2913,7 @@ impl Checker<'_, '_> {
             return false;
         };
         let Some(Expression::Identifier(callee)) = call.expression else { return false };
-        let Some(callee_id) = callee.node_id else { return false };
+        let Some(callee_id) = callee.node_id() else { return false };
         let Some(symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
@@ -2939,7 +2939,7 @@ impl Checker<'_, '_> {
         let Some(new) = self.nodes.parent(function) else { return false };
         let Some(tsr_ast::Node::NewExpression(new)) = self.node_map.get(new) else { return false };
         let Some(Expression::Identifier(constructor)) = new.expression else { return false };
-        let Some(constructor_id) = constructor.node_id else { return false };
+        let Some(constructor_id) = constructor.node_id() else { return false };
         let Some(global) = self.binder.globals().get("Promise").copied() else { return false };
         self.binder
             .resolve_name(
@@ -3538,7 +3538,7 @@ impl Checker<'_, '_> {
         if receiver.kind != tsr_ast::SyntaxKind::ThisKeyword {
             return false;
         }
-        let Some(receiver) = receiver.node_id else { return false };
+        let Some(receiver) = receiver.node_id() else { return false };
         let Some(container) = self.get_this_container(receiver, false) else { return false };
         let Some(parent) = self.nodes.parent(container) else { return false };
         match self.nodes.kind(parent) {
@@ -4134,7 +4134,7 @@ impl Checker<'_, '_> {
         // literal only: clearing checked initializer symbols would discard
         // their established contextual types and reopen resolution cycles.
         if result != error
-            && node.node_id.and_then(|id| self.resolved_call_signatures.get(&id)).is_some_and(
+            && node.node_id().and_then(|id| self.resolved_call_signatures.get(&id)).is_some_and(
                 |signature| self.signature_declares_type_parameters(signature.declaration),
             )
         {
@@ -4163,7 +4163,7 @@ impl Checker<'_, '_> {
         if result == error || !chain_stripped {
             return result;
         }
-        self.propagate_optional_type_marker_at(node.node_id, result, true)
+        self.propagate_optional_type_marker_at(node.node_id(), result, true)
     }
 
     /// isCommonJSRequire, native checker.go:15674. Resolve the binding before
@@ -4171,7 +4171,7 @@ impl Checker<'_, '_> {
     /// function/variable declarations qualify; local implementations and aliases
     /// do not. No result is cached independently of the ordinary node worker.
     pub(crate) fn is_commonjs_require(&self, node: &CallExpression<'_>) -> bool {
-        let Some(id) = node.node_id else { return false };
+        let Some(id) = node.node_id() else { return false };
         if !self.in_js_file(id)
             || node.arguments.len() != 1
             || !matches!(
@@ -4185,7 +4185,7 @@ impl Checker<'_, '_> {
         if callee.text != "require" {
             return false;
         }
-        let Some(reference) = callee.node_id else { return false };
+        let Some(reference) = callee.node_id() else { return false };
         let Some(symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
@@ -4289,15 +4289,15 @@ impl Checker<'_, '_> {
         // in the call's links while `resolveSignature` runs, so the call
         // link read during the call's own candidate checks sees the sentinel
         // instead of resolving again (`r6-checkperf.md` §2).
-        let parked = self.park_call_resolution(node.node_id);
+        let parked = self.park_call_resolution(node.node_id());
         let resolved = self.resolve_call_signature_at(
-            node.node_id,
+            node.node_id(),
             callee_type,
             Some(node.arguments),
             !node.type_arguments.is_empty(),
         );
         if parked {
-            self.unpark_call_resolution(node.node_id);
+            self.unpark_call_resolution(node.node_id());
         }
         let Some(signature) = resolved else {
             // §250. Overload resolution FAILING does not make the call's type
@@ -4363,7 +4363,7 @@ impl Checker<'_, '_> {
             if node.type_arguments.len() >= signature.type_parameters.len()
                 && !signature.type_parameters.is_empty()
                 && let Some(written_nodes) =
-                    node.node_id.and_then(|id| match self.node_map.get(id) {
+                    node.node_id().and_then(|id| match self.node_map.get(id) {
                         Some(tsr_ast::Node::CallExpression(fetched)) => {
                             Some(fetched.type_arguments)
                         }
@@ -4415,7 +4415,7 @@ impl Checker<'_, '_> {
                             && self.flow_loop_stack.is_empty()
                             && !self.contextual_prefers_uninstantiated
                             && self.uninstantiated_context_node.is_none()
-                            && node.node_id.is_some_and(|call| {
+                            && node.node_id().is_some_and(|call| {
                                 matches!(self.node_map.get(call), Some(tsr_ast::Node::CallExpression(original))
                                     if std::ptr::eq(original, node) && std::ptr::eq(original.arguments, node.arguments))
                                     && !self.active_inference_contexts.contains_key(&call)
@@ -4432,7 +4432,7 @@ impl Checker<'_, '_> {
                             instance.type_parameters.clear();
                         }
                         if (contextual || publish_original)
-                            && let Some(call_id) = node.node_id
+                            && let Some(call_id) = node.node_id()
                             && let Some(mut concrete) =
                                 self.instantiate_signature(instance, &map, &parameters, &names)
                         {
@@ -4465,12 +4465,12 @@ impl Checker<'_, '_> {
             });
             let answer = self.check_generic_call_with(
                 &signature,
-                node.node_id,
+                node.node_id(),
                 node.arguments,
                 contextual.then_some(&mut instantiated),
             );
             if answer != error
-                && let Some(call_id) = node.node_id
+                && let Some(call_id) = node.node_id()
                 && let Some(concrete) = instantiated
             {
                 self.resolved_call_signatures.insert(call_id, concrete);
@@ -4491,7 +4491,7 @@ impl Checker<'_, '_> {
         if node.arguments.iter().any(|argument| {
             self.is_context_sensitive_argument(argument)
                 || matches!(argument, Expression::ObjectLiteralExpression(_))
-        }) && let Some(call_id) = node.node_id
+        }) && let Some(call_id) = node.node_id()
         {
             self.resolved_call_signatures.insert(call_id, signature.clone());
         }
@@ -4520,13 +4520,13 @@ impl Checker<'_, '_> {
         // (`docs/architecture/checker-notes-namedcallee.md` §4.1).
         if self.store.get(signature.r#type).flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
             && Self::is_symbol_or_symbol_for_call(node)
-            && self.is_valid_es_symbol_declaration(node.node_id)
+            && self.is_valid_es_symbol_declaration(node.node_id())
         {
             // §26 (`checker-notes-callres.md`): the position the gate
             // detected now MINTS — one distinct `unique symbol` per site
             // (`getESSymbolLikeTypeForNode`, `checker.go:22982`).
             return node
-                .node_id
+                .node_id()
                 .map_or(self.intrinsics.es_symbol, |id| self.get_es_symbol_like_type_for_call(id));
         }
         if counters::counting() {
@@ -4653,7 +4653,7 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         match callee {
             Expression::Identifier(identifier) => {
-                let symbol = identifier.node_id.and_then(|id| {
+                let symbol = identifier.node_id().and_then(|id| {
                     self.binder.resolve_name(
                         self.nodes,
                         self.node_map,
@@ -4880,7 +4880,7 @@ impl Checker<'_, '_> {
                     })
                     .collect();
                 if shifted.len() == candidates.len() {
-                    self.choose_overload(&shifted, &substitutions, false, node.node_id).and_then(
+                    self.choose_overload(&shifted, &substitutions, false, node.node_id()).and_then(
                         |picked| {
                             candidates
                                 .iter()
@@ -4922,7 +4922,7 @@ impl Checker<'_, '_> {
             if node.type_arguments.len() >= signature.type_parameters.len()
                 && let Some(parameters) = self.type_parameter_types(&signature)
                 && let Some(written_nodes) =
-                    node.node_id.and_then(|id| match self.node_map.get(id) {
+                    node.node_id().and_then(|id| match self.node_map.get(id) {
                         Some(tsr_ast::Node::TaggedTemplateExpression(fetched)) => {
                             Some(fetched.type_arguments)
                         }
@@ -4973,7 +4973,7 @@ impl Checker<'_, '_> {
                 if substitutions.len() == expression.template_spans.len() {
                     let mut shifted = signature.clone();
                     shifted.parameters.remove(0);
-                    let answer = self.check_generic_call(&shifted, node.node_id, &substitutions);
+                    let answer = self.check_generic_call(&shifted, node.node_id(), &substitutions);
                     if answer != error {
                         return answer;
                     }
@@ -5935,7 +5935,7 @@ impl Checker<'_, '_> {
         }
         let callee = stripped;
         let Expression::Identifier(identifier) = callee else { return false };
-        let Some(id) = identifier.node_id else { return false };
+        let Some(id) = identifier.node_id() else { return false };
         let Some(symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
@@ -7388,7 +7388,7 @@ mod tests {
             .copied()
             .expect("the fixture must declare the variable");
         let symbol = bound
-            .symbol_of(declaration.node_id.expect("a registered node"))
+            .symbol_of(declaration.node_id().expect("a registered node"))
             .expect("the variable must be bound");
         let id = checker.get_type_of_symbol(symbol);
         body(&mut checker, id)
@@ -7622,13 +7622,15 @@ mod tests {
                     "foreign-node" => {}
                     _ => unreachable!(),
                 }
-                let foreign = tsr_ast::CallExpression {
-                    node_id: call.node_id,
-                    expression: call.expression,
-                    question_dot_token: call.question_dot_token,
-                    type_arguments: call.type_arguments,
-                    arguments: call.arguments,
-                };
+                let mut foreign = tsr_ast::CallExpression::new(
+                    call.expression,
+                    call.question_dot_token,
+                    call.type_arguments,
+                    call.arguments,
+                );
+                if let Some(id) = call.node_id() {
+                    tsr_ast::HasNodeId::set_node_id(&mut foreign, id);
+                }
                 checker.check_call_expression(if mode == "foreign-node" { &foreign } else { call });
                 assert!(!checker.resolved_call_signatures.contains_key(&id), "{mode}");
                 assert!(!checker.contextual_signature_mappers.contains_key(&id), "{mode}");

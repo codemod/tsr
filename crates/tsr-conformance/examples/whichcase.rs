@@ -44,7 +44,7 @@ fn main() {
                     continue;
                 }
                 if let Some(file) = program.source_file(&unit.name)
-                    && let Some(id) = file.source_file().node_id
+                    && let Some(id) = file.source_file().node_id()
                 {
                     own_files.push(id);
                 }
@@ -52,7 +52,7 @@ fn main() {
             checker.set_checked_files(own_files.clone());
             for unit in &test.files {
                 let Some(file) = program.source_file(&unit.name) else { continue };
-                let Some(id) = file.source_file().node_id else { continue };
+                let Some(id) = file.source_file().node_id() else { continue };
                 let declaration_file = unit.name.ends_with(".d.ts")
                     || unit.name.ends_with(".d.mts")
                     || unit.name.ends_with(".d.cts");

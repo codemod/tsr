@@ -41,7 +41,11 @@ pub struct ArrayLiteralExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Elements`: `Expression`
     pub elements: &'a [Expression<'a>],
     /// `MultiLine`: `bool`
@@ -97,7 +101,11 @@ pub struct ArrayTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `ElementType`: `TypeNode`
     pub element_type: Option<TypeNode<'a>>,
 }
@@ -151,7 +159,11 @@ pub struct ArrowFunction<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -238,7 +250,11 @@ pub struct AsExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Type`: `TypeNode`
@@ -294,7 +310,11 @@ pub struct AwaitExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -348,7 +368,11 @@ pub struct BigIntLiteral<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -404,7 +428,11 @@ pub struct BinaryExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Left`: `Expression`
@@ -472,7 +500,11 @@ pub struct BindingElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `PropertyName`: `PropertyName`
@@ -537,7 +569,11 @@ pub struct BindingPattern<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.ObjectBindingPattern | SyntaxKind.ArrayBindingPattern`
     pub kind: &'a Token<'a>,
     /// `Elements`: `BindingElement`
@@ -593,7 +629,11 @@ pub struct Block<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
     /// `MultiLine`: `bool`
@@ -649,7 +689,11 @@ pub struct BreakStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
 }
@@ -703,7 +747,11 @@ pub struct CallExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -768,7 +816,11 @@ pub struct CallSignatureDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -833,7 +885,11 @@ pub struct CaseBlock<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Clauses`: `CaseOrDefaultClause`
     pub clauses: &'a [&'a CaseOrDefaultClause<'a>],
 }
@@ -887,7 +943,11 @@ pub struct CaseOrDefaultClause<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.CaseClause | SyntaxKind.DefaultClause`
     pub kind: &'a Token<'a>,
     /// `Expression`: `Expression`
@@ -949,7 +1009,11 @@ pub struct CatchClause<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `VariableDeclaration`: `VariableDeclaration`
     pub variable_declaration: Option<&'a VariableDeclaration<'a>>,
     /// `Block`: `Block`
@@ -1008,7 +1072,11 @@ pub struct ClassDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -1076,7 +1144,11 @@ pub struct ClassExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -1144,7 +1216,11 @@ pub struct ClassStaticBlockDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Body`: `Block`
@@ -1200,7 +1276,11 @@ pub struct ComputedPropertyName<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -1254,7 +1334,11 @@ pub struct ConditionalExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Condition`: `Expression`
     pub condition: Option<Expression<'a>>,
     /// `QuestionToken`: `QuestionToken`
@@ -1322,7 +1406,11 @@ pub struct ConditionalTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `CheckType`: `TypeNode`
     pub check_type: Option<TypeNode<'a>>,
     /// `ExtendsType`: `TypeNode`
@@ -1387,7 +1475,11 @@ pub struct ConstructSignatureDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -1452,7 +1544,11 @@ pub struct ConstructorDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -1535,7 +1631,11 @@ pub struct ConstructorTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -1603,7 +1703,11 @@ pub struct ContinueStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
 }
@@ -1657,7 +1761,11 @@ pub struct DebuggerStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -1712,7 +1820,11 @@ pub struct Decorator<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `LeftHandSideExpression`
     pub expression: Option<LeftHandSideExpression<'a>>,
 }
@@ -1766,7 +1878,11 @@ pub struct DeleteExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -1820,7 +1936,11 @@ pub struct DoStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Statement`: `Statement`
     pub statement: Statement<'a>,
     /// `Expression`: `Expression`
@@ -1876,7 +1996,11 @@ pub struct ElementAccessExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -1938,7 +2062,11 @@ pub struct EmptyStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -1993,7 +2121,11 @@ pub struct EnumDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -2055,7 +2187,11 @@ pub struct EnumMember<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `PropertyName`
     pub name: PropertyName<'a>,
     /// `Initializer`: `Expression`
@@ -2120,7 +2256,11 @@ pub struct ExportAssignment<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsExportEquals`: `bool`
@@ -2185,7 +2325,11 @@ pub struct ExportDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsTypeOnly`: `bool`
@@ -2253,7 +2397,11 @@ pub struct ExportSpecifier<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `IsTypeOnly`: `bool`
     pub is_type_only: bool,
     /// `PropertyName`: `ModuleExportName`
@@ -2315,7 +2463,11 @@ pub struct ExpressionStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -2369,7 +2521,11 @@ pub struct ExpressionWithTypeArguments<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -2425,7 +2581,11 @@ pub struct ExternalModuleReference<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -2479,7 +2639,11 @@ pub struct ForInOrOfStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.ForInStatement | SyntaxKind.ForOfStatement`
     pub kind: &'a Token<'a>,
     /// `AwaitModifier`: `AwaitKeyword`
@@ -2547,7 +2711,11 @@ pub struct ForStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Initializer`: `ForInitializer`
     pub initializer: Option<ForInitializer<'a>>,
     /// `Condition`: `Expression`
@@ -2612,7 +2780,11 @@ pub struct FunctionDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -2699,7 +2871,11 @@ pub struct FunctionExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -2786,7 +2962,11 @@ pub struct FunctionTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -2854,7 +3034,11 @@ pub struct GetAccessorDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -2945,7 +3129,11 @@ pub struct HeritageClause<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Token`: `SyntaxKind.ExtendsKeyword | SyntaxKind.ImplementsKeyword`
     pub token: &'a Token<'a>,
     /// `Types`: `ExpressionWithTypeArguments`
@@ -3001,7 +3189,11 @@ pub struct Identifier<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
 }
@@ -3055,7 +3247,11 @@ pub struct IfStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `ThenStatement`: `Statement`
@@ -3117,7 +3313,11 @@ pub struct ImportAttribute<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `ImportAttributeName`
     pub name: Option<ImportAttributeName<'a>>,
     /// `Value`: `Expression`
@@ -3173,7 +3373,11 @@ pub struct ImportAttributes<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Token`: `SyntaxKind.WithKeyword | SyntaxKind.AssertKeyword`
     pub token: &'a Token<'a>,
     /// `Attributes`: `ImportAttribute`
@@ -3235,7 +3439,11 @@ pub struct ImportClause<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `PhaseModifier`: `ImportPhaseModifierSyntaxKind`
     pub phase_modifier: Option<&'a Token<'a>>,
     /// `name`: `Identifier`
@@ -3297,7 +3505,11 @@ pub struct ImportDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `ImportClause`: `ImportClause`
@@ -3362,7 +3574,11 @@ pub struct ImportEqualsDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsTypeOnly`: `bool`
@@ -3427,7 +3643,11 @@ pub struct ImportSpecifier<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `IsTypeOnly`: `bool`
     pub is_type_only: bool,
     /// `PropertyName`: `ModuleExportName`
@@ -3489,7 +3709,11 @@ pub struct ImportTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `IsTypeOf`: `bool`
     pub is_type_of: bool,
     /// `Argument`: `TypeNode`
@@ -3557,7 +3781,11 @@ pub struct IndexSignatureDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -3625,7 +3853,11 @@ pub struct IndexedAccessTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `ObjectType`: `TypeNode`
     pub object_type: Option<TypeNode<'a>>,
     /// `IndexType`: `TypeNode`
@@ -3681,7 +3913,11 @@ pub struct InferTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TypeParameter`: `TypeParameterDeclaration`
     pub type_parameter: Option<&'a TypeParameterDeclaration<'a>>,
 }
@@ -3735,7 +3971,11 @@ pub struct InterfaceDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -3803,7 +4043,11 @@ pub struct IntersectionTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Types`: `TypeNode`
     pub types: &'a [TypeNode<'a>],
 }
@@ -3857,7 +4101,11 @@ pub struct JSDoc<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
     /// `Tags`: `JSDocTag`
@@ -3913,7 +4161,11 @@ pub struct JSDocAllType<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -3968,7 +4220,11 @@ pub struct JSDocAugmentsTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ClassName`: `ExpressionWithTypeArguments`
@@ -4030,7 +4286,11 @@ pub struct JSDocCallbackTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -4095,7 +4355,11 @@ pub struct JSDocDeprecatedTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -4151,7 +4415,11 @@ pub struct JSDocImplementsTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ClassName`: `ExpressionWithTypeArguments`
@@ -4213,7 +4481,11 @@ pub struct JSDocImportTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ImportClause`: `ImportClause`
@@ -4281,7 +4553,11 @@ pub struct JSDocLink<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
@@ -4337,7 +4613,11 @@ pub struct JSDocLinkCode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
@@ -4393,7 +4673,11 @@ pub struct JSDocLinkPlain<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
@@ -4449,7 +4733,11 @@ pub struct JSDocNameReference<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
 }
@@ -4503,7 +4791,11 @@ pub struct JSDocNonNullableType<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -4557,7 +4849,11 @@ pub struct JSDocNullableType<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -4611,7 +4907,11 @@ pub struct JSDocOptionalType<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -4665,7 +4965,11 @@ pub struct JSDocOverloadTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -4727,7 +5031,11 @@ pub struct JSDocOverrideTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -4783,7 +5091,11 @@ pub struct JSDocParameterOrPropertyTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.JSDocParameterTag | SyntaxKind.JSDocPropertyTag`
     pub kind: &'a Token<'a>,
     /// `TagName`: `Identifier`
@@ -4866,7 +5178,11 @@ pub struct JSDocPrivateTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -4922,7 +5238,11 @@ pub struct JSDocProtectedTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -4978,7 +5298,11 @@ pub struct JSDocPublicTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -5034,7 +5358,11 @@ pub struct JSDocReadonlyTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -5090,7 +5418,11 @@ pub struct JSDocReturnTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -5152,7 +5484,11 @@ pub struct JSDocSatisfiesTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -5214,7 +5550,11 @@ pub struct JSDocSeeTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `NameExpression`: `TypeNode`
@@ -5276,7 +5616,11 @@ pub struct JSDocSignature<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -5341,7 +5685,11 @@ pub struct JSDocTemplateTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Constraint`: `Node`
@@ -5406,7 +5754,11 @@ pub struct JSDocText<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `text`: `string`
     pub text: &'a [&'a str],
 }
@@ -5460,7 +5812,11 @@ pub struct JSDocThisTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -5522,7 +5878,11 @@ pub struct JSDocThrowsTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -5584,7 +5944,11 @@ pub struct JSDocTypeExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -5638,7 +6002,11 @@ pub struct JSDocTypeLiteral<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `JSDocPropertyTags`: `JSDocTag`
     pub js_doc_property_tags: &'a [JSDocTag<'a>],
     /// `IsArrayType`: `bool`
@@ -5694,7 +6062,11 @@ pub struct JSDocTypeTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `Node`
@@ -5756,7 +6128,11 @@ pub struct JSDocTypedefTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `Node`
@@ -5821,7 +6197,11 @@ pub struct JSDocUnknownTag<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -5877,7 +6257,11 @@ pub struct JSDocVariadicType<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -5931,7 +6315,11 @@ pub struct JsxAttribute<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `JsxAttributeName`
     pub name: Option<JsxAttributeName<'a>>,
     /// `Initializer`: `JsxAttributeValue`
@@ -5990,7 +6378,11 @@ pub struct JsxAttributes<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Properties`: `JsxAttributeLike`
     pub properties: &'a [JsxAttributeLike<'a>],
 }
@@ -6044,7 +6436,11 @@ pub struct JsxClosingElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `JsxTagNameExpression`
     pub tag_name: Option<JsxTagNameExpression<'a>>,
 }
@@ -6098,7 +6494,11 @@ pub struct JsxClosingFragment<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -6153,7 +6553,11 @@ pub struct JsxElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `OpeningElement`: `JsxOpeningElement`
     pub opening_element: Option<&'a JsxOpeningElement<'a>>,
     /// `Children`: `JsxChild`
@@ -6215,7 +6619,11 @@ pub struct JsxExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `Expression`: `Expression`
@@ -6274,7 +6682,11 @@ pub struct JsxFragment<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `OpeningFragment`: `JsxOpeningFragment`
     pub opening_fragment: Option<&'a JsxOpeningFragment<'a>>,
     /// `Children`: `JsxChild`
@@ -6336,7 +6748,11 @@ pub struct JsxNamespacedName<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Namespace`: `Identifier`
     pub namespace: Option<&'a Identifier<'a>>,
     /// `name`: `Identifier`
@@ -6392,7 +6808,11 @@ pub struct JsxOpeningElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `JsxTagNameExpression`
     pub tag_name: Option<JsxTagNameExpression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -6454,7 +6874,11 @@ pub struct JsxOpeningFragment<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -6509,7 +6933,11 @@ pub struct JsxSelfClosingElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TagName`: `JsxTagNameExpression`
     pub tag_name: Option<JsxTagNameExpression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -6571,7 +6999,11 @@ pub struct JsxSpreadAttribute<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -6625,7 +7057,11 @@ pub struct JsxText<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `ContainsOnlyTriviaWhiteSpaces`: `bool`
@@ -6687,7 +7123,11 @@ pub struct KeywordExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -6744,7 +7184,11 @@ pub struct KeywordTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -6801,7 +7245,11 @@ pub struct LabeledStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
     /// `Statement`: `Statement`
@@ -6857,7 +7305,11 @@ pub struct LiteralTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Literal`: `Node`
     pub literal: Option<Node<'a>>,
 }
@@ -6911,7 +7363,11 @@ pub struct MappedTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `ReadonlyToken`: `ReadonlyKeyword | PlusToken | MinusToken`
     pub readonly_token: Option<&'a Token<'a>>,
     /// `TypeParameter`: `TypeParameterDeclaration`
@@ -6990,7 +7446,11 @@ pub struct MetaProperty<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `KeywordToken`: `SyntaxKind.ImportKeyword | SyntaxKind.NewKeyword`
     pub keyword_token: &'a Token<'a>,
     /// `name`: `Identifier`
@@ -7046,7 +7506,11 @@ pub struct MethodDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -7137,7 +7601,11 @@ pub struct MethodSignatureDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -7220,7 +7688,11 @@ pub struct MissingDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
 }
@@ -7274,7 +7746,11 @@ pub struct ModuleBlock<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
 }
@@ -7328,7 +7804,11 @@ pub struct ModuleDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Keyword`: `SyntaxKind.ModuleKeyword | SyntaxKind.NamespaceKeyword`
@@ -7396,7 +7876,11 @@ pub struct NamedExports<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Elements`: `ExportSpecifier`
     pub elements: &'a [&'a ExportSpecifier<'a>],
 }
@@ -7450,7 +7934,11 @@ pub struct NamedImports<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Elements`: `ImportSpecifier`
     pub elements: &'a [&'a ImportSpecifier<'a>],
 }
@@ -7504,7 +7992,11 @@ pub struct NamedTupleMember<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `name`: `Identifier`
@@ -7569,7 +8061,11 @@ pub struct NamespaceExport<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `ModuleExportName`
     pub name: Option<ModuleExportName<'a>>,
 }
@@ -7623,7 +8119,11 @@ pub struct NamespaceExportDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -7679,7 +8179,11 @@ pub struct NamespaceImport<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `Identifier`
     pub name: Option<&'a Identifier<'a>>,
 }
@@ -7733,7 +8237,11 @@ pub struct NewExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -7795,7 +8303,11 @@ pub struct NoSubstitutionTemplateLiteral<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TemplateFlags`: `TokenFlags`
@@ -7860,7 +8372,11 @@ pub struct NonNullExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -7914,7 +8430,11 @@ pub struct NotEmittedStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -7969,7 +8489,11 @@ pub struct NotEmittedTypeElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -8024,7 +8548,11 @@ pub struct NumericLiteral<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -8080,7 +8608,11 @@ pub struct ObjectLiteralExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Properties`: `ObjectLiteralElementLike`
     pub properties: &'a [ObjectLiteralElementLike<'a>],
     /// `MultiLine`: `bool`
@@ -8136,7 +8668,11 @@ pub struct OmittedExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -8191,7 +8727,11 @@ pub struct OptionalTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -8245,7 +8785,11 @@ pub struct ParameterDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `DotDotDotToken`: `DotDotDotToken`
@@ -8324,7 +8868,11 @@ pub struct ParenthesizedExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -8378,7 +8926,11 @@ pub struct ParenthesizedTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -8432,7 +8984,11 @@ pub struct PartiallyEmittedExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -8486,7 +9042,11 @@ pub struct PostfixUnaryExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Operand`: `Expression`
     pub operand: Option<Expression<'a>>,
     /// `Operator`: `SyntaxKind.PlusPlusToken | SyntaxKind.MinusMinusToken`
@@ -8542,7 +9102,11 @@ pub struct PrefixUnaryExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Operator`: `SyntaxKind.PlusToken | SyntaxKind.MinusToken | SyntaxKind.TildeToken | SyntaxKind.ExclamationToken | SyntaxKind.PlusPlusToken | SyntaxKind.MinusMinusToken`
     pub operator: &'a Token<'a>,
     /// `Operand`: `Expression`
@@ -8598,7 +9162,11 @@ pub struct PrivateIdentifier<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
 }
@@ -8652,7 +9220,11 @@ pub struct PropertyAccessExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -8714,7 +9286,11 @@ pub struct PropertyAssignment<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -8782,7 +9358,11 @@ pub struct PropertyDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -8850,7 +9430,11 @@ pub struct PropertySignatureDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -8918,7 +9502,11 @@ pub struct QualifiedName<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Left`: `EntityName`
     pub left: Option<EntityName<'a>>,
     /// `Right`: `Identifier`
@@ -8974,7 +9562,11 @@ pub struct RegularExpressionLiteral<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -9030,7 +9622,11 @@ pub struct RestTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -9084,7 +9680,11 @@ pub struct ReturnStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -9138,7 +9738,11 @@ pub struct SatisfiesExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Type`: `TypeNode`
@@ -9194,7 +9798,11 @@ pub struct SemicolonClassElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -9249,7 +9857,11 @@ pub struct SetAccessorDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -9340,7 +9952,11 @@ pub struct ShorthandPropertyAssignment<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -9419,7 +10035,11 @@ pub struct SourceFile<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
     /// `EndOfFileToken`: `EndOfFile`
@@ -9475,7 +10095,11 @@ pub struct SpreadAssignment<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -9529,7 +10153,11 @@ pub struct SpreadElement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -9583,7 +10211,11 @@ pub struct StringLiteral<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -9639,7 +10271,11 @@ pub struct SwitchStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `CaseBlock`: `CaseBlock`
@@ -9695,7 +10331,11 @@ pub struct SyntaxList<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Children`: `Node`
     pub children: &'a [Node<'a>],
 }
@@ -9749,7 +10389,11 @@ pub struct SyntheticExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `any`
     pub r#type: Node<'a>,
     /// `IsSpread`: `bool`
@@ -9807,7 +10451,11 @@ pub struct SyntheticReferenceExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `ThisArg`: `Expression`
@@ -9863,7 +10511,11 @@ pub struct TaggedTemplateExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Tag`: `Expression`
     pub tag: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -9928,7 +10580,11 @@ pub struct TemplateExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Head`: `TemplateHead`
     pub head: Option<&'a TemplateHead<'a>>,
     /// `TemplateSpans`: `TemplateSpan`
@@ -9987,7 +10643,11 @@ pub struct TemplateHead<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -10052,7 +10712,11 @@ pub struct TemplateLiteralTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Head`: `TemplateHead`
     pub head: Option<&'a TemplateHead<'a>>,
     /// `TemplateSpans`: `TemplateLiteralTypeSpan`
@@ -10111,7 +10775,11 @@ pub struct TemplateLiteralTypeSpan<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
     /// `Literal`: `TemplateMiddleOrTail`
@@ -10167,7 +10835,11 @@ pub struct TemplateMiddle<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -10232,7 +10904,11 @@ pub struct TemplateSpan<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Literal`: `TemplateMiddleOrTail`
@@ -10291,7 +10967,11 @@ pub struct TemplateTail<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -10356,7 +11036,11 @@ pub struct ThisTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -10411,7 +11095,11 @@ pub struct ThrowStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -10465,7 +11153,11 @@ pub struct TryStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TryBlock`: `Block`
     pub try_block: Option<&'a Block<'a>>,
     /// `CatchClause`: `CatchClause`
@@ -10527,7 +11219,11 @@ pub struct TupleTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Elements`: `TypeNode`
     pub elements: &'a [TypeNode<'a>],
 }
@@ -10581,7 +11277,11 @@ pub struct TypeAliasDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -10646,7 +11346,11 @@ pub struct TypeAssertion<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
     /// `Expression`: `Expression`
@@ -10702,7 +11406,11 @@ pub struct TypeLiteralNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Members`: `TypeElement`
     pub members: &'a [TypeElement<'a>],
 }
@@ -10756,7 +11464,11 @@ pub struct TypeOfExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -10810,7 +11522,11 @@ pub struct TypeOperatorNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Operator`: `SyntaxKind.KeyOfKeyword | SyntaxKind.ReadonlyKeyword | SyntaxKind.UniqueKeyword`
     pub operator: &'a Token<'a>,
     /// `Type`: `TypeNode`
@@ -10866,7 +11582,11 @@ pub struct TypeParameterDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -10934,7 +11654,11 @@ pub struct TypePredicateNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `AssertsModifier`: `AssertsKeyword`
     pub asserts_modifier: Option<&'a Token<'a>>,
     /// `ParameterName`: `TypePredicateParameterName`
@@ -10996,7 +11720,11 @@ pub struct TypeQueryNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `ExprName`: `EntityName`
     pub expr_name: Option<EntityName<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -11052,7 +11780,11 @@ pub struct TypeReferenceNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `TypeName`: `EntityName`
     pub type_name: Option<EntityName<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -11108,7 +11840,11 @@ pub struct UnionTypeNode<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Types`: `TypeNode`
     pub types: &'a [TypeNode<'a>],
 }
@@ -11162,7 +11898,11 @@ pub struct VariableDeclaration<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `name`: `BindingName`
     pub name: Option<BindingName<'a>>,
     /// `ExclamationToken`: `ExclamationToken`
@@ -11227,7 +11967,11 @@ pub struct VariableDeclarationList<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Declarations`: `VariableDeclaration`
     pub declarations: &'a [&'a VariableDeclaration<'a>],
 }
@@ -11281,7 +12025,11 @@ pub struct VariableStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `DeclarationList`: `VariableDeclarationList`
@@ -11340,7 +12088,11 @@ pub struct VoidExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -11394,7 +12146,11 @@ pub struct WhileStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Statement`: `Statement`
@@ -11450,7 +12206,11 @@ pub struct WithStatement<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Statement`: `Statement`
@@ -11506,7 +12266,11 @@ pub struct YieldExpression<'a> {
     /// interior mutability. That is what makes every node `Sync` and the
     /// tree shareable across threads — see
     /// `docs/adr/0012-ast-is-sync.md`.
-    pub node_id: Option<NodeId>,
+    ///
+    /// Crate-private: read it through `node_id()` and write it through
+    /// `HasNodeId::set_node_id`, so its representation can change behind
+    /// them (ADR-0056).
+    pub(crate) node_id: Option<NodeId>,
     /// `AsteriskToken`: `AsteriskToken`
     pub asterisk_token: Option<&'a Token<'a>>,
     /// `Expression`: `Expression`

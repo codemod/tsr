@@ -184,7 +184,7 @@ fn payload(node: Node<'_>, nodes: &NodeTable) -> Option<String> {
         // `const`/`let`/`using` are flags, not tokens. Without this a `var`
         // printed for a `const` would round-trip silently — the one difference
         // this fingerprint would otherwise be blind to.
-        Node::VariableDeclarationList(n) => n.node_id.map(|id| {
+        Node::VariableDeclarationList(n) => n.node_id().map(|id| {
             let flags = nodes.flags(id) & tsr_ast::NodeFlags::BLOCK_SCOPED;
             format!("{flags:?}")
         }),
@@ -205,7 +205,7 @@ fn jsdoc_spans(parsed: &ParsedFile) -> Vec<(u32, u32)> {
         let mut spans = Vec::new();
         for (_, docs) in jsdoc.iter() {
             for doc in docs {
-                if let Some(id) = doc.node_id {
+                if let Some(id) = doc.node_id() {
                     let span = parsed.nodes().span(id);
                     spans.push((span.start, span.end));
                 }

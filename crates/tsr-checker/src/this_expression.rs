@@ -239,7 +239,7 @@ impl Checker<'_, '_> {
         // typed as `exports` in a CommonJS JS file.
         if self.in_js_file(function)
             && let Expression::Identifier(identifier) = receiver
-            && let Some(id) = identifier.node_id
+            && let Some(id) = identifier.node_id()
             && let Some(symbol) = self.binder.resolve_name(
                 self.nodes,
                 self.node_map,

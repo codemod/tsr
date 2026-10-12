@@ -200,12 +200,14 @@ fn is_import_or_export_statement_name(id: NodeId, nodes: &NodeTable, map: &NodeM
     let Some(parent) = nodes.parent(id) else { return false };
     match map.get(parent) {
         Some(Node::ImportSpecifier(specifier)) => {
-            specifier.name.and_then(|n| n.node_id) == Some(id)
+            specifier.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
                 || specifier.property_name.and_then(|n| n.node_id()) == Some(id)
         }
-        Some(Node::ImportClause(clause)) => clause.name.and_then(|n| n.node_id) == Some(id),
+        Some(Node::ImportClause(clause)) => {
+            clause.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
+        }
         Some(Node::ImportEqualsDeclaration(declaration)) => {
-            declaration.name.and_then(|n| n.node_id) == Some(id)
+            declaration.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
         }
         Some(Node::ExportAssignment(assignment)) => {
             assignment.expression.and_then(|e| e.node_id()) == Some(id)
@@ -744,7 +746,7 @@ fn type_id_at_location_arm_inner<'a>(
     // `type_symbol_baseline.go:386`), so an error answer prints `any`.
     if let Some(parent) = nodes.parent(id)
         && let Some(Node::MetaProperty(meta)) = map.get(parent)
-        && meta.name.and_then(|name| name.node_id) == Some(id)
+        && meta.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
         && let Ok(expression) = tsr_ast::Expression::try_from(Node::MetaProperty(meta))
     {
         let computed = checker.check_expression(expression);
@@ -925,7 +927,7 @@ fn type_id_at_location_arm_inner<'a>(
         && let Some(parent) = nodes.parent(id)
         && let Some(Node::ImportClause(clause)) = map.get(parent)
         && clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
-        && clause.name.and_then(|name| name.node_id) == Some(id)
+        && clause.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
         && let Some(symbol) = binder.symbol_of(parent)
     {
         let target = checker.resolve_alias(symbol).unwrap_or(symbol);
@@ -1037,7 +1039,7 @@ fn type_id_at_location_arm_inner<'a>(
     if let Some(parent) = nodes.parent(id)
         && nodes.kind(parent) == SyntaxKind::QualifiedName
         && let Some(Node::QualifiedName(qualified)) = map.get(parent)
-        && qualified.right.and_then(|right| right.node_id) != Some(id)
+        && qualified.right.and_then(tsr_ast::Identifier::node_id) != Some(id)
     {
         let mut outermost = parent;
         while let Some(above) = nodes.parent(outermost) {
@@ -1286,12 +1288,14 @@ fn type_id_at_location_arm_inner<'a>(
         && let Some(parent) = nodes.parent(id)
         && match map.get(parent) {
             Some(Node::ImportSpecifier(specifier)) => {
-                specifier.name.and_then(|n| n.node_id) == Some(id)
+                specifier.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
                     || specifier.property_name.and_then(|n| n.node_id()) == Some(id)
             }
-            Some(Node::ImportClause(clause)) => clause.name.and_then(|n| n.node_id) == Some(id),
+            Some(Node::ImportClause(clause)) => {
+                clause.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
+            }
             Some(Node::ImportEqualsDeclaration(declaration)) => {
-                declaration.name.and_then(|n| n.node_id) == Some(id)
+                declaration.name.and_then(tsr_ast::Identifier::node_id) == Some(id)
             }
             Some(Node::ExportAssignment(assignment)) => {
                 assignment.expression.and_then(|e| e.node_id()) == Some(id)
@@ -1412,7 +1416,7 @@ fn is_label_name(id: NodeId, nodes: &NodeTable, map: &NodeMap<'_>) -> bool {
         Some(Node::ContinueStatement(statement)) => statement.label,
         _ => return false,
     };
-    label.and_then(|label| label.node_id) == Some(id)
+    label.and_then(tsr_ast::Identifier::node_id) == Some(id)
 }
 
 /// The tag name of a JSX opening, closing or self-closing element.
@@ -2276,7 +2280,7 @@ fn type_node_reason(
     // finding, and the reason this function mirrors the code it explains line
     // for line rather than approximating it.
     match name
-        .node_id
+        .node_id()
         .and_then(|node| binder.resolve_name(nodes, map, node, name.text, SymbolFlags::TYPE))
     {
         // The name is carried in the reason so the report can histogram it; see
@@ -2430,7 +2434,7 @@ pub fn gap_reason(
             // The meaning is not cosmetic here: a narrower or wider one than the
             // checker's would reclassify gap lines in the histogram, attributing
             // them to a cause the checker did not take.
-            return match identifier.node_id.and_then(|n| {
+            return match identifier.node_id().and_then(|n| {
                 binder.resolve_name(nodes, map, n, identifier.text, SymbolFlags::VALUE)
             }) {
                 Some(symbol) => format!("{what}, {}", describe(checker, symbol)),
@@ -2448,7 +2452,7 @@ pub fn gap_reason(
         if let tsr_ast::Expression::BinaryExpression(binary) = expression {
             let operator = binary
                 .operator_token
-                .and_then(|token| token.node_id)
+                .and_then(tsr_ast::Token::node_id)
                 .map_or_else(|| "?".to_string(), |token| format!("{:?}", nodes.kind(token)));
             return format!("expression answered error: BinaryExpression {operator}");
         }
@@ -2544,7 +2548,7 @@ fn qualified_name_to_check<'a>(
     }
     let parent = nodes.parent(id)?;
     let Some(Node::QualifiedName(qualified)) = map.get(parent) else { return None };
-    (qualified.right.and_then(|right| right.node_id) == Some(id)).then_some(qualified)
+    (qualified.right.and_then(tsr_ast::Identifier::node_id) == Some(id)).then_some(qualified)
 }
 
 #[cfg(test)]
@@ -3276,7 +3280,7 @@ mod tests {
         // identity could not do. `Array` is declared in `lib.es5.d.ts` and is
         // the name the corpus asks for most.
         let root = program.source_file("b.ts").expect("b.ts is in the program").source_file();
-        let resolved = root.node_id.and_then(|id| {
+        let resolved = root.node_id().and_then(|id| {
             program.binder().resolve_name(
                 program.nodes(),
                 program.node_map(),

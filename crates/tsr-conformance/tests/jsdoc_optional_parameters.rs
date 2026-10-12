@@ -120,7 +120,7 @@ fn write_assignability(source: &str) -> Vec<bool> {
             let target = checker.check_expression(binary.left.expect("write target"));
             let value = checker.check_expression(binary.right.expect("write value"));
             writes.push((
-                program.nodes().span(binary.node_id.expect("registered")).start,
+                program.nodes().span(binary.node_id().expect("registered")).start,
                 checker.is_type_assignable_to(value, target),
             ));
         }

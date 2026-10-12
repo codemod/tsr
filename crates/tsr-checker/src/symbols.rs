@@ -675,7 +675,7 @@ impl<'a> Checker<'a, '_> {
             // root the binder walk already found keeps its classification
             // (`docs/parity/notes/r7-shared.md` §6).
             if let Some(root) = root
-                && let Some(id) = root.node_id
+                && let Some(id) = root.node_id()
                 && self
                     .binder
                     .resolve_name(self.nodes, self.node_map, id, root.text, SymbolFlags::NAMESPACE)
@@ -1120,7 +1120,7 @@ impl<'a> Checker<'a, '_> {
             root = receiver;
         }
         let Expression::Identifier(root) = root else { return false };
-        let Some(owner) = root.node_id.and_then(|id| {
+        let Some(owner) = root.node_id().and_then(|id| {
             self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
@@ -1346,12 +1346,12 @@ impl<'a> Checker<'a, '_> {
                         .resolve_name(
                             self.nodes,
                             self.node_map,
-                            name.node_id?,
+                            name.node_id()?,
                             name.text,
                             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
                         )
                         .map(|target| self.binder.merged_symbol(target)),
-                    Expression::ClassExpression(class) => self.binder.symbol_of(class.node_id?),
+                    Expression::ClassExpression(class) => self.binder.symbol_of(class.node_id()?),
                     Expression::PropertyAccessExpression(access) => {
                         let tsr_ast::MemberName::Identifier(name) = access.name? else {
                             return None;
@@ -1520,7 +1520,7 @@ impl<'a> Checker<'a, '_> {
                 // as `export_specifier_target` uses
                 // (`docs/parity/notes/r7-shared.md` §6).
                 let found = self.resolve_name_with_export_alias(
-                    name.node_id?,
+                    name.node_id()?,
                     name.text,
                     SymbolFlags::NAMESPACE,
                 )?;
@@ -1726,7 +1726,7 @@ impl<'a> Checker<'a, '_> {
         let mut symbol = self.binder.resolve_name(
             self.nodes,
             self.node_map,
-            root.node_id?,
+            root.node_id()?,
             root.text,
             SymbolFlags::NAMESPACE,
         )?;
@@ -2255,7 +2255,7 @@ impl<'a> Checker<'a, '_> {
             self.check_expression(expression);
             return self
                 .binder
-                .symbol_of(class.node_id?)
+                .symbol_of(class.node_id()?)
                 .map(|symbol| self.binder.merged_symbol(symbol));
         }
         if let Some(tsr_ast::Expression::PropertyAccessExpression(access)) = node.expression {
@@ -2278,7 +2278,7 @@ impl<'a> Checker<'a, '_> {
         let found = self.binder.resolve_name(
             self.nodes,
             self.node_map,
-            name.node_id?,
+            name.node_id()?,
             name.text,
             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
         )?;
@@ -2308,7 +2308,7 @@ impl<'a> Checker<'a, '_> {
                 .resolve_name(
                     self.nodes,
                     self.node_map,
-                    identifier.node_id?,
+                    identifier.node_id()?,
                     identifier.text,
                     SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
                 )
@@ -2417,7 +2417,7 @@ impl<'a> Checker<'a, '_> {
         // M_A = M_M` in a namespace's exports, an alias with no meaning of its
         // own.
         self.resolve_name_with_export_alias(
-            name.node_id?,
+            name.node_id()?,
             name.text,
             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
         )
@@ -2698,8 +2698,8 @@ impl<'a> Checker<'a, '_> {
         // **A string literal is a legal export name since ES2022**, and
         // `{ "missing" as x }` is exactly the shape this rule is for. §565.
         let (text, name_id) = match name {
-            tsr_ast::ModuleExportName::Identifier(name) => (name.text, name.node_id?),
-            tsr_ast::ModuleExportName::StringLiteral(name) => (name.text, name.node_id?),
+            tsr_ast::ModuleExportName::Identifier(name) => (name.text, name.node_id()?),
+            tsr_ast::ModuleExportName::StringLiteral(name) => (name.text, name.node_id()?),
         };
         // `declarationName := declarationNameToString(name)`: the name as
         // written, so a string-literal name prints with its quotes
@@ -3863,7 +3863,7 @@ impl<'a> Checker<'a, '_> {
         if let Some(call) = ancestors().find_map(|ancestor| match self.node_map.get(ancestor) {
             Some(Node::CallExpression(call))
                 if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
-                    if keyword.node_id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)) =>
+                    if keyword.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)) =>
             {
                 Some(call)
             }
@@ -4666,7 +4666,7 @@ impl<'a> Checker<'a, '_> {
             }
             for base in clause.types {
                 if let Some(tsr_ast::Expression::Identifier(base_name)) = base.expression
-                    && let Some(base_id) = base_name.node_id
+                    && let Some(base_id) = base_name.node_id()
                     && let Some(base_symbol) = self.binder.resolve_name(
                         self.nodes,
                         self.node_map,
@@ -5893,13 +5893,13 @@ impl<'a> Checker<'a, '_> {
                         }
                     }
                     Some(tsr_ast::JsxAttributeValue::JsxElement(element)) => {
-                        self.check_jsx_element(element.node_id)
+                        self.check_jsx_element(element.node_id())
                     }
                     Some(tsr_ast::JsxAttributeValue::JsxSelfClosingElement(element)) => {
-                        self.check_jsx_element(element.node_id)
+                        self.check_jsx_element(element.node_id())
                     }
                     Some(tsr_ast::JsxAttributeValue::JsxFragment(fragment)) => {
-                        self.check_jsx_element(fragment.node_id)
+                        self.check_jsx_element(fragment.node_id())
                     }
                     None => self.intrinsics.true_type,
                 }
@@ -6285,7 +6285,7 @@ impl<'a> Checker<'a, '_> {
             members
                 .iter()
                 .filter_map(|member| match member {
-                    tsr_ast::ClassElement::ClassStaticBlockDeclaration(node) => node.node_id,
+                    tsr_ast::ClassElement::ClassStaticBlockDeclaration(node) => node.node_id(),
                     _ => None,
                 })
                 .collect()
@@ -6293,7 +6293,7 @@ impl<'a> Checker<'a, '_> {
             members
                 .iter()
                 .filter_map(|member| match member {
-                    tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
+                    tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id(),
                     _ => None,
                 })
                 .collect()
@@ -6870,7 +6870,7 @@ impl<'a> Checker<'a, '_> {
                     if matches!(method.name, tsr_ast::PropertyName::Identifier(name)
                         if name.text == wanted) =>
                 {
-                    method.node_id
+                    method.node_id()
                 }
                 _ => None,
             })
@@ -7447,7 +7447,7 @@ impl<'a> Checker<'a, '_> {
                     tsr_ast::PropertyName::StringLiteral(n) => n.text,
                     _ => return None,
                 };
-                (getter_name == name).then_some(getter.node_id).flatten()
+                (getter_name == name).then_some(getter.node_id()).flatten()
             }
             _ => None,
         })
@@ -7479,7 +7479,7 @@ impl<'a> Checker<'a, '_> {
         // `param.Type`: the `@param` `findMatchingParameter` chose for this
         // position in the host's last comment (ADR-0046's one replay).
         let parts = self.function_like_parts(function)?;
-        let index = parts.parameters.iter().position(|p| p.node_id == Some(parameter))?;
+        let index = parts.parameters.iter().position(|p| p.node_id() == Some(parameter))?;
         let slot = *self.jsdoc_reparsed_function(function).parameters.get(index)?;
         let annotation = slot.r#type?;
         Some((annotation, slot.tag.is_some_and(|tag| tag.is_bracketed)))
@@ -7554,7 +7554,7 @@ impl<'a> Checker<'a, '_> {
                     // AnyKeyword. It is not a complete hosted annotation.
                     || matches!(tag_type(tag), Some(TypeNode::KeywordTypeNode(node))
                         if node.kind == SyntaxKind::AnyKeyword
-                            && node.node_id.is_none_or(|id| {
+                            && node.node_id().is_none_or(|id| {
                                 let span = self.nodes.span(id);
                                 span.start >= span.end
                             }))
@@ -7584,11 +7584,13 @@ impl<'a> Checker<'a, '_> {
             if !matches!(variable.name, Some(tsr_ast::BindingName::Identifier(_))) {
                 return legacy();
             }
-            let Some(tags) = hosted_tags(variable.node_id?) else { return legacy() };
+            let Some(tags) = hosted_tags(variable.node_id()?) else { return legacy() };
             direct.push(tags.iter().find_map(tag_type));
         }
-        let index =
-            list.declarations.iter().position(|variable| variable.node_id == Some(declaration))?;
+        let index = list
+            .declarations
+            .iter()
+            .position(|variable| variable.node_id() == Some(declaration))?;
         if let Some(annotation) = direct[index] {
             return Some(annotation);
         }
@@ -7598,7 +7600,7 @@ impl<'a> Checker<'a, '_> {
                 continue;
             }
             let annotation = types.next()?;
-            if variable.node_id == Some(declaration) {
+            if variable.node_id() == Some(declaration) {
                 return Some(annotation);
             }
         }
@@ -7917,7 +7919,7 @@ mod tests {
                       exports.cycle = exports.cycle;";
         let arena = tsr_core::Arena::new();
         let mut parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
         let bound = tsr_binder::bind(
             &arena,

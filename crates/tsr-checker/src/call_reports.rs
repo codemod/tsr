@@ -573,7 +573,7 @@ impl<'a> Checker<'a, '_> {
                 matches!(token.kind, SyntaxKind::QuestionQuestionToken | SyntaxKind::BarBarToken)
             }),
             Expression::Identifier(identifier) => {
-                let Some(id) = identifier.node_id else { return false };
+                let Some(id) = identifier.node_id() else { return false };
                 let Some(symbol) = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,

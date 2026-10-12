@@ -296,7 +296,7 @@ fn any_origin(
     let tsr_ast::Expression::Identifier(identifier) = callee else {
         return "callee is not a bare name";
     };
-    let Some(id) = identifier.node_id else { return "callee has no node id" };
+    let Some(id) = identifier.node_id() else { return "callee has no node id" };
     let Some(symbol) = binder.resolve_name(nodes, map, id, identifier.text, SymbolFlags::VALUE)
     else {
         return "the name resolves to no symbol";

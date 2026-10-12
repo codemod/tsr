@@ -16,7 +16,7 @@ fn ts2300_spans(source: &str) -> Vec<String> {
         tsr_parser::ParseOptions::for_file("index.js"),
     );
     assert!(parsed.diagnostics.is_empty());
-    let root = parsed.source_file.node_id.expect("registered source file");
+    let root = parsed.source_file.node_id().expect("registered source file");
     parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
     let docs: Vec<_> = parsed.jsdoc.iter().collect();
     let bound = tsr_binder::bind_into_with_jsdoc(

@@ -76,7 +76,7 @@ impl Checker<'_, '_> {
                 let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
                     return false;
                 };
-                let Some(referenced) = name.node_id.and_then(|id| {
+                let Some(referenced) = name.node_id().and_then(|id| {
                     self.binder.resolve_name(
                         self.nodes,
                         self.node_map,
@@ -314,7 +314,7 @@ mod tests {
             tsr_parser::ParseOptions::for_file(file),
         );
         assert!(parsed.diagnostics.is_empty());
-        let root = parsed.source_file.node_id.expect("source file");
+        let root = parsed.source_file.node_id().expect("source file");
         if std::path::Path::new(file)
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
@@ -340,12 +340,12 @@ mod tests {
                 tsr_ast::Statement::TypeAliasDeclaration(alias)
                     if alias.name.is_some_and(|id| id.text == name) =>
                 {
-                    alias.node_id.and_then(|id| bound.symbol_of(id))
+                    alias.node_id().and_then(|id| bound.symbol_of(id))
                 }
                 tsr_ast::Statement::InterfaceDeclaration(interface)
                     if interface.name.is_some_and(|id| id.text == name) =>
                 {
-                    interface.node_id.and_then(|id| bound.symbol_of(id))
+                    interface.node_id().and_then(|id| bound.symbol_of(id))
                 }
                 _ => None,
             })

@@ -213,7 +213,7 @@ impl<'a> Checker<'a, '_> {
         &self,
         block: &'a tsr_ast::Block<'a>,
     ) -> Option<Expression<'a>> {
-        let block_id = block.node_id?;
+        let block_id = block.node_id()?;
         let mut candidate = None;
         let mut stack: Vec<Node<'a>> =
             block.statements.iter().rev().map(|&s| Node::from(s)).collect();
@@ -221,7 +221,7 @@ impl<'a> Checker<'a, '_> {
         while let Some(node) = stack.pop() {
             match node {
                 Node::ReturnStatement(statement) => {
-                    let id = statement.node_id?;
+                    let id = statement.node_id()?;
                     if self.nodes.parent(id) != Some(block_id) || candidate.is_some() {
                         return None;
                     }
@@ -607,7 +607,7 @@ impl<'a> Checker<'a, '_> {
                 let parameters = self.signature_parts_parameters(parent);
                 let index = parameters
                     .iter()
-                    .position(|parameter| parameter.node_id == Some(declaration))
+                    .position(|parameter| parameter.node_id() == Some(declaration))
                     .unwrap_or(0);
                 self.pseudo_type_of_parameter(
                     node,
@@ -713,7 +713,7 @@ impl<'a> Checker<'a, '_> {
         index: usize,
         last_required: usize,
     ) -> PseudoType<'a> {
-        let Some(id) = parameter.node_id else { return PseudoType::NO_RESULT };
+        let Some(id) = parameter.node_id() else { return PseudoType::NO_RESULT };
         if let Some(parent) = self.nodes.parent(id)
             && self.nodes.kind(parent) == SyntaxKind::SetAccessor
         {
@@ -973,7 +973,7 @@ impl<'a> Checker<'a, '_> {
         &self,
         array: &'a tsr_ast::ArrayLiteralExpression<'a>,
     ) -> PseudoType<'a> {
-        let Some(id) = array.node_id else { return PseudoType::NO_RESULT };
+        let Some(id) = array.node_id() else { return PseudoType::NO_RESULT };
         // `canGetTypeFromArrayLiteral`.
         if !self.pseudo_is_in_const_context(id)
             || array.elements.iter().any(|element| matches!(element, Expression::SpreadElement(_)))
@@ -993,7 +993,7 @@ impl<'a> Checker<'a, '_> {
         &self,
         object: &'a tsr_ast::ObjectLiteralExpression<'a>,
     ) -> PseudoType<'a> {
-        let Some(literal) = object.node_id else { return PseudoType::NO_RESULT };
+        let Some(literal) = object.node_id() else { return PseudoType::NO_RESULT };
         if !self.can_get_pseudo_type_of_object_literal(object) {
             return PseudoType::inferred_with_errors(Some(literal));
         }

@@ -67,11 +67,11 @@ impl Checker<'_, '_> {
         for doc in *docs {
             for tag in doc.tags {
                 let (keyword, id) = match tag {
-                    JSDocTag::JSDocReadonlyTag(t) => (SyntaxKind::ReadonlyKeyword, t.node_id),
-                    JSDocTag::JSDocPrivateTag(t) => (SyntaxKind::PrivateKeyword, t.node_id),
-                    JSDocTag::JSDocPublicTag(t) => (SyntaxKind::PublicKeyword, t.node_id),
-                    JSDocTag::JSDocProtectedTag(t) => (SyntaxKind::ProtectedKeyword, t.node_id),
-                    JSDocTag::JSDocOverrideTag(t) => (SyntaxKind::OverrideKeyword, t.node_id),
+                    JSDocTag::JSDocReadonlyTag(t) => (SyntaxKind::ReadonlyKeyword, t.node_id()),
+                    JSDocTag::JSDocPrivateTag(t) => (SyntaxKind::PrivateKeyword, t.node_id()),
+                    JSDocTag::JSDocPublicTag(t) => (SyntaxKind::PublicKeyword, t.node_id()),
+                    JSDocTag::JSDocProtectedTag(t) => (SyntaxKind::ProtectedKeyword, t.node_id()),
+                    JSDocTag::JSDocOverrideTag(t) => (SyntaxKind::OverrideKeyword, t.node_id()),
                     _ => continue,
                 };
                 if let Some(id) = id {

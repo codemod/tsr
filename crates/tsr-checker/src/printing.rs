@@ -1155,7 +1155,7 @@ impl Checker<'_, '_> {
                 _ => None,
             };
             let Some(Expression::StringLiteral(literal)) = specifier else { return None };
-            let usage = literal.node_id?;
+            let usage = literal.node_id()?;
             resolves(usage, literal.text).map(|mode| (literal.text, mode))
         });
         // `ForEachDynamicImportOrRequireCall` (`ast/utilities.go:2715`): in
@@ -1175,10 +1175,10 @@ impl Checker<'_, '_> {
                     {
                         match Node::from(call.arguments[0]) {
                             Node::StringLiteral(literal) => {
-                                literal.node_id.map(|id| (id, literal.text))
+                                literal.node_id().map(|id| (id, literal.text))
                             }
                             Node::NoSubstitutionTemplateLiteral(literal) => {
-                                literal.node_id.map(|id| (id, literal.text))
+                                literal.node_id().map(|id| (id, literal.text))
                             }
                             _ => None,
                         }
@@ -1190,10 +1190,10 @@ impl Checker<'_, '_> {
                     {
                         match call.arguments.first().map(|argument| Node::from(*argument)) {
                             Some(Node::StringLiteral(literal)) => {
-                                literal.node_id.map(|id| (id, literal.text))
+                                literal.node_id().map(|id| (id, literal.text))
                             }
                             Some(Node::NoSubstitutionTemplateLiteral(literal)) => {
-                                literal.node_id.map(|id| (id, literal.text))
+                                literal.node_id().map(|id| (id, literal.text))
                             }
                             _ => None,
                         }
@@ -1202,7 +1202,7 @@ impl Checker<'_, '_> {
                         Some(tsr_ast::TypeNode::LiteralTypeNode(literal_type)) => {
                             match literal_type.literal {
                                 Some(Node::StringLiteral(literal)) => {
-                                    literal.node_id.map(|id| (id, literal.text))
+                                    literal.node_id().map(|id| (id, literal.text))
                                 }
                                 _ => None,
                             }
@@ -1310,7 +1310,7 @@ impl Checker<'_, '_> {
             Some(tsr_ast::Node::Identifier(identifier))
                 if identifier.text == record.name && !identifier.text.is_empty() =>
             {
-                match identifier.node_id {
+                match identifier.node_id() {
                     Some(id) => self.identifier_text_as_written(id, identifier.text),
                     None => identifier.text.to_string(),
                 }
@@ -2067,7 +2067,7 @@ mod tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "test.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let outer = checker.binder.lookup_local(root, "M").unwrap();
         let inner = *checker.binder.symbols().get(outer).exports.get("N").unwrap();
@@ -2100,7 +2100,7 @@ mod tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "test.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         for (name, site, message) in [
             ("c", "X.Y.C", "C"),
@@ -2132,7 +2132,7 @@ mod tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "test.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let type_of = |checker: &mut crate::Checker<'_, '_>, name: &str| {
             let symbol = checker.binder.lookup_local(root, name).unwrap();
@@ -2167,7 +2167,7 @@ mod tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "test.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         checker.strict_null_checks = true;
         let class = checker.binder.lookup_local(root, "K").unwrap();
@@ -2191,7 +2191,7 @@ mod tests {
             callback: () => 23, callback: () => true };";
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,
@@ -2236,7 +2236,7 @@ mod tests {
             images.reverse();
             for (image, original) in &images {
                 assert_eq!(
-                    checker.type_to_string_at(*image, literal.node_id.unwrap()).as_deref(),
+                    checker.type_to_string_at(*image, literal.node_id().unwrap()).as_deref(),
                     Some("{ item: string; callback: () => boolean; }")
                 );
                 assert_eq!(&checker.store.get(*image).data, original);

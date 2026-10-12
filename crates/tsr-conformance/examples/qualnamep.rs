@@ -379,7 +379,7 @@ fn namespace_alias_target<'a>(
             let candidate = format!("{base}{extension}");
             if let Some(file) =
                 program.source_files().iter().find(|file| file.file_name() == candidate)
-                && let Some(root) = file.source_file().node_id
+                && let Some(root) = file.source_file().node_id()
                 && let Some(module) = binder.symbol_of(root)
             {
                 return Some(binder.merged_symbol(module));
@@ -483,7 +483,7 @@ fn resolve_module_of<'a>(
             let candidate = format!("{base}{extension}");
             if let Some(file) =
                 program.source_files().iter().find(|file| file.file_name() == candidate)
-                && let Some(root) = file.source_file().node_id
+                && let Some(root) = file.source_file().node_id()
                 && let Some(module) = binder.symbol_of(root)
             {
                 return Some(binder.merged_symbol(module));

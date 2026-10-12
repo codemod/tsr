@@ -1761,7 +1761,7 @@ impl<'a> Checker<'a, '_> {
             leftmost = left;
         }
         let EntityName::Identifier(identifier) = leftmost else { return true };
-        let Some(id) = identifier.node_id else { return true };
+        let Some(id) = identifier.node_id() else { return true };
         // `getMeaningOfEntityNameReference` (`emitresolver.go:311`).
         let meaning = if is_type_of {
             SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE
@@ -1787,7 +1787,7 @@ impl<'a> Checker<'a, '_> {
             leftmost = left;
         }
         let Expression::Identifier(identifier) = leftmost else { return true };
-        let Some(id) = identifier.node_id else { return true };
+        let Some(id) = identifier.node_id() else { return true };
         self.track_existing_leftmost_identifier(
             id,
             identifier.text,
@@ -2439,7 +2439,7 @@ impl<'a> Checker<'a, '_> {
                 // with or without a site.
                 if reference.type_arguments.is_empty()
                     && let EntityName::Identifier(identifier) = name
-                    && let Some(id) = identifier.node_id
+                    && let Some(id) = identifier.node_id()
                     && !self.render_type_parameter_names.allocations.is_empty()
                     && let Some(symbol) = self.binder.resolve_name(
                         self.nodes,
@@ -2464,7 +2464,7 @@ impl<'a> Checker<'a, '_> {
                 if let Some(site) = cx.site
                     && reference.type_arguments.is_empty()
                     && let EntityName::Identifier(identifier) = name
-                    && let Some(id) = identifier.node_id
+                    && let Some(id) = identifier.node_id()
                     && let Some(symbol) = self.binder.resolve_name(
                         self.nodes,
                         self.node_map,
@@ -2611,7 +2611,7 @@ impl<'a> Checker<'a, '_> {
                 // `.types` writer's is the asserted node's parent); elsewhere
                 // it is serialized from its type.
                 let enclosing = cx.site.and_then(|site| self.nodes.parent(site))?;
-                let id = operator.node_id?;
+                let id = operator.node_id()?;
                 self.is_ancestor_or_self(enclosing, id).then(|| "unique symbol".to_string())?
             }
             TypeNode::TypeOperatorNode(operator) => {
@@ -2758,7 +2758,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         reference: &tsr_ast::TypeReferenceNode<'a>,
     ) -> bool {
-        let Some(id) = reference.node_id else { return true };
+        let Some(id) = reference.node_id() else { return true };
         // `NodeFlagsJSDoc` is a parse flag this parser does not set: a JSDoc
         // type is the one with a JSDoc ancestor (as
         // `get_type_from_type_reference` asks it). A JSDoc node's parent chain
@@ -2938,7 +2938,7 @@ impl<'a> Checker<'a, '_> {
         }
         for parameter in parameters {
             let name = parameter.name?.text;
-            let symbol = self.binder.symbol_of(parameter.node_id?)?;
+            let symbol = self.binder.symbol_of(parameter.node_id()?)?;
             let shadowed = self
                 .render_type_parameter_scope
                 .iter()
@@ -2970,7 +2970,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut parts = Vec::with_capacity(parameters.len());
         for parameter in parameters {
-            let root = std::mem::replace(&mut cx.root, parameter.node_id?);
+            let root = std::mem::replace(&mut cx.root, parameter.node_id()?);
             let text = self.reused_type_parameter(parameter, cx);
             cx.root = root;
             parts.push(text?);
@@ -3223,7 +3223,7 @@ impl<'a> Checker<'a, '_> {
         pattern: &tsr_ast::BindingPattern<'_>,
     ) -> Option<String> {
         let is_object = pattern
-            .node_id
+            .node_id()
             .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ObjectBindingPattern);
         let mut parts = Vec::with_capacity(pattern.elements.len());
         for element in pattern.elements {

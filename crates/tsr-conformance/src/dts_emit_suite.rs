@@ -323,7 +323,7 @@ pub(crate) fn stamp_javascript_root(
 ) {
     let lower = unit_name.to_ascii_lowercase();
     let is_js = [".js", ".jsx", ".mjs", ".cjs"].iter().any(|suffix| lower.ends_with(suffix));
-    if is_js && let Some(root) = source_file.node_id {
+    if is_js && let Some(root) = source_file.node_id() {
         nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
     }
 }

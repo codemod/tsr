@@ -406,7 +406,7 @@ fn step<'a>(
                     .r#type
                     .and_then(|t| t.node_id())
                     .into_iter()
-                    .chain(function.parameters.iter().filter_map(|p| p.node_id)),
+                    .chain(function.parameters.iter().filter_map(|p| p.node_id())),
             )
         }
         Node::IndexedAccessTypeNode(access) if std::env::var_os("TSR_NO_856").is_none() => {
@@ -480,7 +480,7 @@ fn step<'a>(
             function
                 .parameters
                 .iter()
-                .filter_map(|parameter| parameter.node_id)
+                .filter_map(|parameter| parameter.node_id())
                 .chain(function.body.and_then(concise_body_expression)),
         ),
         Node::FunctionExpression(function) => first_gapping(
@@ -488,7 +488,7 @@ fn step<'a>(
             binder,
             nodes,
             map,
-            function.parameters.iter().filter_map(|parameter| parameter.node_id),
+            function.parameters.iter().filter_map(|parameter| parameter.node_id()),
         ),
         // §767: a PARAMETER's type is its annotation, else its initializer,
         // else CONTEXTUAL — and the contextual road is the one this port is

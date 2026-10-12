@@ -397,7 +397,7 @@ impl Checker<'_, '_> {
                 // after both operands are checked.
                 if binary.operator_token.is_some_and(|token| token.kind == SyntaxKind::InKeyword)
                     && let Some(tsr_ast::Expression::PrivateIdentifier(left)) = binary.left
-                    && let Some(left) = left.node_id
+                    && let Some(left) = left.node_id()
                     && self.will_transform_private_names()
                 {
                     self.request_operand_emit_helpers_first(
@@ -584,7 +584,7 @@ impl Checker<'_, '_> {
     fn check_decorators_emit_helpers(&mut self, typed: Node<'_>) {
         let Some(first) = crate::check::modifiers_of(typed).and_then(|modifiers| {
             modifiers.iter().find_map(|modifier| match modifier {
-                tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id,
+                tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id(),
                 tsr_ast::ModifierLike::Token(_) => None,
             })
         }) else {

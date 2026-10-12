@@ -816,7 +816,7 @@ fn mock_target(
     let Some(name) = name else { return Mock::NotMocked };
     let Some(specifier) = specifier else { return Mock::NoSuchFile };
     let module = match resolve_specifier(program, nodes, declaration, specifier) {
-        Some(file) => match file.source_file().node_id {
+        Some(file) => match file.source_file().node_id() {
             Some(root) => match bound.symbol_of(root) {
                 Some(module) => Some(module),
                 None => return Mock::NoSuchExport,
@@ -863,7 +863,7 @@ fn mock_namespace(
 ) -> (NsTarget, Option<String>) {
     let Some(specifier) = specifier else { return (NsTarget::NoTargetFile, None) };
     let module = resolve_specifier(program, nodes, declaration, specifier)
-        .and_then(|file| file.source_file().node_id)
+        .and_then(|file| file.source_file().node_id())
         .and_then(|root| bound.symbol_of(root))
         // The ambient fallback, as in `mock_target`.
         .or_else(|| ambient_module_symbol(bound, node_map, specifier));
@@ -922,7 +922,7 @@ fn mock_export_equals_chain(
     let Some(tsr_ast::Expression::Identifier(target_name)) = assignment.expression else {
         return ("export= expression is not an identifier", String::new());
     };
-    let Some(id) = target_name.node_id else {
+    let Some(id) = target_name.node_id() else {
         return ("identifier has no id", String::new());
     };
     let Some(resolved) = bound.resolve_name(
@@ -1189,7 +1189,7 @@ fn alias_module_symbol(
     }
     let specifier = module_specifier(node_map, nodes, declaration)?;
     match resolve_specifier(program, nodes, declaration, &specifier)
-        .and_then(|file| file.source_file().node_id)
+        .and_then(|file| file.source_file().node_id())
         .and_then(|root| bound.symbol_of(root))
     {
         Some(module) => Some(AliasTarget::File(module)),

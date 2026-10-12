@@ -41,7 +41,7 @@ fn views(source: &str, member: &str, expected: &[(&str, &str)]) {
             .iter()
             .map(|(site, text)| {
                 (
-                    identifier(&parsed.node_map, parsed.source_file.node_id.unwrap(), site)
+                    identifier(&parsed.node_map, parsed.source_file.node_id().unwrap(), site)
                         .unwrap(),
                     text,
                 )

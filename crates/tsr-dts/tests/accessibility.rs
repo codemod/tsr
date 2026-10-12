@@ -63,7 +63,7 @@ fn diagnostics(source: &str) -> Vec<(u32, u32)> {
         &mut nodes,
         &mut map,
     );
-    let file = parsed.source_file.node_id.unwrap();
+    let file = parsed.source_file.node_id().unwrap();
     let mut stub = Stub { map: &map };
     let mut out: Vec<(u32, u32)> = written_name_diagnostics(file, &nodes, &map, source, &mut stub)
         .into_iter()
@@ -152,7 +152,7 @@ fn tracked(source: &str, isolated_declarations: bool) -> Vec<(u32, u32)> {
         &mut nodes,
         &mut map,
     );
-    let file = parsed.source_file.node_id.unwrap();
+    let file = parsed.source_file.node_id().unwrap();
     let mut resolver = Tracking { map: &map };
     let options = WalkOptions { isolated_declarations };
     let mut out: Vec<(u32, u32)> =
@@ -237,7 +237,7 @@ fn tracked_symbol(
         &mut nodes,
         &mut map,
     );
-    let file = parsed.source_file.node_id.unwrap();
+    let file = parsed.source_file.node_id().unwrap();
     let mut resolver = Accessibility(tsr_dts::accessibility::SymbolAccessibilityResult {
         accessibility,
         aliases_to_make_visible: Vec::new(),

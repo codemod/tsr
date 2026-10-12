@@ -320,7 +320,7 @@ fn resolve_entity_name<'a>(
 ) -> Result<SymbolId, &'static str> {
     match name {
         EntityName::Identifier(identifier) => {
-            let id = identifier.node_id.ok_or("the name has no node id")?;
+            let id = identifier.node_id().ok_or("the name has no node id")?;
             binder
                 .resolve_name(nodes, map, id, identifier.text, meaning)
                 .ok_or("the leftmost name does not resolve")
@@ -781,7 +781,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                         return false;
                     };
                     let Some(root) = leftmost(name) else { return false };
-                    let Some(root_id) = root.node_id else { return false };
+                    let Some(root_id) = root.node_id() else { return false };
                     if bound
                         .resolve_name(nodes, map, root_id, root.text, SymbolFlags::NAMESPACE)
                         .is_none()
@@ -945,7 +945,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             let Some(Node::TypeReferenceNode(reference)) = map.get(current) else { continue };
             let Some(name @ EntityName::QualifiedName(_)) = reference.type_name else { continue };
             let Some(root) = leftmost(name) else { continue };
-            let Some(root_id) = root.node_id else { continue };
+            let Some(root_id) = root.node_id() else { continue };
             let Some(root_symbol) =
                 bound.resolve_name(nodes, map, root_id, root.text, SymbolFlags::NAMESPACE)
             else {

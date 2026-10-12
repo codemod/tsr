@@ -15,7 +15,7 @@ fn obsolete_assert_property_reports_after_valid_string_specifier() {
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     checker.check_source_file(
-        parsed.source_file.node_id.unwrap(),
+        parsed.source_file.node_id().unwrap(),
         FileContext { ambient: false, has_parse_errors: false },
     );
     let actual: Vec<_> = checker

@@ -410,7 +410,7 @@ impl<'a> Checker<'a, '_> {
         parts.parameters.iter().any(|parameter| {
             parameter.r#type.is_none()
                 && parameter
-                    .node_id
+                    .node_id()
                     .is_none_or(|id| self.jsdoc_reparsed_parameter_type(id).is_none())
         }) || (self.nodes.kind(declaration) != SyntaxKind::ArrowFunction
             && !parts
@@ -578,7 +578,7 @@ impl<'a> Checker<'a, '_> {
                 Some(self.get_any_function_type())
             }
             Expression::ObjectLiteralExpression(node) => {
-                let readonly = node.node_id.is_some_and(|id| self.is_const_context(id));
+                let readonly = node.node_id().is_some_and(|id| self.is_const_context(id));
                 let mut non_inferrable = false;
                 let mut properties: Vec<crate::objects::AnonymousProperty> = Vec::new();
                 let mut members = Vec::new();
@@ -586,19 +586,19 @@ impl<'a> Checker<'a, '_> {
                     let (name, origin, method, ty) = match property {
                         ObjectLiteralElementLike::PropertyAssignment(assignment) => (
                             assignment.name,
-                            assignment.node_id,
+                            assignment.node_id(),
                             false,
                             self.context_free_object_inference_type(assignment.initializer?)?,
                         ),
                         ObjectLiteralElementLike::MethodDeclaration(method) => {
-                            let id = method.node_id?;
+                            let id = method.node_id()?;
                             let ty = if self.is_context_sensitive_function_like(id) {
                                 self.context_free_function_type(id)
                                     .unwrap_or_else(|| self.get_any_function_type())
                             } else {
                                 self.get_type_of_function_expression(id)
                             };
-                            (method.name, method.node_id, true, ty)
+                            (method.name, method.node_id(), true, ty)
                         }
                         _ => return None,
                     };
@@ -651,7 +651,7 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 let printed = crate::objects::render_object_type(&members);
-                let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
+                let symbol = node.node_id().and_then(|id| self.binder.symbol_of(id));
                 let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, printed, symbol);
                 self.anonymous_properties.insert(ty, (properties, true));
                 self.object_literal_members.insert(ty, members);
@@ -663,7 +663,7 @@ impl<'a> Checker<'a, '_> {
             Expression::ArrayLiteralExpression(node)
                 if self.is_context_sensitive_argument(&expression) =>
             {
-                let in_const = node.node_id.is_some_and(|id| self.is_const_context(id));
+                let in_const = node.node_id().is_some_and(|id| self.is_const_context(id));
                 let in_tuple = self.array_literal_in_tuple_context(node);
                 let mut elements = Vec::with_capacity(node.elements.len());
                 let mut non_inferrable = false;
@@ -1004,7 +1004,7 @@ impl<'a> Checker<'a, '_> {
         let constructors: Vec<_> = members
             .iter()
             .filter_map(|member| match member {
-                tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
+                tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id(),
                 _ => None,
             })
             // The `__constructor` symbol's declarations: a JS constructor's
@@ -1347,8 +1347,11 @@ impl<'a> Checker<'a, '_> {
                 }
                 for entry in clause.types {
                     let base = self.base_symbol_of_heritage_entry(entry, false)?;
-                    let base_type =
-                        self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)?;
+                    let base_type = self.instantiated_heritage_base(
+                        base,
+                        entry.type_arguments,
+                        entry.node_id(),
+                    )?;
                     // resolveObjectTypeMembers instantiates each base with the
                     // derived type's this-type
                     // (`getTypeWithThisArgument(instantiatedBaseType,
@@ -1859,7 +1862,7 @@ impl<'a> Checker<'a, '_> {
             }
             // `makeQuestionIfOptional`'s reparsed `?` (`@param [x]`).
             if node.question_token.is_none()
-                && node.node_id.is_some_and(|id| self.jsdoc_reparsed_parameter_question(id))
+                && node.node_id().is_some_and(|id| self.jsdoc_reparsed_parameter_question(id))
             {
                 parameter.optional = true;
             }
@@ -2174,7 +2177,7 @@ impl<'a> Checker<'a, '_> {
             if name.text == "this" {
                 continue;
             }
-            let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let symbol = node.node_id().and_then(|id| self.binder.symbol_of(id))?;
             let declared = self.get_type_of_symbol(symbol);
             let flags = self.store.get(declared).flags;
             // "Refining `x: boolean` to `x is true` isn't useful" (`:20573`);
@@ -2189,7 +2192,7 @@ impl<'a> Checker<'a, '_> {
             {
                 continue;
             }
-            let reference = name.node_id?;
+            let reference = name.node_id()?;
             let true_type = self.narrow_reference_by_condition(
                 reference,
                 Some(symbol),
@@ -2518,7 +2521,7 @@ impl<'a> Checker<'a, '_> {
         for parameter in function.parameters {
             let tsr_ast::BindingName::Identifier(name) = parameter.name? else { return None };
             let Some(TypeNode::KeywordTypeNode(annotation)) = parameter.r#type else { return None };
-            let declaration = parameter.node_id?;
+            let declaration = parameter.node_id()?;
             let parameter_symbol = self.binder.symbol_of(declaration)?;
             let original = self.binder.symbols().get(parameter_symbol);
             if name.text == "this"
@@ -4635,7 +4638,7 @@ impl<'a> Checker<'a, '_> {
         }
         let tsr_ast::Expression::CallExpression(call) = expression else { return false };
         let Some(tsr_ast::Expression::Identifier(callee)) = call.expression else { return false };
-        let Some(callee_id) = callee.node_id else { return false };
+        let Some(callee_id) = callee.node_id() else { return false };
         let Some(own) = self.binder.symbol_of(declaration) else { return false };
         let callee_type = self.check_expression(tsr_ast::Expression::Identifier(callee));
         let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data
@@ -4740,7 +4743,7 @@ impl<'a> Checker<'a, '_> {
                 continue;
             }
             if let Node::YieldExpression(expression) = node
-                && let Some(id) = expression.node_id
+                && let Some(id) = expression.node_id()
             {
                 found.push((expression.asterisk_token.is_some(), id, expression.expression));
             }
@@ -4947,7 +4950,7 @@ impl<'a> Checker<'a, '_> {
             SyntaxKind::TryStatement => {
                 let Some(Node::TryStatement(node)) = self.node_map.get(id) else { return None };
                 if let Some(finally) = node.finally_block {
-                    let finally_id = finally.node_id?;
+                    let finally_id = finally.node_id()?;
                     match self.block_completes_normally(finally_id, owner) {
                         Some(false) => return Some(false),
                         Some(true) => {}
@@ -4955,12 +4958,12 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
                 let try_completes = match node.try_block {
-                    Some(block) => self.block_completes_normally(block.node_id?, owner)?,
+                    Some(block) => self.block_completes_normally(block.node_id()?, owner)?,
                     None => return None,
                 };
                 let catch_completes = match node.catch_clause {
                     Some(clause) => match clause.block {
-                        Some(block) => self.block_completes_normally(block.node_id?, owner)?,
+                        Some(block) => self.block_completes_normally(block.node_id()?, owner)?,
                         None => return None,
                     },
                     // try/finally with no catch: an exception propagates, so
@@ -5014,7 +5017,7 @@ impl<'a> Checker<'a, '_> {
             return false;
         };
         let Some(callee) = call.expression else { return false };
-        let Some(call_id) = call.node_id else { return false };
+        let Some(call_id) = call.node_id() else { return false };
         if !self.narrow_value_stack.insert(call_id) {
             return false;
         }
@@ -5408,7 +5411,7 @@ impl<'a> Checker<'a, '_> {
             }
             parts.push(out);
         }
-        let id = pattern.node_id?;
+        let id = pattern.node_id()?;
         // The side-table kind, not the token field — the §16 CaseKeyword
         // lesson's second application.
         let is_object = self.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectBindingPattern;
@@ -5531,7 +5534,7 @@ impl<'a> Checker<'a, '_> {
             }
             None => return None,
         };
-        let id = node.node_id?;
+        let id = node.node_id()?;
         // §429: a PATTERN-named parameter has no symbol of its own — the
         // binder binds the element names — so its type comes from the
         // declaration directly (the annotation, or the pattern's implied
@@ -6062,7 +6065,7 @@ impl<'a> Checker<'a, '_> {
         if let TypeNode::TypeReferenceNode(reference) = annotation
             && reference.type_arguments.is_empty()
             && let Some(tsr_ast::EntityName::Identifier(identifier)) = reference.type_name
-            && let Some(id) = identifier.node_id
+            && let Some(id) = identifier.node_id()
             && let Some(symbol) = self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
@@ -6103,8 +6106,8 @@ impl<'a> Checker<'a, '_> {
         ] = literal.members
         {
             let member_id = match literal.members[0] {
-                tsr_ast::TypeElement::CallSignatureDeclaration(member) => member.node_id,
-                tsr_ast::TypeElement::ConstructSignatureDeclaration(member) => member.node_id,
+                tsr_ast::TypeElement::CallSignatureDeclaration(member) => member.node_id(),
+                tsr_ast::TypeElement::ConstructSignatureDeclaration(member) => member.node_id(),
                 _ => unreachable!(),
             }?;
             let signature = self.get_signature_from_declaration(member_id)?;
@@ -6649,7 +6652,7 @@ impl<'a> Checker<'a, '_> {
         // `@template {C} T` gives its first parameter the reparsed
         // constraint `C`, which the declaration node does not carry here.
         let constraint_node = node.constraint.or_else(|| {
-            node.node_id.and_then(|parameter| self.jsdoc_template_constraint(parameter))
+            node.node_id().and_then(|parameter| self.jsdoc_template_constraint(parameter))
         });
         spell(self, constraint_node);
         let resolved_constraint = resolve(self, constraint_node);
@@ -6674,7 +6677,7 @@ impl<'a> Checker<'a, '_> {
             })
         });
         let resolved_type = node
-            .node_id
+            .node_id()
             .and_then(|id| self.binder.symbol_of(id))
             .map(|symbol| self.get_declared_type_of_symbol(symbol));
         // `getConstraintOfTypeParameter` (`checker.go:17059`): a written
@@ -6712,7 +6715,7 @@ impl<'a> Checker<'a, '_> {
                     && self.store.get(written).flags.intersects(TypeFlags::ANY)
                     && !self.is_error(written)
                     && node
-                        .node_id
+                        .node_id()
                         .and_then(|id| self.nodes.parent(id))
                         .is_none_or(|parent| self.nodes.kind(parent) != SyntaxKind::MappedType) =>
             {
@@ -7571,7 +7574,7 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        let declaration = node.node_id?;
+        let declaration = node.node_id()?;
         let parameter_symbol = self.binder.symbol_of(declaration)?;
         let source = self.binder.symbols().get(parameter_symbol);
         if source.declarations.as_slice() != [declaration]
@@ -7636,7 +7639,7 @@ impl<'a> Checker<'a, '_> {
                 .resolve_name(self.nodes, self.node_map, site, identifier.text, meaning)
                 .map(|symbol| self.binder.merged_symbol(symbol))
         };
-        let source = resolve(identifier.node_id?)?;
+        let source = resolve(identifier.node_id()?)?;
         // Preserve the predecessor's identical-binding admission verbatim.
         if resolve(reference) == Some(source) {
             return Some(identifier.text.to_string());
@@ -8740,7 +8743,7 @@ mod tests {
             parsed.push((name, text, file.source_file));
         }
         let host = LoadedModules(
-            parsed.iter().map(|(name, _, file)| (file.node_id.unwrap(), *name)).collect(),
+            parsed.iter().map(|(name, _, file)| (file.node_id().unwrap(), *name)).collect(),
         );
         let mut bound = tsr_binder::BindResult::empty();
         for (name, text, file) in parsed {
@@ -8866,7 +8869,7 @@ mod tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "parameters.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let qualified_reference = (0..u32::try_from(parsed.nodes.len()).unwrap())
             .map(tsr_ast::NodeId::new)
             .find(|&id| matches!(parsed.node_map.get(id), Some(tsr_ast::Node::Identifier(name)) if name.text == "qualifiedView"))
@@ -8890,7 +8893,8 @@ mod tests {
             else {
                 panic!("alias declaration");
             };
-            let frame_symbol = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+            let frame_symbol =
+                bound.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap();
             let mapped = checker
                 .instantiate_signature(
                     signature.clone(),
@@ -9041,7 +9045,7 @@ mod tests {
             tsr_binder::FileInfo { name: "entry.ts", text: source },
         );
         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-        test(&mut checker, &bound, parsed.source_file.node_id.unwrap());
+        test(&mut checker, &bound, parsed.source_file.node_id().unwrap());
     }
 
     #[test]
@@ -9134,7 +9138,7 @@ mod tests {
                         panic!("alias")
                     };
                     foreign.insert(
-                        bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap(),
+                        bound.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap(),
                         checker.intrinsics.string,
                     );
                     if checker.pending_signature_returns.contains_key(&key) {
@@ -9328,7 +9332,7 @@ mod tests {
                     &parsed.nodes,
                     tsr_binder::FileInfo { name: "active.ts", text: &source },
                 );
-                let root = parsed.source_file.node_id.unwrap();
+                let root = parsed.source_file.node_id().unwrap();
                 let callable = bound.lookup_local(root, "callable").unwrap();
                 let declaration = bound.symbols().get(callable).value_declaration.unwrap();
                 let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
@@ -9352,7 +9356,8 @@ mod tests {
                 else {
                     panic!("alias frame")
                 };
-                let parameter = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+                let parameter =
+                    bound.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap();
                 checker
                     .alias_evaluation_bindings
                     .push([(parameter, checker.intrinsics.number)].into_iter().collect());
@@ -9415,7 +9420,7 @@ mod tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "parameters.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let callable = bound.lookup_local(root, "callable").unwrap();
         checker.defer_typeof_function_return(callable);
@@ -9427,7 +9432,7 @@ mod tests {
         else {
             panic!("alias frame declaration");
         };
-        let parameter = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+        let parameter = bound.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap();
         let mut frame = rustc_hash::FxHashMap::default();
         frame.insert(parameter, checker.intrinsics.number);
         checker.alias_evaluation_bindings.push(frame);
@@ -9642,7 +9647,7 @@ mod tests {
             else {
                 panic!("interface fixture");
             };
-            declarations.push(interface.node_id.unwrap());
+            declarations.push(interface.node_id().unwrap());
             bound = tsr_binder::bind_into(
                 bound,
                 &arena,

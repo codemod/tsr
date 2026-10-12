@@ -26,7 +26,7 @@ fn type_of_last(source: &str) -> String {
         Statement::VariableStatement(statement) => statement
             .declaration_list
             .and_then(|list| list.declarations.first().copied())
-            .and_then(|declaration| declaration.node_id),
+            .and_then(tsr_ast::VariableDeclaration::node_id),
         _ => None,
     }
     .expect("a declaration");

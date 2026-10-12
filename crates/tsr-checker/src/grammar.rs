@@ -45,7 +45,7 @@ impl Checker<'_, '_> {
                 if is_method && token.kind == SyntaxKind::AsyncKeyword {
                     continue;
                 }
-                let Some(id) = token.node_id else { continue };
+                let Some(id) = token.node_id() else { continue };
                 self.report_modifier_cannot_be_used_here(id, token.kind);
             }
         }
@@ -111,7 +111,7 @@ impl Checker<'_, '_> {
                 let this_parameter = parameters.first().filter(|first| {
                     matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
                 });
-                body && this_parameter.and_then(|first| first.node_id) != Some(node)
+                body && this_parameter.and_then(|first| first.node_id()) != Some(node)
                     && self.nodes.parent(parent).is_some_and(|grandparent| {
                         self.nodes.kind(grandparent) == SyntaxKind::ClassDeclaration
                     })
@@ -129,7 +129,7 @@ impl Checker<'_, '_> {
         if let Node::PropertyDeclaration(property) = typed
             && property.initializer.is_some()
             && tsr_ast::has_syntactic_modifier(property.modifiers, SyntaxKind::AbstractKeyword)
-            && let Some(id) = property.node_id
+            && let Some(id) = property.node_id()
             && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
             let name = declaration_name_text(property.name);
@@ -147,7 +147,7 @@ impl Checker<'_, '_> {
             self.check_constructor_parameter_property_name(parameter);
         }
         if let Node::BigIntLiteral(literal) = typed
-            && let Some(id) = literal.node_id
+            && let Some(id) = literal.node_id()
         {
             self.check_grammar_big_int_literal(id);
         }
@@ -172,7 +172,7 @@ impl Checker<'_, '_> {
         if let Node::ExpressionWithTypeArguments(expression) = typed
             && !expression.type_arguments.is_empty()
             && !self.file_has_parse_errors
-            && let Some(id) = expression.node_id
+            && let Some(id) = expression.node_id()
             && expression
                 .expression
                 .and_then(|inner| inner.node_id())
@@ -210,7 +210,7 @@ impl Checker<'_, '_> {
         // `then` statement.
         if let Node::IfStatement(statement) = typed
             && let Some(Statement::EmptyStatement(empty)) = statement.then_statement
-            && let Some(id) = empty.node_id
+            && let Some(id) = empty.node_id()
             && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
             let span = self.error_span(id);
@@ -223,7 +223,8 @@ impl Checker<'_, '_> {
             );
         }
         if let Node::CatchClause(clause) = typed
-            && let Some(declaration) = clause.variable_declaration.and_then(|d| d.node_id)
+            && let Some(declaration) =
+                clause.variable_declaration.and_then(tsr_ast::VariableDeclaration::node_id)
         {
             self.check_catch_clause_declaration(declaration);
         }
@@ -234,7 +235,7 @@ impl Checker<'_, '_> {
         if let Node::TypeAliasDeclaration(alias) = typed
             && let Some(TypeNode::KeywordTypeNode(keyword)) = alias.r#type
             && keyword.kind == SyntaxKind::IntrinsicKeyword
-            && let Some(id) = keyword.node_id
+            && let Some(id) = keyword.node_id()
         {
             let name = alias.name.map_or("", |name| name.text);
             let allowed = match alias.type_parameters.len() {
@@ -262,7 +263,7 @@ impl Checker<'_, '_> {
         // arms (parameter lookup, rest and binding-pattern references) are
         // not ported here.
         if let Node::TypePredicateNode(predicate) = typed
-            && let Some(id) = predicate.node_id
+            && let Some(id) = predicate.node_id()
             && self.type_predicate_parent(id).is_none()
             && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
@@ -365,9 +366,11 @@ impl Checker<'_, '_> {
         let host = *self.jsdoc_hosts.get(&root)?;
         let candidates: Vec<NodeId> = match self.node_map.get(host)? {
             Node::VariableStatement(statement) => match statement.declaration_list {
-                Some(list) => {
-                    list.declarations.iter().filter_map(|declaration| declaration.node_id).collect()
-                }
+                Some(list) => list
+                    .declarations
+                    .iter()
+                    .filter_map(|declaration| declaration.node_id())
+                    .collect(),
                 None => Vec::new(),
             },
             Node::VariableDeclaration(_) | Node::PropertyDeclaration(_) => vec![host],
@@ -461,12 +464,12 @@ impl Checker<'_, '_> {
         match typed {
             Node::PropertyDeclaration(property) => {
                 if let tsr_ast::PropertyName::BigIntLiteral(literal) = property.name {
-                    names.extend(literal.node_id);
+                    names.extend(literal.node_id());
                 }
             }
             Node::PropertySignatureDeclaration(property) => {
                 if let tsr_ast::PropertyName::BigIntLiteral(literal) = property.name {
-                    names.extend(literal.node_id);
+                    names.extend(literal.node_id());
                 }
             }
             Node::ObjectLiteralExpression(literal) => {
@@ -474,7 +477,7 @@ impl Checker<'_, '_> {
                     if let ObjectLiteralElementLike::PropertyAssignment(assignment) = property
                         && let tsr_ast::PropertyName::BigIntLiteral(name) = assignment.name
                     {
-                        names.extend(name.node_id);
+                        names.extend(name.node_id());
                     }
                 }
             }
@@ -534,7 +537,7 @@ impl Checker<'_, '_> {
         let list = match typed {
             // `checkVariableStatement` (`checker.go:5767`).
             Node::VariableStatement(statement) => {
-                statement.declaration_list.and_then(|list| list.node_id)
+                statement.declaration_list.and_then(tsr_ast::VariableDeclarationList::node_id)
             }
             // `checkForStatement` (`checker.go:3960`) and
             // `checkGrammarForInOrForOfStatement` (`grammarchecks.go:1256`).
@@ -630,7 +633,7 @@ impl Checker<'_, '_> {
                 if matches!(typed, Node::PropertyDeclaration(_))
                     && has_modifier(modifiers, SyntaxKind::AccessorKeyword)
                     && let Some(question) = postfix.filter(|t| t.kind == SyntaxKind::QuestionToken)
-                    && let Some(at) = question.node_id
+                    && let Some(at) = question.node_id()
                 {
                     self.grammar_error_on_node(
                         at,
@@ -665,7 +668,7 @@ impl Checker<'_, '_> {
         let Some(exclamation) = postfix.filter(|t| t.kind == SyntaxKind::ExclamationToken) else {
             return;
         };
-        let Some(at) = exclamation.node_id else { return };
+        let Some(at) = exclamation.node_id() else { return };
         let message = if initializer.is_some() {
             &messages::DECLARATIONS_WITH_INITIALIZERS_CANNOT_ALSO_HAVE_DEFINITE_ASSIGNMENT_ASSERTIONS
         } else if annotation.is_none() {
@@ -737,7 +740,7 @@ impl Checker<'_, '_> {
         } else {
             &messages::A_DEFINITE_ASSIGNMENT_ASSERTION_IS_NOT_PERMITTED_IN_THIS_CONTEXT
         };
-        let Some(at) = exclamation.node_id else { return };
+        let Some(at) = exclamation.node_id() else { return };
         self.grammar_error_on_node(at, message);
     }
 
@@ -763,7 +766,7 @@ impl Checker<'_, '_> {
         if literal || self.is_entity_name_expression(expression.node_id()?) {
             return None;
         }
-        computed.node_id
+        computed.node_id()
     }
 
     /// `Checker.checkThrowStatement`'s grammar arm (`checker.go:4228`): the
@@ -820,7 +823,7 @@ impl Checker<'_, '_> {
         if identifier.text != "async" {
             return;
         }
-        let Some(at) = identifier.node_id else { return };
+        let Some(at) = identifier.node_id() else { return };
         self.grammar_error_on_node(
             at,
             &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_OF_STATEMENT_MAY_NOT_BE_ASYNC,
@@ -1063,7 +1066,7 @@ impl Checker<'_, '_> {
             // `checkObjectLiteral`'s `ast.IsAssignmentTarget(node)`.
             if let ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) = property
                 && shorthand.object_assignment_initializer.is_some()
-                && literal.node_id.is_some_and(|id| {
+                && literal.node_id().is_some_and(|id| {
                     self.assignment_target_kind(id)
                         == crate::expressions::AssignmentTargetKind::None
                 })
@@ -1088,7 +1091,7 @@ impl Checker<'_, '_> {
                         // first modifier), and return. Correction of the
                         // record: this reported a one-byte span (r7-grammar
                         // §58).
-                        if let Some(id) = method.node_id {
+                        if let Some(id) = method.node_id() {
                             self.grammar_error_on_first_token(
                                 id,
                                 &messages::MODIFIERS_CANNOT_APPEAR_HERE,
@@ -1103,7 +1106,7 @@ impl Checker<'_, '_> {
                     // before the method's end, after the `?`/`!` arms.
                     if method.postfix_token.is_none()
                         && method.body.is_none()
-                        && let Some(id) = method.node_id
+                        && let Some(id) = method.node_id()
                         && let Some(file) = self.source_file_of_for_diagnostics(id)
                     {
                         let end = self.nodes.span(id).end;
@@ -1122,7 +1125,7 @@ impl Checker<'_, '_> {
                 _ => continue,
             };
             let Some(token) = postfix else { continue };
-            let Some(id) = token.node_id else { continue };
+            let Some(id) = token.node_id() else { continue };
             let message = match token.kind {
                 SyntaxKind::QuestionToken => {
                     &messages::AN_OBJECT_MEMBER_CANNOT_BE_DECLARED_OPTIONAL
@@ -1143,7 +1146,7 @@ impl Checker<'_, '_> {
     /// type, the postfix `?`/`!`, else the name), where the parser found it.
     /// Declined without a host that can supply the text (r7-grammar §30).
     fn report_shorthand_equals(&mut self, shorthand: &tsr_ast::ShorthandPropertyAssignment<'_>) {
-        if let Some(equals) = shorthand.equals_token.and_then(|token| token.node_id) {
+        if let Some(equals) = shorthand.equals_token.and_then(tsr_ast::Token::node_id) {
             self.grammar_error_on_node(
                 equals,
                 &messages::DID_YOU_MEAN_TO_USE_A_COLON_AN_CAN_ONLY_FOLLOW_A_PROPERTY_NAME_WHEN_THE_CONTAINING_OBJECT_LITERAL_IS_PART_OF_A_DESTRUCTURING_PATTERN,
@@ -1153,7 +1156,7 @@ impl Checker<'_, '_> {
         let before = shorthand
             .r#type
             .and_then(|t| t.node_id())
-            .or_else(|| shorthand.postfix_token.and_then(|token| token.node_id))
+            .or_else(|| shorthand.postfix_token.and_then(tsr_ast::Token::node_id))
             .or_else(|| shorthand.name.node_id());
         let Some(before) = before else { return };
         let Some(file) = self.source_file_of_for_diagnostics(before) else { return };
@@ -1187,7 +1190,7 @@ impl Checker<'_, '_> {
         if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name
             && let Some(Expression::BinaryExpression(binary)) = computed.expression
             && binary.operator_token.is_some_and(|op| op.kind == SyntaxKind::CommaToken)
-            && let Some(id) = binary.node_id
+            && let Some(id) = binary.node_id()
         {
             self.grammar_error_on_node(
                 id,
@@ -1493,7 +1496,7 @@ impl Checker<'_, '_> {
     fn check_catch_clause_block_redeclarations(&mut self, declaration: NodeId) {
         let Some(clause) = self.nodes.parent(declaration) else { return };
         let Some(Node::CatchClause(catch)) = self.node_map.get(clause) else { return };
-        let Some(block) = catch.block.and_then(|block| block.node_id) else { return };
+        let Some(block) = catch.block.and_then(tsr_ast::Block::node_id) else { return };
         let (Some(caught), Some(block_locals)) =
             (self.binder.locals(clause), self.binder.locals(block))
         else {
@@ -1705,7 +1708,7 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let Some(node) = class.node_id else { return };
+        let Some(node) = class.node_id() else { return };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let start = self.nodes.span(node).start;
         // `scanner.GetRangeOfTokenAtPosition(file, node.Pos())`. Without
@@ -1918,10 +1921,10 @@ impl Checker<'_, '_> {
             .iter()
             .filter_map(|modifier| match modifier {
                 ModifierLike::Decorator(decorator) => {
-                    decorator.node_id.map(ModifierEntry::Decorator)
+                    decorator.node_id().map(ModifierEntry::Decorator)
                 }
                 ModifierLike::Token(token) => {
-                    token.node_id.map(|at| ModifierEntry::Modifier { kind: token.kind, at })
+                    token.node_id().map(|at| ModifierEntry::Modifier { kind: token.kind, at })
                 }
             })
             .collect();
@@ -1976,7 +1979,7 @@ impl Checker<'_, '_> {
         let block_scope_kind = match typed {
             Node::VariableStatement(statement) => statement
                 .declaration_list
-                .and_then(|list| list.node_id)
+                .and_then(tsr_ast::VariableDeclarationList::node_id)
                 .map_or(NodeFlags::empty(), |list| {
                     self.nodes.flags(list) & NodeFlags::BLOCK_SCOPED
                 }),
@@ -2893,7 +2896,7 @@ impl Checker<'_, '_> {
                         Node::VariableStatement(statement) => {
                             let using = statement
                                 .declaration_list
-                                .and_then(|list| list.node_id)
+                                .and_then(tsr_ast::VariableDeclarationList::node_id)
                                 .is_some_and(|list| {
                                     self.nodes.flags(list).contains(NodeFlags::USING)
                                 });
@@ -3087,18 +3090,18 @@ impl Checker<'_, '_> {
         let Some(parameter) = parameters.get(usize::from(has_this_parameter)) else {
             return false;
         };
-        if let Some(rest) = parameter.dot_dot_dot_token.and_then(|token| token.node_id) {
+        if let Some(rest) = parameter.dot_dot_dot_token.and_then(tsr_ast::Token::node_id) {
             self.grammar_error_on_node(rest, &messages::A_SET_ACCESSOR_CANNOT_HAVE_REST_PARAMETER);
             return true;
         }
         // A JS accessor's `@param [x]` / `{T=}` is a reparsed `?`
         // (`makeQuestionIfOptional`) located at its tag, as
         // `check_grammar_parameter_list` reads it (ADR-0046; r7-grammar §36).
-        let question = parameter.question_token.and_then(|token| token.node_id).or_else(|| {
+        let question = parameter.question_token.and_then(tsr_ast::Token::node_id).or_else(|| {
             let reparsed = self.jsdoc_reparsed_function(node).parameters;
             let slot =
                 reparsed.get(usize::from(has_this_parameter)).filter(|slot| slot.question)?;
-            slot.tag?.node_id
+            slot.tag?.node_id()
         });
         if let Some(question) = question {
             self.grammar_error_on_node(
@@ -3141,7 +3144,7 @@ impl Checker<'_, '_> {
         };
         let Some(clause) = import.import_clause else { return false };
         let Some(phase) = clause.phase_modifier else { return false };
-        let Some(at) = clause.node_id else { return false };
+        let Some(at) = clause.node_id() else { return false };
         let message = match phase.kind {
             SyntaxKind::TypeKeyword => {
                 if clause.name.is_some() && clause.named_bindings.is_some() {
@@ -3150,7 +3153,7 @@ impl Checker<'_, '_> {
                     clause.named_bindings
                 {
                     let specifiers: Vec<(bool, Option<NodeId>)> =
-                        named.elements.iter().map(|s| (s.is_type_only, s.node_id)).collect();
+                        named.elements.iter().map(|s| (s.is_type_only, s.node_id())).collect();
                     return self.check_grammar_type_only_named_imports_or_exports(
                         &specifiers,
                         &messages::THE_TYPE_MODIFIER_CANNOT_BE_USED_ON_A_NAMED_IMPORT_WHEN_IMPORT_TYPE_IS_USED_ON_ITS_IMPORT_STATEMENT,
@@ -3184,7 +3187,7 @@ impl Checker<'_, '_> {
         // outside the clause's span, so the range is rebuilt from it.
         let end = self.nodes.span(at).end;
         let start =
-            phase.node_id.map_or_else(|| self.nodes.span(at).start, |m| self.nodes.span(m).start);
+            phase.node_id().map_or_else(|| self.nodes.span(at).start, |m| self.nodes.span(m).start);
         self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, end.max(start))));
         true
     }
@@ -3205,7 +3208,7 @@ impl Checker<'_, '_> {
             return false;
         };
         let specifiers: Vec<(bool, Option<NodeId>)> =
-            named.elements.iter().map(|s| (s.is_type_only, s.node_id)).collect();
+            named.elements.iter().map(|s| (s.is_type_only, s.node_id())).collect();
         self.check_grammar_type_only_named_imports_or_exports(
             &specifiers,
             &messages::THE_TYPE_MODIFIER_CANNOT_BE_USED_ON_A_NAMED_EXPORT_WHEN_EXPORT_TYPE_IS_USED_ON_ITS_EXPORT_STATEMENT,
@@ -3309,14 +3312,14 @@ impl Checker<'_, '_> {
                         error_node = Some(node);
                     }
                     if let Some(token) = call.question_dot_token {
-                        error_node = token.node_id;
+                        error_node = token.node_id();
                     }
                     can_have_call_expression = false;
                     call.expression.and_then(|e| e.node_id())
                 }
                 Some(Node::PropertyAccessExpression(access)) => {
                     if let Some(token) = access.question_dot_token {
-                        error_node = token.node_id;
+                        error_node = token.node_id();
                     }
                     can_have_call_expression = false;
                     access.expression.and_then(|e| e.node_id())
@@ -3479,7 +3482,7 @@ impl Checker<'_, '_> {
             WrittenListKind::Parameters,
             &messages::AN_INDEX_SIGNATURE_CANNOT_HAVE_A_TRAILING_COMMA,
         );
-        if let Some(dots) = parameter.dot_dot_dot_token.and_then(|token| token.node_id) {
+        if let Some(dots) = parameter.dot_dot_dot_token.and_then(tsr_ast::Token::node_id) {
             return report(self, dots, &messages::AN_INDEX_SIGNATURE_CANNOT_HAVE_A_REST_PARAMETER);
         }
         if !parameter.modifiers.is_empty() {
@@ -3489,7 +3492,7 @@ impl Checker<'_, '_> {
                 &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_AN_ACCESSIBILITY_MODIFIER,
             );
         }
-        if let Some(question) = parameter.question_token.and_then(|token| token.node_id) {
+        if let Some(question) = parameter.question_token.and_then(tsr_ast::Token::node_id) {
             return report(
                 self,
                 question,
@@ -3600,7 +3603,7 @@ impl Checker<'_, '_> {
             let last =
                 self.nodes.parent(node).and_then(|pattern| match self.node_map.get(pattern) {
                     Some(Node::BindingPattern(pattern)) => {
-                        pattern.elements.last().and_then(|last| last.node_id)
+                        pattern.elements.last().and_then(|last| last.node_id())
                     }
                     _ => None,
                 });

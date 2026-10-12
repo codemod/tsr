@@ -211,7 +211,7 @@ impl Printer<'_> {
                 if let Some(initializer) = &node.initializer {
                     self.for_initializer(initializer);
                 }
-                let in_statement = self.kind_of(node.node_id) == SyntaxKind::ForInStatement;
+                let in_statement = self.kind_of(node.node_id()) == SyntaxKind::ForInStatement;
                 self.write(if in_statement { " in " } else { " of " });
                 if let Some(expression) = &node.expression {
                     self.emit_expression(expression);
@@ -545,7 +545,8 @@ impl Printer<'_> {
                 // source block sat on one line — even if its statements were
                 // filtered away. Bodies whose source braces span lines stay
                 // multiline; empty interface and type-literal bodies always do.
-                if block.statements.is_empty() && self.original_span_is_single_line(block.node_id) {
+                if block.statements.is_empty() && self.original_span_is_single_line(block.node_id())
+                {
                     self.write_punctuation("{");
                     self.write(" ");
                     self.write_punctuation("}");
@@ -600,7 +601,7 @@ impl Printer<'_> {
     /// Ported from `Printer.emitCaseClause`/`emitDefaultClause`
     /// (`internal/printer/printer.go`), which share one node here.
     fn emit_case_or_default_clause(&mut self, clause: &tsr_ast::CaseOrDefaultClause<'_>) {
-        if self.kind_of(clause.node_id) == SyntaxKind::CaseClause {
+        if self.kind_of(clause.node_id()) == SyntaxKind::CaseClause {
             self.write_keyword("case");
             self.write_space();
             if let Some(expression) = &clause.expression {
@@ -878,7 +879,7 @@ fn list_keyword(
     list: &tsr_ast::VariableDeclarationList<'_>,
     nodes: &tsr_ast::NodeTable,
 ) -> &'static str {
-    let Some(id) = list.node_id else { return "var" };
+    let Some(id) = list.node_id() else { return "var" };
     let flags = nodes.flags(id);
     // `ast.IsVarAwaitUsing`: `NodeFlagsAwaitUsing` is `Const | Using`, so it is
     // tested before either alone.

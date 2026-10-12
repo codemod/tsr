@@ -107,7 +107,7 @@ impl Checker<'_> {
             // type comes from the descriptor, which the emitter does not read.
             fn visit_call_expression(&mut self, node: &'a tsr_ast::CallExpression<'a>) {
                 if crate::visibility::is_define_property_on_exports(node) {
-                    self.define_properties.push(node.node_id);
+                    self.define_properties.push(node.node_id());
                 }
                 tsr_ast::visit::walk_call_expression(self, node);
             }
@@ -175,7 +175,7 @@ impl Checker<'_> {
             Statement::VariableStatement(node) => {
                 let Some(list) = node.declaration_list else { return };
                 let is_const = list
-                    .node_id
+                    .node_id()
                     .is_some_and(|id| self.nodes.flags(id).contains(tsr_ast::NodeFlags::CONST));
                 for declaration in list.declarations {
                     self.variable_declaration(declaration, is_const);
@@ -185,7 +185,7 @@ impl Checker<'_> {
                 self.parameters(node.parameters);
                 if node.r#type.is_none() && node.full_signature.is_none() {
                     // TS9007 `Function_must_have_an_explicit_return_type_annotation_with_isolatedDeclarations`.
-                    let span = self.span(node.name.and_then(|n| n.node_id));
+                    let span = self.span(node.name.and_then(tsr_ast::Identifier::node_id));
                     self.report(
                         &messages::FUNCTION_MUST_HAVE_AN_EXPLICIT_RETURN_TYPE_ANNOTATION_WITH_ISOLATEDDECLARATIONS,
                         span,
@@ -257,7 +257,7 @@ impl Checker<'_> {
                     // is what `isolatedDeclarationErrors` exercises. It cannot tell
                     // a function from any other binding, so it is deliberately
                     // scoped to top-level statements only.
-                    let span = self.span(target.node_id);
+                    let span = self.span(target.node_id());
                     self.report(
                         &messages::ASSIGNING_PROPERTIES_TO_FUNCTIONS_WITHOUT_DECLARING_THEM_IS_NOT_SUPPORTED_WITH_ISOLATEDDECLARATIONS_ADD_AN_EXPLICIT_DECLARATION_FOR_THE_PROPERTIES_ASSIGNED_TO_THIS_FUNCTION,
                         span,
@@ -364,7 +364,7 @@ impl Checker<'_> {
             return;
         }
         // TS9013 `Expression_type_can_t_be_inferred_with_isolatedDeclarations`.
-        let span = self.span(method.node_id);
+        let span = self.span(method.node_id());
         self.report(&messages::EXPRESSION_TYPE_CAN_T_BE_INFERRED_WITH_ISOLATEDDECLARATIONS, span);
     }
 
@@ -373,7 +373,7 @@ impl Checker<'_> {
         for element in pattern.elements {
             if element.initializer.is_some() {
                 // TS9019 `Binding_elements_with_initializers_can_t_be_exported_directly_with_isolatedDeclarations`.
-                let span = self.span(element.node_id);
+                let span = self.span(element.node_id());
                 self.report(
                     &messages::BINDING_ELEMENTS_WITH_INITIALIZERS_CAN_T_BE_EXPORTED_DIRECTLY_WITH_ISOLATEDDECLARATIONS,
                     span,
@@ -553,7 +553,7 @@ impl Checker<'_> {
             && !Self::is_restatable_computed_name(expression)
         {
             // TS9038 `Computed_property_names_on_class_or_object_literals_cannot_be_inferred_with_isolatedDeclarations`.
-            let span = self.span(computed.node_id);
+            let span = self.span(computed.node_id());
             self.report(
                 &messages::COMPUTED_PROPERTY_NAMES_ON_CLASS_OR_OBJECT_LITERALS_CANNOT_BE_INFERRED_WITH_ISOLATEDDECLARATIONS,
                 span,
@@ -626,7 +626,7 @@ impl Checker<'_> {
                 && matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(_)))
                 && parameter.initializer.as_ref().is_some_and(asserted_type_could_be_undefined)
             {
-                let span = self.span(parameter.node_id);
+                let span = self.span(parameter.node_id());
                 self.report(
                     &messages::DECLARATION_EMIT_FOR_THIS_PARAMETER_REQUIRES_IMPLICITLY_ADDING_UNDEFINED_TO_ITS_TYPE_THIS_IS_NOT_SUPPORTED_WITH_ISOLATEDDECLARATIONS,
                     span,
@@ -718,7 +718,7 @@ impl Checker<'_> {
             Expression::ArrayLiteralExpression(array) => {
                 if !ctx.asserted {
                     // TS9017 `Only_const_arrays_can_be_inferred_with_isolatedDeclarations`.
-                    let span = self.span(array.node_id);
+                    let span = self.span(array.node_id());
                     self.report(
                         &messages::ONLY_CONST_ARRAYS_CAN_BE_INFERRED_WITH_ISOLATEDDECLARATIONS,
                         span,
@@ -729,7 +729,7 @@ impl Checker<'_> {
                 for element in array.elements {
                     if let Expression::SpreadElement(spread) = element {
                         // TS9018 `Arrays_with_spread_elements_can_t_inferred_with_isolatedDeclarations`.
-                        let span = self.span(spread.node_id);
+                        let span = self.span(spread.node_id());
                         self.report(
                             &messages::ARRAYS_WITH_SPREAD_ELEMENTS_CAN_T_INFERRED_WITH_ISOLATEDDECLARATIONS,
                             span,
@@ -763,7 +763,7 @@ impl Checker<'_> {
 
             Expression::ClassExpression(class) => {
                 // TS9022 `Inference_from_class_expressions_is_not_supported_with_isolatedDeclarations`.
-                let span = self.span(class.node_id);
+                let span = self.span(class.node_id());
                 self.report(
                     &messages::INFERENCE_FROM_CLASS_EXPRESSIONS_IS_NOT_SUPPORTED_WITH_ISOLATEDDECLARATIONS,
                     span,
@@ -815,7 +815,7 @@ impl Checker<'_> {
             }
             ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
                 // TS9016 `Objects_that_contain_shorthand_properties_can_t_be_inferred_with_isolatedDeclarations`.
-                let span = self.span(shorthand.node_id);
+                let span = self.span(shorthand.node_id());
                 self.report(
                     &messages::OBJECTS_THAT_CONTAIN_SHORTHAND_PROPERTIES_CAN_T_BE_INFERRED_WITH_ISOLATEDDECLARATIONS,
                     span,
@@ -823,7 +823,7 @@ impl Checker<'_> {
             }
             ObjectLiteralElementLike::SpreadAssignment(spread) => {
                 // TS9015 `Objects_that_contain_spread_assignments_can_t_be_inferred_with_isolatedDeclarations`.
-                let span = self.span(spread.node_id);
+                let span = self.span(spread.node_id());
                 self.report(
                     &messages::OBJECTS_THAT_CONTAIN_SPREAD_ASSIGNMENTS_CAN_T_BE_INFERRED_WITH_ISOLATEDDECLARATIONS,
                     span,
@@ -903,14 +903,14 @@ impl Checker<'_> {
         // the block-bodied one each time.
         let concise = arrow.body.as_ref().is_some_and(concise_body_is_apparent_literal);
         let annotated = concise || arrow.r#type.is_some() || arrow.full_signature.is_some();
-        self.return_type(annotated, arrow.node_id)
+        self.return_type(annotated, arrow.node_id())
     }
 
     fn function_expression(&mut self, function: &FunctionExpression<'_>) -> Inferability {
         self.parameters(function.parameters);
         self.return_type(
             function.r#type.is_some() || function.full_signature.is_some(),
-            function.node_id,
+            function.node_id(),
         )
     }
 
@@ -960,7 +960,7 @@ fn accessor_key(name: &PropertyName<'_>) -> String {
         PropertyName::BigIntLiteral(literal) => literal.text.to_string(),
         PropertyName::NoSubstitutionTemplateLiteral(literal) => literal.text.to_string(),
         PropertyName::ComputedPropertyName(computed) => {
-            format!("[computed:{:?}]", computed.node_id)
+            format!("[computed:{:?}]", computed.node_id())
         }
     }
 }

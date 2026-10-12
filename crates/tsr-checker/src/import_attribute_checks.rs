@@ -127,7 +127,7 @@ impl Checker<'_, '_> {
             _ => None,
         };
         let Some(attributes) = attributes else { return };
-        let Some(at) = attributes.node_id else { return };
+        let Some(at) = attributes.node_id() else { return };
         let Some(symbol) = self.global_type_symbol_with_arity("ImportAttributes", 0) else {
             return;
         };

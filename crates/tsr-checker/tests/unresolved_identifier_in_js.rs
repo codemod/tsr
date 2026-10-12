@@ -23,9 +23,10 @@ fn is_native_error(source: &str, javascript: bool) -> bool {
     let mut parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     if javascript {
-        parsed
-            .nodes
-            .add_flags(parsed.source_file.node_id.expect("a root id"), NodeFlags::JAVASCRIPT_FILE);
+        parsed.nodes.add_flags(
+            parsed.source_file.node_id().expect("a root id"),
+            NodeFlags::JAVASCRIPT_FILE,
+        );
     }
     let bound = tsr_binder::bind(
         &arena,

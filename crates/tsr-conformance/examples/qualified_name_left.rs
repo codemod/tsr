@@ -134,7 +134,7 @@ fn arm_of(nodes: &NodeTable, map: &NodeMap, id: NodeId) -> Option<Arm> {
         return None;
     }
     let Some(Node::QualifiedName(qualified)) = map.get(parent) else { return None };
-    if qualified.right.and_then(|right| right.node_id) == Some(id) {
+    if qualified.right.and_then(tsr_ast::Identifier::node_id) == Some(id) {
         return Some(Arm::Right);
     }
 

@@ -52,11 +52,11 @@ impl Checker<'_, '_> {
                 // exactly as `this.roProp = ""` is. §385.
                 let (id, text) = match access.name {
                     Some(tsr_ast::MemberName::Identifier(name)) => {
-                        let Some(id) = name.node_id else { return };
+                        let Some(id) = name.node_id() else { return };
                         (id, name.text)
                     }
                     Some(tsr_ast::MemberName::PrivateIdentifier(name)) => {
-                        let Some(id) = name.node_id else { return };
+                        let Some(id) = name.node_id() else { return };
                         (id, name.text)
                     }
                     None => return,
@@ -79,11 +79,11 @@ impl Checker<'_, '_> {
                 // `t[0]` names `"0"` exactly as `t["0"]` does.
                 let (id, text) = match argument {
                     tsr_ast::Expression::StringLiteral(literal) => {
-                        let Some(id) = literal.node_id else { return };
+                        let Some(id) = literal.node_id() else { return };
                         (id, literal.text.to_string())
                     }
                     tsr_ast::Expression::NumericLiteral(literal) => {
-                        let Some(id) = literal.node_id else { return };
+                        let Some(id) = literal.node_id() else { return };
                         let key = self.check_expression(argument);
                         let crate::types::TypeData::NumberLiteral(text) = &self.type_of(key).data
                         else {
@@ -855,7 +855,7 @@ impl Checker<'_, '_> {
     fn check_private_method_assignment(&mut self, node: NodeId) {
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
         let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
-        let Some(at) = name.node_id else { return };
+        let Some(at) = name.node_id() else { return };
         if self.assignment_target_kind(node) == AssignmentTargetKind::None {
             return;
         }
@@ -925,7 +925,7 @@ impl Checker<'_, '_> {
     fn check_private_identifier_access(&mut self, node: NodeId) {
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
         let Some(tsr_ast::MemberName::PrivateIdentifier(name)) = access.name else { return };
-        let Some(at) = name.node_id else { return };
+        let Some(at) = name.node_id() else { return };
         let Some(receiver) = access.expression else { return };
         let text = name.text;
         let lexical = self.lookup_private_declaring_class_for_diagnostic(at, text);
@@ -1190,7 +1190,7 @@ impl Checker<'_, '_> {
             return;
         };
         let text = name.text;
-        let Some(at) = name.node_id else { return };
+        let Some(at) = name.node_id() else { return };
         let Some(nearest) = self.nearest_class_declaring_private_name(node, text) else { return };
         // `checkPrivateIdentifierPropertyAccess` (`checker.go:11494`) reads
         // the receiver's *type*: the class whose instance (or static side)
@@ -1314,7 +1314,7 @@ impl Checker<'_, '_> {
         if !reads || writes {
             return;
         }
-        let Some(at) = name.node_id else { return };
+        let Some(at) = name.node_id() else { return };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.nodes.span(at);
         self.report(
@@ -1456,8 +1456,8 @@ impl Checker<'_, '_> {
 
     fn class_name_text(&self, class: NodeId) -> Option<String> {
         match self.node_map.get(class)? {
-            Node::ClassDeclaration(n) => n.name.and_then(|name| name.node_id),
-            Node::ClassExpression(n) => n.name.and_then(|name| name.node_id),
+            Node::ClassDeclaration(n) => n.name.and_then(tsr_ast::Identifier::node_id),
+            Node::ClassExpression(n) => n.name.and_then(tsr_ast::Identifier::node_id),
             _ => None,
         }
         .and_then(|id| self.identifier_text(id))
@@ -1492,7 +1492,7 @@ impl Checker<'_, '_> {
         let (Some(receiver), Some(member)) = (access.expression, access.name) else { return None };
         // `#x` is TS18013, a different code with its own row.
         let tsr_ast::MemberName::Identifier(name) = member else { return None };
-        let name_id = name.node_id?;
+        let name_id = name.node_id()?;
         let is_super = receiver
             .node_id()
             .is_some_and(|receiver| self.nodes.kind(receiver) == SyntaxKind::SuperKeyword);
@@ -1549,7 +1549,7 @@ impl Checker<'_, '_> {
                 (text, at)
             }
             (None, Some(tsr_ast::BindingName::Identifier(identifier))) => {
-                let Some(at) = identifier.node_id else { return };
+                let Some(at) = identifier.node_id() else { return };
                 (identifier.text.to_string(), at)
             }
             _ => return,
@@ -1982,8 +1982,8 @@ impl Checker<'_, '_> {
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
         let (Some(receiver), Some(member)) = (access.expression, access.name) else { return };
         let (text, right) = match member {
-            tsr_ast::MemberName::Identifier(name) => (name.text, name.node_id),
-            tsr_ast::MemberName::PrivateIdentifier(name) => (name.text, name.node_id),
+            tsr_ast::MemberName::Identifier(name) => (name.text, name.node_id()),
+            tsr_ast::MemberName::PrivateIdentifier(name) => (name.text, name.node_id()),
         };
         let Some(right) = right else { return };
         if !self.is_in_property_initializer_or_class_static_block(node, false) {

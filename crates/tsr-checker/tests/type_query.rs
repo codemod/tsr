@@ -37,7 +37,7 @@ fn type_of_declaration(source: &str, name: &str) -> String {
                 continue;
             }
             let symbol = bound
-                .symbol_of(declaration.node_id.expect("registered"))
+                .symbol_of(declaration.node_id().expect("registered"))
                 .expect("the declaration must be bound");
             let id = checker.get_type_of_symbol(symbol);
             return checker.type_to_string(id);
@@ -158,7 +158,7 @@ fn typeof_a_parameter_prints_as_written_inside_its_signature() {
         panic!("the fixture's second statement is the function");
     };
     let symbol = bound
-        .symbol_of(function.node_id.expect("registered"))
+        .symbol_of(function.node_id().expect("registered"))
         .expect("the declaration must be bound");
     let id = checker.get_type_of_symbol(symbol);
     assert_eq!(
@@ -192,7 +192,7 @@ fn typeof_in_parameter_position_prints_as_written_too() {
         panic!("the fixture's second statement is foo15");
     };
     let symbol = bound
-        .symbol_of(function.node_id.expect("registered"))
+        .symbol_of(function.node_id().expect("registered"))
         .expect("the declaration must be bound");
     let id = checker.get_type_of_symbol(symbol);
     assert_eq!(checker.type_to_string(id), "{ (x: typeof f): typeof f; (x: any): any; }");

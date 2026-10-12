@@ -106,7 +106,7 @@ fn identity_removal_uses_source_optionality_and_not_non_nullability() {
                         &parsed.nodes,
                         tsr_binder::FileInfo { name: "probe.ts", text: &source },
                     );
-                    let locals = bound.locals(parsed.source_file.node_id.unwrap()).unwrap();
+                    let locals = bound.locals(parsed.source_file.node_id().unwrap()).unwrap();
                     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
                     checker.apply_compiler_options(&CompilerOptions {
                         strict: Tristate::from_bool(strict),

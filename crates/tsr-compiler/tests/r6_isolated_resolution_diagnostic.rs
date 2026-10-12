@@ -39,7 +39,7 @@ fn codes(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<u3
             ..Default::default()
         },
     );
-    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
+    let id = program.source_file(file).expect("loaded").source_file().node_id().expect("id");
     let mut checker = tsr_checker::Checker::with_module_host(
         program.binder(),
         program.nodes(),

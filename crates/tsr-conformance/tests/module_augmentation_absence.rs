@@ -35,7 +35,7 @@ fn merged_augmentation_proves_function_relation() {
                 let arena = Arena::new();
                 let program = types_producer::program_for_case(&arena, &case);
                 let mut checker = types_producer::configured_checker(&program);
-                let root = program.source_file("mod.ts").unwrap().source_file().node_id.unwrap();
+                let root = program.source_file("mod.ts").unwrap().source_file().node_id().unwrap();
                 let owner = program.binder().symbol_of(root).unwrap();
                 let entry = program.binder().symbols().get(owner);
                 // Native merges the augmentation into the module symbol

@@ -37,7 +37,7 @@ fn assignment_sites(
         &mut nodes,
         &mut map,
     );
-    let root = parsed.source_file.node_id.expect("registered source file");
+    let root = parsed.source_file.node_id().expect("registered source file");
     // Parsing a JS dialect alone does not stamp the compiler loader's flag.
     if std::path::Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("js")) {
         nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);

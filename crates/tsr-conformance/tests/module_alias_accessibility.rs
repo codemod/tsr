@@ -26,12 +26,12 @@ fn reads(
     let arena = Arena::new();
     let program = types_producer::program_for_case(&arena, &case);
     let file = program.source_file("use.ts").expect("consumer");
-    let file_id = file.source_file().node_id.expect("file id");
+    let file_id = file.source_file().node_id().expect("file id");
     let mut checker = types_producer::configured_checker(&program);
     checker.set_checked_files(vec![file_id]);
     let module = program
         .binder()
-        .symbol_of(program.source_file("mod.ts").expect("module").source_file().node_id.unwrap())
+        .symbol_of(program.source_file("mod.ts").expect("module").source_file().node_id().unwrap())
         .expect("module symbol");
     let thing = *program.binder().symbols().get(module).exports.get("Thing").expect("class");
     let instance = checker.get_declared_type_of_symbol(thing);

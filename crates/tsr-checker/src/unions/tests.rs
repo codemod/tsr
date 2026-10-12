@@ -65,7 +65,7 @@ fn ordinary_undefined_dominates_missing_only_in_reduced_unions() {
                         &parsed.nodes,
                         tsr_binder::FileInfo { name: "probe.ts", text: source },
                     );
-                    let locals = bound.locals(parsed.source_file.node_id.unwrap()).unwrap();
+                    let locals = bound.locals(parsed.source_file.node_id().unwrap()).unwrap();
                     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
                     checker.apply_compiler_options(&CompilerOptions {
                         strict: Tristate::from_bool(strict),
@@ -74,7 +74,7 @@ fn ordinary_undefined_dominates_missing_only_in_reduced_unions() {
                     });
                     if diagnostics_first {
                         checker.check_source_file(
-                            parsed.source_file.node_id.unwrap(),
+                            parsed.source_file.node_id().unwrap(),
                             crate::check::FileContext { ambient: false, has_parse_errors: false },
                         );
                     }

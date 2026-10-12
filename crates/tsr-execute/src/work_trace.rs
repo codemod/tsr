@@ -216,7 +216,7 @@ impl WorkTrace {
             },
         }));
         for (file_id, file) in program.source_files().iter().enumerate() {
-            let source_node_id = file.source_file().node_id.map(NodeId::as_u32);
+            let source_node_id = file.source_file().node_id().map(NodeId::as_u32);
             if let Some(node_id) = source_node_id {
                 state.file_ids.insert(node_id, file_id);
             }

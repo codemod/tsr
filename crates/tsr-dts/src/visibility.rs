@@ -843,7 +843,7 @@ impl<'a> ReferenceCollector<'a> {
 
 impl<'a> ReferenceCollector<'a> {
     fn declares(&mut self, name: Option<&tsr_ast::Identifier<'a>>) {
-        if let Some(id) = name.and_then(|name| name.node_id) {
+        if let Some(id) = name.and_then(tsr_ast::Identifier::node_id) {
             self.declaring.insert(id);
         }
     }
@@ -857,7 +857,7 @@ impl<'a> ReferenceCollector<'a> {
 
 impl<'a> Visit<'a> for ReferenceCollector<'a> {
     fn visit_identifier(&mut self, node: &'a tsr_ast::Identifier<'a>) {
-        if node.node_id.is_some_and(|id| self.declaring.contains(&id)) {
+        if node.node_id().is_some_and(|id| self.declaring.contains(&id)) {
             return;
         }
         self.record_name(node.text);
