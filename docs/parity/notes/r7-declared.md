@@ -1972,3 +1972,30 @@ that relies on a side table keyed by the declared intersection's own
 diagnostics 0 / 0; jsTyping **102 → 100** (the BindableStatic lines),
 new_false 0; Ir gi 0.9998, dm 0.9999; exact oracle +2
 (declarationEmitExactOptionalPropertyTypesNodeNotReused, both variants), 0 lost.
+
+## 59. An instantiated access to a missing property is `unknown`
+
+**Forcing constraint.** limitDeepInstantiations 0:3: `type Foo<T extends
+"true", B> = { "true": Foo<T, Foo<T, B>> }[T]` records `>f2 : unknown` for
+`let f2: Foo<"false", {}>`; TSR kept the alias name. At the declaration
+the access is generic (index `T`) and defers. getTypeAliasInstantiation
+instantiates it with `T = "false"`, and getIndexedAccessTypeEx
+(checker.go:26927) runs with no access node: getPropertyTypeForIndexType
+finds no `"false"` property and no index signature and answers nil without
+reporting, and the nil becomes `unknownType`. (With a node, at the
+declaration, the same miss is errorType and TS2339.) The same holds for
+`type G<K extends string> = { a: 1 }[K]` at `G<"b">`.
+
+**Port.** The IndexedAccessTypeNode arm, once `resolved_indexed_access_type`
+and the tuple arm decline, asks `instantiated_missing_property_access`. It
+answers `unknown` only under an alias-evaluation frame (an instantiation),
+for a non-generic object whose every literal key either names a property
+or has no applicable index signature, with at least one key missing, and
+only when the object or index node names a parameter of the frame (the
+access was generic at the declaration). A JS file declines
+(isJSLiteralType answers `any` there). A receiver whose member table is not
+known declines. No state.
+
+**Measured** (unfiltered, against §58 on `1e4a24d9`): types **+1, 0
+lost** (limitDeepInstantiations 0:3); diagnostics 0 / 0; jsTyping 0 / 0;
+Ir gi 0.9999, dm 1.0001; exact oracle: see the stack's tip verification.

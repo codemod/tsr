@@ -545,3 +545,14 @@ fn a_captured_intersection_placeholder_completes_in_place() {
          const x = n;\n";
     assert_eq!(type_of_last_initializer(source), "Element");
 }
+
+/// §59: instantiating an access that was generic at its alias's
+/// declaration, at a key the object lacks, is `unknown` (tsgo:
+/// `type G<K extends string> = { a: 1 }[K]` at `G<"b">`).
+#[test]
+fn an_instantiated_missing_property_access_is_unknown() {
+    let source = "type G<K extends string> = { a: 1 }[K];\n\
+         declare const g: G<\"b\">;\n\
+         const x = g;\n";
+    assert_eq!(type_of_last_initializer(source), "unknown");
+}

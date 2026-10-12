@@ -1195,6 +1195,11 @@ impl<'a> Checker<'a, '_> {
                     {
                         return t;
                     }
+                    if let Some(unknown) =
+                        self.instantiated_missing_property_access(node, object, index)
+                    {
+                        return unknown;
+                    }
                 }
                 // §620: the CONCRETE arm, ahead of the deferred one. The road
                 // below prints `T[K]` as written for a type-PARAMETER index and
@@ -12240,6 +12245,86 @@ impl<'a> Checker<'a, '_> {
             self.alias_evaluated_types.insert(evaluated);
         }
         result
+    }
+
+    /// getIndexedAccessTypeEx (checker.go:26927) without an access node: a
+    /// property name the object does not have, and no index signature for
+    /// it, is `unknown`. That is the instantiation of an access that was
+    /// generic when its alias was declared (`type G<K extends string> = { a:
+    /// 1 }[K]` at `G<"b">`; limitDeepInstantiations' `Foo<"false", {}>`):
+    /// instantiateType passes no access node, so nothing is reported and
+    /// getIndexedAccessTypeOrUndefined's nil becomes `unknown`. An access
+    /// whose operands mention no parameter of the alias frame being evaluated
+    /// was resolved, with its node, at the declaration (errorType and TS2339),
+    /// and keeps that answer (r7-declared §59). A JS file's literal object is
+    /// `any` there (isJSLiteralType), not handled here.
+    fn instantiated_missing_property_access(
+        &mut self,
+        node: &tsr_ast::IndexedAccessTypeNode<'a>,
+        object: TypeId,
+        index: TypeId,
+    ) -> Option<TypeId> {
+        if self.alias_evaluation_bindings.is_empty()
+            || node.node_id.is_some_and(|id| self.in_js_file(id))
+            || self.is_error(object)
+            || self.is_error(index)
+            || !self.store.get(object).flags.contains(TypeFlags::OBJECT)
+            || self.is_generic_type(object)
+            || self.indexed_access_index_is_generic(index)
+        {
+            return None;
+        }
+        let keys = match &self.store.get(index).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![index],
+        };
+        let apparent = self.apparent_type(object);
+        let mut missing = false;
+        for key in keys {
+            let name = self.property_name_from_index(key)?;
+            if self.get_property_of_type(apparent, &name).is_some() {
+                continue;
+            }
+            if self.get_applicable_index_info(apparent, key).is_some()
+                || self.get_index_infos_of_type(apparent).is_none()
+            {
+                return None;
+            }
+            missing = true;
+        }
+        let mentions = [node.object_type, node.index_type]
+            .into_iter()
+            .flatten()
+            .filter_map(|operand| tsr_ast::Node::from(operand).node_id())
+            .any(|operand| self.subtree_mentions_frame_parameter(operand, 0));
+        (missing && mentions).then_some(self.intrinsics.unknown)
+    }
+
+    /// Whether a type node's subtree names a type parameter bound in one of
+    /// the alias-evaluation frames.
+    fn subtree_mentions_frame_parameter(&self, node: NodeId, depth: u32) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let Some(typed) = self.node_map.get(node) else { return false };
+        if let Node::TypeReferenceNode(reference) = typed
+            && let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
+            && let Some(symbol) = name.node_id.and_then(|id| {
+                self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    name.text,
+                    SymbolFlags::TYPE,
+                )
+            })
+            && self.alias_evaluation_bindings.iter().any(|frame| frame.contains_key(&symbol))
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        children.into_iter().any(|child| self.subtree_mentions_frame_parameter(child, depth + 1))
     }
 
     /// The literal-key texts of a string-literal union (or single literal, or
