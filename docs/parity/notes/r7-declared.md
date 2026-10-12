@@ -1776,3 +1776,226 @@ diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 1.0000, dm 1.0002, exact oracle
 0 / 0. No corpus row reaches the three causes alone (keyRemappingKeyofResult
 needs the routed relation); kept for the prints above, which match native,
 and as §56's base.
+
+## 55. A reference to a non-conditional alias does not resolve its arguments for the conditional evaluator
+
+**Forcing constraint.** conformance/types/keyof/keyofAndIndexedAccess2 is
+the exact oracle's remaining TSR_TIMEOUT (60 s; native 156 ms), routed
+from r7-perf (`r7-perf.md`). Its trigger is four lines (#30920):
+
+```ts
+type StrictExtract<T, U> = T extends U ? U extends T ? T : never : never;
+type StrictExclude<T, U> = T extends StrictExtract<T, U> ? never : T;
+type A<T> = { [Q in { [P in keyof T]: P; }[keyof T]]: T[Q]; };
+type B<T, V> = A<{ [Q in keyof T]: StrictExclude<B<T[Q], V>, {}>; }>;
+```
+
+Native declares `B<T, V>` at once, because `A<…>` is a mapped instantiation
+whose template and members resolve on demand. TSR re-entered `B` with a
+longer `T` (`T[Q][Q]…`) at every level up to the 100-deep instantiation
+guard, fanning out three conditional evaluations per level, and took 40 s
+on the four lines. The backtrace cycle was:
+
+`evaluate_conditional_alias(B)` → `evaluate_conditional_alias_reference`
+resolved `A<…>`'s argument (the mapped type, whose template evaluates
+`StrictExclude<B<T[Q], V>, {}>`, whose check is `B<T[Q], V>`) before it
+asked whether `A` is a conditional at all. `A`'s body is a mapped type, so
+`evaluate_conditional_alias(A, …)` answers `None` whatever the arguments
+are.
+
+**Port.** `evaluate_conditional_alias_reference` returns `None` before
+resolving the arguments when `alias_chain_reaches_conditional` (the
+evaluator's own dispatch walk, over syntax only) says the target's chain
+ends elsewhere. The answer is unchanged; only the wasted resolution goes.
+No state.
+
+**Refused: a re-entry guard on `evaluate_alias_body`.** On `6559089e`, a
+second cycle went through the relater's alias image (`evaluate_alias_body(B,
+longer T)` from inside B's own evaluation), and a per-alias re-entry
+decline there (§10's union-body guard, widened) was needed too. That guard
+cost **19 rows** (deeplyNestedMappedTypes 10, a nested `Static<…>`;
+excessPropertyCheckIntersectionWithRecursiveType 9, a recursive
+`BuildTree<…>`), whose nested same-alias instances native does resolve when
+they are printed or related. On `1e4a24d9` the chain check alone ends the
+recursion (the four lines in 0.06 s, the whole case in 0.07 s) and the 19
+rows keep their answers, so the guard is not built.
+
+**Measured** (unfiltered, against §52–§54 on `1e4a24d9`): types 0 / 0,
+diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 1.0000, dm 0.9999; exact oracle
++1 (mappedTypes4), 0 lost. keyofAndIndexedAccess2 itself stays WRONG on
+other rows (it was TSR_TIMEOUT before §52–§53 on `6559089e`); its run is
+0.07 s.
+
+## 56. A symbol-keyed member of a mapped type takes its source member's written name
+
+**Forcing constraint.** jsTyping's `resolutionCache.ts` 460/463 report
+TS2345 where tsgo reports nothing (r7-perf §32's `Readonly<array
+intersection>` cluster, routed here). Reduced:
+
+```ts
+type P = string[] & { __b: any };
+declare const r: Readonly<P>;
+declare function g(x: readonly string[]): void;
+g(r);   // tsgo: no error; TSR: TS2345
+```
+
+`Readonly<P>` is instantiateAnonymousType over the intersection
+(isArrayOrTupleOrIntersection needs every constituent to be an array), so
+its members are the intersection's, `[Symbol.iterator]` and
+`[Symbol.unscopables]` among them. TSR's member image had neither, so
+`ReadonlyArray<string>`'s `[Symbol.iterator]` was missing. Three gaps:
+
+1. The composite key walk (`composite_modifiers_property_names`) listed
+   binder members only; late-bound members are not among them (§54's gap
+   on the composite path).
+2. The template `P[K]` at `K = typeof Symbol.iterator` answered `error`:
+   `resolved_indexed_access_type` named only string, number and enum keys.
+   `string[][typeof Symbol.iterator]` was `error` too (native `() =>
+   ArrayIterator<string>`).
+3. A mapped member keyed by a unique symbol took the escaped name
+   (`__@iterator@id`, §54), while the written member it maps, and every
+   reader that matches by name (the relater's property walk among them),
+   use the written `[Symbol.iterator]`. Native's member and source share
+   one escaped name, so they always meet.
+
+**Port.** (1) the composite walk appends each part's late-bound names, as
+§54's single-source walk does. (2) `resolved_indexed_access_type` asks
+`unique_symbol_property_type` once no name matched;
+`written_unique_symbol_member_name` (split out of it) reads an
+intersection through its first constituent that declares the key. (3) In
+`resolve_mapped_type_members_worker`, a unique-symbol key that names a
+written member of the modifiers type takes that member's name, links its
+optional and readonly modifiers, and prints it as written
+(`[Symbol.iterator]`, native's `symbolToExpression` chain). A key with no
+written source member keeps §54's escaped name. No state.
+
+**Alternatives.** Making the relater match the escaped name to a written
+one would leave the member printed `[iterator]` (native prints
+`[Symbol.iterator]`) and is outside this lane. The written-name choice is
+the convention the rest of the port already reads (`r6-accessible.md` §4).
+
+**Measured** (unfiltered, against §55 on `1e4a24d9`): types **+2, 0
+lost** (extractInferenceImprovement 0:35, 0:37); diagnostics **+2 cases,
+0 lost** (extractInferenceImprovement, mappedTypeWithAsClauseAndLateBoundProperty);
+jsTyping **104 → 102** (the two resolutionCache.ts lines), new_false 0;
+Ir gi 0.9999, dm 1.0001; exact oracle +1 (extractInferenceImprovement),
+0 lost.
+
+## 57. A linked mapped member reuses its source property's annotation
+
+**Forcing constraint.** Over `interface M { a?: number; c?: { x: 1 } }`,
+native prints `DeepReadonly<M>` as `{ readonly a?: number; readonly c?: {
+readonly x: 1; } | undefined; }`; TSR printed `readonly a?: number |
+undefined`. addPropertyToElementList (`nodebuilderimpl.go:2486`) serializes
+a property through serializeTypeForDeclaration(nil, propertyType,
+propertySymbol), whose first arm reuses the symbol's declaration
+annotation when getTypeFromTypeNode of it is the property's type, with
+`undefined` stripped for an optional one. A homomorphic mapped symbol
+carries its source property's declarations, so `a`, whose mapped type is
+the source's `number | undefined`, reuses `number`; `c`'s type is
+transformed and prints in full. The bench's `DeepReadonly<ModelNNN>`
+records the same shape (`updatedAt?: number`, `email?: string`).
+
+**Port.** At a print site (`mapped_object_text_at`, the renderer a
+`.types` line and a diagnostic use), `mapped_property_member` asks
+`reused_property_type_text` (the port's one property-slot reuse decision,
+node_reuse.rs) with the member's origin before it prints the type. The
+creation-time text keeps the type's print: native asks only when it
+prints, and asking while the mapped type is still being built resolved the
+origin's own type mid-construction. With §56's symbol members that broke
+`interface NodeArray<T> extends ReadonlyArray<T>`: `NodeArray<Statement>`
+lost `[Symbol.unscopables]` (whose annotation is the mapped `{ [K in keyof
+readonly any[]]?: boolean }` being built) and jsTyping gained 570 false
+TS2741/TS2345 lines. The test resolves the annotation, and
+this port bakes a mapped object's text when the annotation's mapped type
+is built, so an annotation whose members include the property itself
+(`readonly [Symbol.unscopables]: { [K in keyof any[]]?: boolean }`, which
+§56 made a mapped member) re-entered the test without bound. A re-entry
+for the same origin declines and prints the type. Key: the origin symbol;
+owner: `instantiation_expressions.mapped_reuse_in_progress`; inserted
+around the test.
+
+**Measured** (unfiltered, against §56 on `1e4a24d9`): types **+6, 0
+lost** (declarationEmitExactOptionalPropertyTypesNodeNotReused, both
+variants, 0:9–0:11); diagnostics 0 / 0; jsTyping 102 → 102, new_false 0;
+Ir gi 1.0000, dm 1.0000; exact oracle 0 / 0 (the two cases turn exact
+with §58's run).
+
+## 58. An intersection alias's placeholder is completed with its declared type
+
+**Forcing constraint.** jsTyping's BindableStatic false line, routed from
+r7-perf as a parity bug. Reduced:
+
+```ts
+interface Expression { _expressionBrand: any }
+interface Identifier extends Expression { _identifierBrand: any }
+interface ElementAccessExpression extends Expression { readonly expression: Expression }
+type Element = ElementAccessExpression & { readonly expression: Name };
+type Name = Identifier | Element;
+export declare const n: Exclude<Name, Identifier>;
+export const k: number = n;   // tsgo: Type 'Element' is not assignable to type 'number'.
+```
+
+TSR reported `'Name'` and declared `n : Exclude<Name, Identifier>`; with
+the two aliases swapped it agreed with tsgo. Native resolves the type
+literal's member `expression: Name` lazily, so declaring `Element` never
+resolves `Name`. This port resolves it inside `Element`'s resolution: `Name`'s
+union then meets `Element` while it is on the stack and takes §29's NAME
+placeholder, a member-less mint, and `Name`'s declared type keeps it.
+`Exclude` distributes over `Identifier | <placeholder>`, cannot relate the
+placeholder to `Identifier`, and declines.
+
+§7 already completes such a placeholder in place once the alias's declared
+type is published (`complete_alias_placeholder`, `TypeStore::complete_object`),
+but only for a type-literal body, whose declared type is the literal's
+members-symbol mint.
+
+**Port.** `complete_alias_placeholder` also completes the placeholder when
+the declared type is the alias's own intersection (`TypeData::Intersection`
+whose alias symbol is the alias, getTypeFromIntersectionTypeNode's alias).
+The placeholder then carries the intersection's constituents and alias, so
+the captured union distributes over it as native's does over the declared
+type. Key and owner are unchanged (`alias_placeholders`, written once when
+the declared type completes).
+
+**Alternatives.** Resolving type-literal members lazily is native's shape,
+but member types are resolved where a literal is minted (its text is fixed
+then), so that is outside this lane. Declining to cache `Name` when its
+resolution captured a placeholder would rebuild `Name` later with a new
+identity, while `Element`'s member would still hold the first one.
+
+**How we would know we were wrong.** A reader of the completed placeholder
+that relies on a side table keyed by the declared intersection's own
+`TypeId`. It would answer for the placeholder as for an unknown type.
+
+**Measured** (unfiltered, against §57 on `1e4a24d9`): types 0 / 0;
+diagnostics 0 / 0; jsTyping **102 → 100** (the BindableStatic lines),
+new_false 0; Ir gi 0.9998, dm 0.9999; exact oracle +2
+(declarationEmitExactOptionalPropertyTypesNodeNotReused, both variants), 0 lost.
+
+## 59. An instantiated access to a missing property is `unknown`
+
+**Forcing constraint.** limitDeepInstantiations 0:3: `type Foo<T extends
+"true", B> = { "true": Foo<T, Foo<T, B>> }[T]` records `>f2 : unknown` for
+`let f2: Foo<"false", {}>`; TSR kept the alias name. At the declaration
+the access is generic (index `T`) and defers. getTypeAliasInstantiation
+instantiates it with `T = "false"`, and getIndexedAccessTypeEx
+(checker.go:26927) runs with no access node: getPropertyTypeForIndexType
+finds no `"false"` property and no index signature and answers nil without
+reporting, and the nil becomes `unknownType`. (With a node, at the
+declaration, the same miss is errorType and TS2339.) The same holds for
+`type G<K extends string> = { a: 1 }[K]` at `G<"b">`.
+
+**Port.** The IndexedAccessTypeNode arm, once `resolved_indexed_access_type`
+and the tuple arm decline, asks `instantiated_missing_property_access`. It
+answers `unknown` only under an alias-evaluation frame (an instantiation),
+for a non-generic object whose every literal key either names a property
+or has no applicable index signature, with at least one key missing, and
+only when the object or index node names a parameter of the frame (the
+access was generic at the declaration). A JS file declines
+(isJSLiteralType answers `any` there). A receiver whose member table is not
+known declines. No state.
+
+**Measured** (unfiltered, against §58 on `1e4a24d9`): types **+1, 0
+lost** (limitDeepInstantiations 0:3); diagnostics 0 / 0; jsTyping 0 / 0;
+Ir gi 0.9999, dm 1.0001; exact oracle: see the stack's tip verification.
