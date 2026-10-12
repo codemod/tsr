@@ -533,3 +533,24 @@ const { a } = require("./index");
     );
     assert_has(&lines, &["require(\"./index\") : typeof import(\"./index\")"]);
 }
+
+/// r7-printer §50: a namespace an ambient module's `export =` names is the
+/// module itself in the chain (`getSymbolChain`'s `export =` arm).
+#[test]
+fn an_ambient_export_equals_namespace_is_its_module() {
+    let lines = assertions(
+        "probe/ambient_export_equals_namespace",
+        r#"// @filename: react.d.ts
+declare module "react" {
+    export = React;
+    namespace React {
+        type ComponentType<P = {}> = { props: P };
+        const Fragment: ComponentType;
+    }
+}
+// @filename: index.ts
+import { Fragment } from "react";
+"#,
+    );
+    assert_has(&lines, &["Fragment : import(\"react\").ComponentType<{}>"]);
+}

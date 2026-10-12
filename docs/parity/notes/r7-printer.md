@@ -1783,3 +1783,33 @@ node in the probe), whereas native caches it on the node's links. The
 port's identity relation answers `Unknown` for two such conditionals, so
 the predicate is serialized without its parentheses. The cause is in the
 conditional type node's construction (declared.rs); routed.
+
+## 50. A namespace an ambient module's `export =` names is that module
+
+**Forcing constraint.** `jsxFragmentFactoryNoUnusedLocals`: with
+`react16.d.ts` (`declare module "react" { export = React; namespace React {
+… } }`), native prints `Fragment : import("react").ComponentType<{}>` and
+every `createElement` overload slot `import("react").InputHTMLAttributes<…>`.
+The port printed `import("react").React.ComponentType<{}>`.
+
+**Cause.** `getSymbolChain` (`nodebuilderimpl.go:1087`) climbs from
+`ComponentType` to its container `React`, and from `React` to the module
+`"react"`. Since the module's `export =` is the same reference as `React`
+(`getSymbolIfSameReference`), the parent chain replaces `React` itself
+(`:1117`), and the chain is `["react", ComponentType]`. §18 ported that
+shortcut for a namespace declared in a file module. Here the binder gives
+`React` the ambient module as its parent, so `symbol_chain`'s ambient arm
+wrote `import("react").` and the namespace step appended `React.`.
+
+**The port.** At the namespace-parent step, a container no in-scope name
+reaches (`best_name`) that an ambient module's `export =` resolves to
+(`ambient_module_exporting`, comparing through `resolve_symbol` as
+`getSymbolIfSameReference` does) is written as the module itself,
+`import("<name>").`. No cache or table.
+
+**A test expectation corrected to native.** `jsx_context_inference.rs`'s
+`canonical_type_names_preserve_default_scope_shadows_and_clone_identity`
+expected `markedSlot` as `import("marked").Marked.Pair<string, number>`.
+Pinned native, run on that test's own `TYPE_NAMING_SOURCE`, prints
+`markedSlot : import("marked").Pair<string, number>` (`Marked` is the
+module's `export =`). The expectation now reads native's line.

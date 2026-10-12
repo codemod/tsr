@@ -177,7 +177,7 @@ fn canonical_type_names_preserve_default_scope_shadows_and_clone_identity() {
                     "cloneValueSlot" => Some("typeof Clone"),
                     // The TYPE reader must not open VALUE or unsupported default naming.
                     "sourceValueSlot" => None,
-                    "markedSlot" => Some("import(\"marked\").Marked.Pair<string, number>"),
+                    "markedSlot" => Some("import(\"marked\").Pair<string, number>"),
                     "directSlot" => Some("Pair<string, number>"),
                     _ => unreachable!(),
                 };

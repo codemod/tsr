@@ -3894,6 +3894,17 @@ impl<'a, 'n> Checker<'a, 'n> {
                 None => format!("import({specifier})."),
             });
         }
+        // r7-printer §50: the same `export =` shortcut for a namespace an
+        // AMBIENT module's `export =` names (`declare module "react" {
+        // export = React; namespace React { … } }`): the namespace is its
+        // module, so the segment is `import("react").`, not
+        // `import("react").React.`.
+        if self.best_name(parent, reference).is_none()
+            && let Some(module) = self.ambient_module_exporting(parent)
+        {
+            let name = tsr_core::strip_quotes(self.binder.symbols().get(module).name);
+            return Some(format!("import({}).", crate::printing::quote(name)));
+        }
         // The RENAME applies to chain *segments* too (`§10.9`'s 67-line
         // residue): a chain rooted at `__React` prints under the innermost
         // accessible name for that segment — `React.Component`, not
@@ -4142,6 +4153,35 @@ impl<'a, 'n> Checker<'a, 'n> {
             return None;
         }
         Some(symbols.get(root).name.to_string())
+    }
+
+    /// r7-printer §50: the ambient module (`declare module "m" { … }`) whose
+    /// `export =` resolves to `symbol`, a declaration of its module block:
+    /// `getSymbolChain`'s `export =` arm (`nodebuilderimpl.go:1117`) then makes
+    /// the module the whole chain for `symbol`.
+    fn ambient_module_exporting(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+        let target = self.binder.merged_symbol(symbol);
+        let declarations = self.binder.symbols().get(target).declarations.to_vec();
+        for declaration in declarations {
+            let Some(block) = self.nodes.parent(declaration) else { continue };
+            if self.nodes.kind(block) != SyntaxKind::ModuleBlock {
+                continue;
+            }
+            let Some(module) = self.nodes.parent(block).and_then(|m| self.binder.symbol_of(m))
+            else {
+                continue;
+            };
+            let module = self.binder.merged_symbol(module);
+            // `getSymbolIfSameReference(exported, symbol)`: both through
+            // `resolveSymbol`.
+            if self.is_ambient_module(module)
+                && let Some(&exported) = self.binder.symbols().get(module).exports.get("export=")
+                && self.binder.merged_symbol(self.resolve_symbol(exported)) == target
+            {
+                return Some(module);
+            }
+        }
+        None
     }
 
     /// r7-printer §40: the type of a type literal that is a type alias's body
