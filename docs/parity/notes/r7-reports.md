@@ -3042,3 +3042,16 @@ another lane's). Quick oracles over `ynamic` and `omputed`: 0 lost.
   (`intersectionPropertyCheck`'s second line).
 - **Measured.** Quick oracles over `ntersection`, `rivate`, `eneric` and
   `bject`: 0 lost.
+
+## 114. `never` targets are leaves
+
+`isSimpleTypeRelatedTo` fails every source against `never`, and no
+structural arm reports below. Under callback comparison,
+`genericRestTypes`' `[x: string, ...rest: T] → never` (the rest type at
+position 0 against `...args: never`) ends with `Type '[x: string, ...rest:
+T]' is not assignable to type 'never'.`. The retrace had declined for a
+tuple source. A union source keeps the each-type arm: native reports its
+first constituent (`narrowingUnionToNeverAssigment`'s `Type '"c"' is not
+assignable to type 'never'.`), and a first version of this arm that came
+ahead of the union arm lost that case in a quick oracle. Quick oracles over
+`ever`, `estParam` and `allback`: 0 lost.
