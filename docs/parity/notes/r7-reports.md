@@ -1902,3 +1902,14 @@ against c49 read 3 gained and 0 lost (`checkJsdocTypeTag5`,
   non-abstract constructor type.` (`classAbstractAssignabilityConstructorFunction`).
   `constructorVisibilitiesAreCompatible` (private and protected
   constructors) is not retraced.
+
+## 59. Correction to §51: an unreadable optionality does not decline
+
+§51's optional-member check read both sides' optionality with `?`. For an
+apparent member the source does not own (`constructor` on an interface
+against `Object`), `chain_property_is_optional(source, …)` has no answer,
+so every explanation that reached such a member *after* a related pair
+was abandoned. `I → Object` lost `The types returned by 'toString()'…`.
+The check now applies only when both answers are known (source optional,
+target required). This is a fix to §51 as committed; the c50 measurement
+(+18) included the defect.

@@ -6386,9 +6386,11 @@ impl Checker<'_, '_> {
                 self.get_property_of_type(target, name).is_some_and(|symbol| {
                     self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS_MEMBER)
                 });
+            // An unreadable optionality (an apparent member the source does
+            // not own) is not the optional arm's.
             if target_class_member
-                && self.chain_property_is_optional(source, name)?
-                && !self.chain_property_is_optional(target, name)?
+                && self.chain_property_is_optional(source, name) == Some(true)
+                && self.chain_property_is_optional(target, name) == Some(false)
             {
                 let source_text = self.type_to_string(source);
                 let target_text = self.type_to_string(target);
