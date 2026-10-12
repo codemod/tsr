@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1852/1928 (96.06%)
-Assertion lines: 78117/78552 (99.45%)  — a gradient, not a pass rate
-Failed         : 76
+Passed         : 1853/1928 (96.11%)
+Assertion lines: 78120/78552 (99.45%)  — a gradient, not a pass rate
+Failed         : 75
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -59,8 +59,6 @@ compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=false)
   discriminateWithOptionalProperty2.ts: >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; } — expected >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; }; next(): Promise<{ done: boolean; value: number; }>; }
 compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=true)
   discriminateWithOptionalProperty2.ts: >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; } — expected >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; }; next(): Promise<{ done: boolean; value: number; }>; }
-compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=false)
-  discriminateWithOptionalProperty4.ts: >z.a : string[] — expected >z.a : string[] | undefined
 compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=true)
   discriminateWithOptionalProperty4.ts: >z : { a: string[]; b?: undefined; } | { a?: undefined; b: string[]; } — expected >z : { a: string[]; b?: never; } | { a?: never; b: string[]; }
 compiler/divergentAccessorsTypes3(target=es2015)

@@ -1450,6 +1450,221 @@ process. At §39's ratios that is roughly gi 0.50–0.53 and dm 0.44–0.47.
 Stages 1–4 are behind stage 0 and need no further cross-lane edits beyond
 the `tsr-parser`/`tsr-binder` hooks named above.
 
+## §41 The granted parse-and-bind items, measured one commit at a time
+
+This section is placed before §21, after §40, for the same reason as §32.
+The integrator granted §40.1's items 1, 2, 4, 5 and 6 on 2026-10-12, each as
+its own gated commit. Base: main `6085bece` (batch 71). Each item below has
+three measurements:
+
+- **Ir**: callgrind, `--singleThreaded`, release build, on generic-imports
+  (gi), domain-model (dm) and domain-model-large (dml). Deterministic; it
+  cannot see a store-forwarding stall.
+- **Lib parse and bind**: a scratch example (not committed) that parses and
+  binds gi's 63 lib files standalone, 15 iterations per process, dist
+  build. Processes of each build alternate, 15–25 rounds, and the table
+  shows the median of the per-process medians. A duplicate of the base binary
+  in the same rotation reads 0.994–1.010, which is the noise floor.
+- **Token identity**: every `.ts` under the corpus's `tests/cases`, its
+  `src` and the bundled libs (19,686 files) tokenized by the base and the
+  candidate scanner, comparing a hash of every token's kind, start and
+  flags, plus the token and diagnostic counts. Identical for every scanner
+  commit below.
+
+Whole-program wall on gi and dm does not resolve 1–3%. Two copies of one
+dist binary read 1.04 apart on gi in the same interleaved run, and a
+three-line scanner change read +3.3% and then +6.5% on dm's
+`--singleThreaded` wall, though dm's Ir did not move. The gates' 21-sample
+CPU ratios are reported, but the attribution comes from the two
+measurements above.
+
+### §41.1 Item 1, the token built from locals: refused
+
+`Scanner::scan` built its token as
+`Token::new(kind, Span::new(self.token_start, self.pos), flags)` and
+returned `self.token`. The perf annotation put about 23% of `scan`'s samples
+on those two loads (§40.1 #1). The candidate takes `start` as a local and
+returns the local `token`.
+
+| measurement | base | candidate |
+|---|---:|---:|
+| gi Ir | 191,025,405 | 191,431,367 (+0.21%) |
+| lib parse, run 1 / 2 / 3 | 1.000 | 0.979 / 1.013 / 1.002 |
+| lib bind, run 1 / 2 / 3 | 1.000 | 1.018 / 1.012 / 0.992 |
+
+§40's 41-pair reading (gi CPU 0.963) did not reproduce in any of the three
+runs. The samples on those instructions were most likely skid from the
+`scan_token` call's return, not a stall that the locals remove. **Refused**
+on run 3 (parse 1.002, 25 rounds). Revisit only with a cycle-level
+measurement, which this VM cannot take (`perf stat -e cycles` is
+`<not supported>`).
+
+### §41.2 Item 2, block comments end at a `/` after a `*`
+
+`skip_block_comment` walks the comment's first line byte by byte. After the
+first line break it searched for `*` with `str::find` and tested the next
+byte for `/`. Every JSDoc line opens with ` * `, so that search stopped once
+per line of every lib comment. The search is now for `/`, then the byte
+before it is tested. `/` is rare in comment prose. The `*` found can never
+be the opener's: the search starts at the line break, so a `/` found is at
+least one byte past it. Native (`scanner.go:646–666`) walks the comment
+with `scanASCIIWhile`, which stops at every `*` and every line break, so
+neither search is native's structure. The walk has to stop at the same
+terminator, and it does: the new cases in
+`scan.rs::block_comments_end_at_their_first_terminator_wherever_it_is`
+(`/*\n/*/`, `/*\n x // y / */`, `/*\n x **/`, unterminated `/*\n / x /`) and
+token identity on 19,686 files.
+
+| measurement | base | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 191,025,405 / 798,622,761 / 3,403,668,093 | 190,553,747 (−0.25%) / 798,441,148 (−0.02%) / 3,405,073,545 (+0.04%) |
+| lib parse (vs the build before it), run 1 / 2 | 1.000 | 0.949 / 0.953 |
+
+dm and dml have no block comments of their own. Their Ir moves only through
+the libs and through `scan`'s inlining, within ±0.04%.
+
+### §41.3 Item 4, JSDoc tags tested during the comment walk
+
+After the comment was skipped, `classify_block_comment` searched every
+JSDoc comment a second time for `@` (`jsdoc_tag_flags`). This mirrors native's
+`scanJSDocCommentForTags` (`scanner.go:350`), which runs `IndexByte(text, '@')`
+over the finished comment. 66% of lib bytes are comment text, so the second
+pass read most of the libs again. Now `skip_block_comment` tests the tags at
+each `@` it meets: per byte on the first line, and after it through
+`find_slash_or_at`. That function is an eight-bytes-at-a-time zero-byte test,
+`core`'s `memchr` technique applied to `/` and `@` together. The standard
+library searches for one byte only, so a fused search needs its own loop. The
+lowest flagged byte is always a real match, because the test's false
+positives only sit above a real one. `jsdoc_tag_at` is native's
+`hasJSDocTag` for one `@` and skips a set already found, as native's loop
+does.
+
+The answer cannot differ. Native searches `text[tokenStart:pos]`, the
+comment, and the walk sees the same `@`s. A tag name is letters, so it
+cannot run past a closing `*/`. The terminator test (`bytes.get(after +
+len)`) therefore reads the same byte whether the slice ends at the comment
+or at the end of the text. For an unterminated comment both end at the text's
+end. Tags in a non-JSDoc `/*` comment are computed and then dropped by
+`classify_block_comment`, as before. Tests:
+`scan.rs::jsdoc_tags_are_found_on_every_line_at_every_offset` puts each tag
+form at 20 offsets across a word boundary on the first, second and third
+lines, plus an unterminated tag and a plain `/*` comment. Token identity on
+19,686 files.
+
+This is a deviation from native's structure, not its behaviour: two passes
+become one. The reason is measured. Native's second `IndexByte` is a
+vectorised scan, while ours was a `str::find` call per `@` and per comment.
+
+| measurement | before (item 2) | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 190,553,747 / 798,441,148 / 3,405,073,545 | 185,885,030 (−2.45%) / 793,675,043 (−0.60%) / 3,400,003,118 (−0.15%) |
+| lib parse (vs the build before it), run 1 / 2 | 1.000 | 0.940 / 0.955 |
+| lib parse (vs base, items 1+2+4), run 1 / 2 | 1.000 | 0.874 / 0.922 |
+
+The Ir saving is larger than the second pass alone. A scratch build that
+skipped `jsdoc_tag_flags` entirely saved 3.35 M Ir on gi, and that includes
+JSDoc parses which the missing flags then skipped. This candidate saves
+4.67 M. The rest is the one inline word loop replacing `str::find`'s call
+and alignment prologue at every `/` and `@` stop.
+
+### §41.4 Item 5, token values borrowed from the source
+
+The scanner kept every decoded value as an `Option<String>`. That included
+the text inside the quotes of every string literal and every template part,
+even without escapes. The parser's `capture_value` copied it into a second
+`String` after every token. `Parser::token_value` copied it a third time,
+into the arena, at every read. The parser's `Option<String>` was also
+dropped at every token. Native's `tokenValue` is `s.text[start:pos]`, a
+substring with no copy.
+
+Now the scanner's value is an `Option<Cow<'a, str>>`, borrowed whenever the
+value is a slice of the source. The literal and template arms, the bigint
+`n` arm and the JSX attribute value arm borrow; an escape decodes into an
+owned `String` as before. The new accessor `Scanner::captured_value` hands
+the parser the `Cow`. The parser keeps `Option<&'a str>`: the borrowed slice,
+or the owned value copied once into the arena at capture. `token_value` is
+then a field read, and the speculation save and restore copy two words.
+`decoded_value` and `token_value` keep their signatures.
+
+A first version kept `Option<Cow<'a, str>>` in the parser and cloned it from
+the scanner out of line. That version measured **+2.4% Ir** on gi:
+`captured_value` alone was 1.4%, plus the `Cow` match in every
+`token_value`. The copy was the cost, not the representation.
+
+| measurement | before (item 4) | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 185,885,030 / 793,675,043 / 3,400,003,118 | 180,797,035 (−2.74%) / 786,540,558 (−0.90%) / 3,384,490,330 (−0.46%) |
+| allocations on gi (`mi_malloc_aligned` calls, profiling build) | 46,514 | 41,600 |
+| scanner identity: kind, span, flags, `token_value`, `decoded_value` of every token, 19,686 files | — | identical |
+| lib parse (vs the build before it), run 1 / 2 | 1.000 | 0.983 / 0.953 |
+
+The Ir saving is mostly the per-token `Option<String>` drop and its branch.
+Only a few thousand tokens per program carry a value at all. Parser
+behaviour cannot change: every token's value is the same text, read from a
+different owner.
+
+### §41.5 Item 6, the binder's child walk through a callback
+
+`bind_each_child` (`bindEachChild`, `binder.go:1737`) appended a node's children
+to a shared `Vec<Node>` (`push_children`), then read them back one at a time
+and truncated the vector. That was a store and a load per child, a length
+check per frame, and a buffer that every level shared. Native's
+`ForEachChild` calls its visitor on each child directly. The generator now
+emits `for_each_child(node, f)` beside `push_children`, from the same field
+list through the same `child_push_call` with `f` in place of `out.push`.
+The child set and order are therefore identical by construction.
+`bind_each_child` calls it with `|child| self.bind(child)`, and the binder's
+`children` buffer is gone.
+
+**Stack.** In release, `for_each_child` inlines into `bind_inner`, whose frame
+is 0xf8 bytes plus six saved registers, about 300 bytes. Unoptimised, it
+reserves a slot per arm: 0x2f18 bytes, about 12 KiB. Thirty-two such levels,
+`STACK_CHECK_INTERVAL`, exceed the 100 KiB red zone, and
+`bind.rs::deeply_nested_parentheses_bind_without_overflowing` overflowed in
+the debug test build. Under `cfg!(debug_assertions)`, `bind_each_child`
+therefore runs the walk inside `ensure_sufficient` at every level. The
+measured build is unaffected, and both the debug and the `--release` test
+builds pass. The alternative was a dispatcher plus one small generated
+function per kind, which keeps debug frames small without a `cfg`. It costs
+about 190 more generated functions, and a call per node wherever LLVM
+declines to inline. It wins if a debug-only stack check is ever judged worse
+than that code.
+
+**Ownership.** `xtask/src/gen_nodes.rs` (`child_push_call` takes the sink,
+plus the new `for_each_child` emitter), `crates/tsr-ast/src/generated/visit.rs`
+(regenerated: +1,630 lines, one new function, nothing else changed) and the
+re-export in `crates/tsr-ast/src/lib.rs`. These are additive hunks in shared
+files for the same root cause, under the integrator's 2026-10-12 default
+grant.
+
+| measurement | before (item 5) | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 180,818,510 / 786,540,558 / 3,384,490,330 | 176,711,473 (−2.27%) / 781,011,528 (−0.70%) / 3,373,440,498 (−0.33%) |
+| lib bind (vs the build before it), run 1 / 2 | 1.000 | 0.936 / 0.863 |
+| lib parse, run 1 / 2 (unchanged code) | 1.000 | 0.988 / 0.958 |
+
+### §41.6 The four commits gated together
+
+These commits are the stack on main `d7cb3d4b` (batch 73): §41.2, §41.3,
+§41.4 and §41.5. They were gated at the tip against a freeze of `d7cb3d4b`:
+
+- `parity_gate.sh compare`: types and diagnostics gained, lost and missing
+  all 0.
+- Exact oracle against `main-d7cb3d4b`: 11,036 → 11,036, with gained, lost
+  and missing all 0.
+- jsTyping: 104 → 104 lines, identical; `new_false=0`, `lost_true=0`.
+- fmt, strict clippy and `cargo test --workspace --release` all pass.
+- Whole-program median child CPU new/old, 21 samples: dm 0.993, gi 0.745
+  (wall 1.014 / 0.714). gi's figure is larger than the parts measured above,
+  so it is reported as read, not as the expected gain. On this VM two copies
+  of one binary read up to 1.04 apart.
+
+| Ir | base `d7cb3d4b` | stack | change |
+|---|---:|---:|---:|
+| gi | 191,031,756 | 176,737,272 | −7.48% |
+| dm | 798,913,799 | 781,019,961 | −2.24% |
+| dml | 3,405,828,450 | 3,373,206,034 | −0.96% |
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
