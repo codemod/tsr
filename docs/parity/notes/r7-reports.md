@@ -2016,3 +2016,23 @@ retrace read the members with the missing type left in, found them
 related, and declined. It now removes it the same way, so TS2375 reads
 `Types of property 'value' are incompatible.` → `Type 'undefined' is not
 assignable to type 'number'.` (`strictOptionalProperties1/3`).
+
+## 67. Record: batch 55 refused on four chain losses a stale base hid
+
+Batch 55 merged 3e0052dfb (§46–§57). The integration exact oracle
+refused it on 4 EXACT losses, all `diag:chain` TS2322:
+`assignmentToObject`, `doNotElaborateAssignabilityToTypeParameters`
+(es2015), `typeParametersShouldNotBeEqual` and
+`typeParametersShouldNotBeEqual2`. This lane's gates had compared every
+candidate against base16 (batch 46). Those four were not EXACT there:
+other lanes' later batches made them EXACT on main, so "0 lost against
+base16" could not see a regression in them.
+
+The causes were §51's `?` on an unreadable optionality and §55's blanket
+decline under a type-parameter head. §59 and §60 fixed both before the
+refusal arrived. A filtered oracle run of the corrected branch reads
+every variant of the four EXACT.
+
+**The rule this costs:** the exact leg's base is rebuilt at current main
+whenever main moves, before the next candidate is gated. A base more
+than one batch old measures gains, not losses.
