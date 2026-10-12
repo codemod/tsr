@@ -599,3 +599,30 @@ import { create } from "react";
         ],
     );
 }
+
+/// r7-printer §53: a spread member reuses its declaration's annotation
+/// before its type is printed (native-read line).
+#[test]
+fn a_spread_member_reuses_its_declaration() {
+    let lines = assertions(
+        "probe/spread_member_reuse",
+        r"// @strict: true
+interface Animal2 {
+    name: string;
+    owner?: string;
+}
+function billOwner(pet: Animal2) {
+    return {
+        ...(pet.owner && pet),
+        paid: false
+    }
+}
+",
+    );
+    assert_has(
+        &lines,
+        &[
+            "billOwner : (pet: Animal2) => { name?: string | undefined; owner?: string; paid: boolean; }",
+        ],
+    );
+}

@@ -1,8 +1,8 @@
 diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
-index 0a0c0e1ea..93e8af212 100644
+index a639cfb..b76bda1 100644
 --- a/crates/tsr-checker/src/assignreport.rs
 +++ b/crates/tsr-checker/src/assignreport.rs
-@@ -2834,22 +2834,18 @@ impl<'a> Checker<'a, '_> {
+@@ -2860,22 +2860,18 @@ impl<'a> Checker<'a, '_> {
          chain: Option<Diagnostic>,
      ) {
          let displayed_source = self.assignability_source_for_error_display(source, target);
@@ -37,26 +37,8 @@ index 0a0c0e1ea..93e8af212 100644
          }
          let message = if let Some(head) = head {
              head
-diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
-index e5cd9d78d..658d3d8dd 100644
---- a/crates/tsr-checker/src/check.rs
-+++ b/crates/tsr-checker/src/check.rs
-@@ -8460,11 +8460,8 @@ impl Checker<'_, '_> {
-         }
-         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
-         let span = self.error_span(name);
--        let (Some(first_text), Some(next_text)) =
--            (self.type_to_string_at(first, node), self.type_to_string_at(next, node))
--        else {
--            return;
--        };
-+        let first_text = self.type_to_string_for_message(first, node);
-+        let next_text = self.type_to_string_for_message(next, node);
-         let message = if is_property {
-             &messages::SUBSEQUENT_PROPERTY_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_PROPERTY_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
-         } else {
 diff --git a/crates/tsr-checker/src/nonexistent_property.rs b/crates/tsr-checker/src/nonexistent_property.rs
-index 61a2a3d1e..a8bd128c1 100644
+index 8da0768..4660408 100644
 --- a/crates/tsr-checker/src/nonexistent_property.rs
 +++ b/crates/tsr-checker/src/nonexistent_property.rs
 @@ -245,7 +245,7 @@ impl Checker<'_, '_> {
@@ -113,16 +95,16 @@ index 61a2a3d1e..a8bd128c1 100644
              let child = Diagnostic::with_args(
                  &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
                  span,
-@@ -621,7 +621,7 @@ impl Checker<'_, '_> {
-         } else {
-             containing
-         };
+@@ -615,7 +615,7 @@ impl Checker<'_, '_> {
+         let never_intersection = apparent_receiver == self.intrinsics.never
+             && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION);
+         let shown = if never_intersection { apparent_receiver } else { containing };
 -        let printed = self.type_to_string(shown);
 +        let printed = self.type_to_string_for_message(shown, node);
-         // reportNonexistentProperty's last arm (checker.go:11580); the
-         // element-access fallthrough to here is getPropertyTypeForIndexType's
-         // plain TS2339, not this report.
-@@ -698,7 +698,7 @@ impl Checker<'_, '_> {
+         // `elaborateNeverIntersection` (`checker.go:21868`), on the property
+         // access road only (`reportNonexistentProperty`): the intersection,
+         // printed unreduced, and the property that reduced it.
+@@ -709,7 +709,7 @@ impl Checker<'_, '_> {
                  return None;
              }
              if self.apparent_type_lacks(apparent, name)? {
@@ -131,8 +113,26 @@ index 61a2a3d1e..a8bd128c1 100644
                  return Some(Diagnostic::with_args(
                      &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
                      self.error_span(name_id),
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index 7bcc7c2..0c30163 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -8529,11 +8529,8 @@ impl Checker<'_, '_> {
+         }
+         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+         let span = self.error_span(name);
+-        let (Some(first_text), Some(next_text)) =
+-            (self.type_to_string_at(first, node), self.type_to_string_at(next, node))
+-        else {
+-            return;
+-        };
++        let first_text = self.type_to_string_for_message(first, node);
++        let next_text = self.type_to_string_for_message(next, node);
+         let message = if is_property {
+             &messages::SUBSEQUENT_PROPERTY_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_PROPERTY_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
+         } else {
 diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
-index b5bbf06da..2f097a015 100644
+index b5bbf06..2f097a0 100644
 --- a/crates/tsr-checker/src/signatures.rs
 +++ b/crates/tsr-checker/src/signatures.rs
 @@ -2274,9 +2274,10 @@ impl<'a> Checker<'a, '_> {

@@ -339,6 +339,17 @@ impl Checker<'_, '_> {
                 continue;
             };
             let property_type = self.property_type(property);
+            // r7-printer §53: `addPropertyToElementList` →
+            // `serializeTypeForDeclaration(nil, type, propertySymbol, true)`
+            // (`nodebuilderimpl.go:2605`) first reuses the property's
+            // declaration, as the certified renderer asks it: a spread copy
+            // of `owner?: string` prints `owner?: string`.
+            if let Some(text) = property.origin.and_then(|symbol| {
+                self.reused_property_type_text(symbol, property_type, Some(reference))
+            }) {
+                *printed = text;
+                continue;
+            }
             if matches!(
                 self.store.get(property_type).data,
                 TypeData::Intrinsic { .. }
