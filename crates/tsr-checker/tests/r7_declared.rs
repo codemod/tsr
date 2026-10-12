@@ -423,3 +423,13 @@ fn a_partial_qualified_reference_fills_its_defaults() {
          const x = c;\n";
     assert_eq!(type_of_last_initializer(source), "NS.CC<string, number>");
 }
+
+/// §44: `readonly T` over a type parameter is the parameter (tsgo: `T31<number>`
+/// reads `number`).
+#[test]
+fn readonly_over_a_type_parameter_is_the_parameter() {
+    let source = "type T31<T> = readonly T;\n\
+         declare const t: T31<number>;\n\
+         const x = t;\n";
+    assert_eq!(type_of_last_initializer(source), "number");
+}

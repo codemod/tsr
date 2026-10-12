@@ -1432,3 +1432,19 @@ containment itself is unchanged: nothing reads through the mint.
 (jsxExcessPropsAndAssignability 4, reactReadonlyHOCAssignabilityReal 2);
 diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0001, dm
 1.0000.
+
+## 44. `readonly T` over a type parameter declares the parameter
+
+**Forcing constraint.** getTypeFromTypeOperatorNode's `readonly` arm answers
+its operand's type (the readonly-ness of an array or tuple is read by
+getTypeFromArrayOrTupleTypeNode from its parent; on any other operand the
+operator is only an error), so `type T31<T> = readonly T` declares `T`
+(readonlyArraysAndTuples `>T31 : T`), like §282's `type Id<T> = T`.
+`type_parameter_body_index_at` looked through parentheses only.
+
+**Port.** The `readonly` operator is transparent in that walk, as
+parentheses are. No state.
+
+**Measured** (unfiltered against `58a511f1`): types **+1, 0 lost**
+(readonlyArraysAndTuples 0:7); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 0.9999, dm 1.0000.

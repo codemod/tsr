@@ -9938,8 +9938,19 @@ impl<'a> Checker<'a, '_> {
             return None;
         };
         let mut body = alias.r#type?;
-        while let TypeNode::ParenthesizedTypeNode(inner) = body {
-            body = inner.r#type?;
+        // getTypeFromTypeOperatorNode's `readonly` arm answers its operand's
+        // type (the operator on a non-array operand is only an error), so
+        // `type T31<T> = readonly T` declares `T` (r7-declared §44).
+        loop {
+            match body {
+                TypeNode::ParenthesizedTypeNode(inner) => body = inner.r#type?,
+                TypeNode::TypeOperatorNode(operator)
+                    if operator.operator.kind == SyntaxKind::ReadonlyKeyword =>
+                {
+                    body = operator.r#type?;
+                }
+                _ => break,
+            }
         }
         let TypeNode::TypeReferenceNode(mut reference) = body else { return None };
         if !reference.type_arguments.is_empty() {
