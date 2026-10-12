@@ -1115,6 +1115,49 @@ answers declares, for example a signature synthesised for a union callee.
 A literal in that call would lose its const context and widen, which a
 types row would show.
 
+## §37 Routed: a generic alias's mapped branch is resolved at its declaration
+
+This section is placed before §21, after §35, for the same reason as §32.
+It records a measurement and a routing. Nothing is built here.
+
+**Forcing measurement.** On domain-model-large with the chain (§31),
+`check_type_alias_circularity` costs 161 M Ir (4.6%) over 200
+`FrozenModelNNN = DeepReadonly<ModelNNN>` aliases, about 800 K Ir per
+alias. A generated file isolates it (`/tmp/box/micro`, not committed).
+It has 200 pairs of interfaces shaped like the bench's `ModelNNN` and
+`ModelNNNLine`, and the bench's `DeepReadonly`. Check time is the
+minimum of 5 runs, `--singleThreaded --skipLibCheck`, release:
+
+| file | TSR check | tsgo check |
+|---|---:|---:|
+| interfaces only | 7 ms | 4 ms |
+| + 200 `type FNNN = DeepReadonly<MNNN>` | 48 ms | 6 ms |
+| + 200 `const fNNN: FNNN = mNNN` | 56 ms | 34 ms |
+
+Declaring the aliases costs TSR 41 ms and tsgo 2 ms. Using each alias
+once in an assignment costs tsgo 28 ms, because that is where its lazy
+members resolve, and TSR 8 ms more on top of its 41 ms. In total TSR
+pays 49 ms against tsgo's 30 ms.
+
+**Where TSR's cost is.** A callgrind of the declaration-only file
+(profiling build) puts 194 M of
+`evaluate_conditional_node`'s 206 M Ir under `get_type_from_type_node`
+of the branches. The true branch
+`{ readonly [K in keyof T]: DeepReadonly<T[K]> }` is resolved member by
+member at the declaration, and each member's `DeepReadonly<T[K]>` again,
+down to the leaves. `infer_conditional_parameters` (the
+`T extends (infer U)[]` test) is the next largest, at 42 M Ir over
+200 aliases. Native's `getConditionalType` picks the branch
+and `instantiateType`s it, and a mapped type's instantiation is a new
+deferred object type whose members `resolveStructuredTypeMembers`
+computes only when a relation or property access reads them.
+
+**Routing.** Lazy members for an instantiated mapped type belong to
+r7-declared (`declared.rs`, `mapped.rs`). This lane does not build them.
+The table bounds the gain on this pattern: the 41 ms at declaration
+would become use-time work only for the members a relation reads, and
+tsgo needs 30 ms for declaration and use together.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
