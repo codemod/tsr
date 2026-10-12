@@ -515,3 +515,21 @@ z;
     );
     assert_has(&lines, &["x : import(\"./a\").Foo", "z : import(\"./c\").Baz"]);
 }
+
+/// r7-printer §42: in a JavaScript file a `require("…")` call is an
+/// existing import, so the module keeps the specifier written there.
+#[test]
+fn a_required_module_keeps_its_written_specifier() {
+    let lines = assertions(
+        "probe/require_existing_import",
+        r#"// @allowJs: true
+// @checkJs: true
+// @noEmit: true
+// @filename: index.js
+exports.a = 1;
+// @filename: usage.js
+const { a } = require("./index");
+"#,
+    );
+    assert_has(&lines, &["require(\"./index\") : typeof import(\"./index\")"]);
+}

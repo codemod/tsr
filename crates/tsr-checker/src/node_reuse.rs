@@ -685,6 +685,10 @@ impl<'a> Checker<'a, '_> {
         signature: &crate::signatures::Signature,
         reference: Option<NodeId>,
     ) -> Option<String> {
+        // §44: no reuse with no enclosing declaration.
+        if self.print_without_enclosing {
+            return None;
+        }
         let mut pseudo_owner = None;
         let written = if let Some(written) = signature.written_return {
             written
@@ -775,6 +779,10 @@ impl<'a> Checker<'a, '_> {
         property_type: TypeId,
         reference: Option<NodeId>,
     ) -> Option<String> {
+        // §44: no reuse with no enclosing declaration.
+        if self.print_without_enclosing {
+            return None;
+        }
         let record = self.binder.symbols().get(symbol);
         let declaration =
             record.value_declaration.or_else(|| record.declarations.first().copied())?;
@@ -1565,6 +1573,14 @@ impl<'a> Checker<'a, '_> {
         current: TypeId,
         reference: NodeId,
     ) -> Option<String> {
+        // r7-printer §44: with no enclosing declaration nothing is reused
+        // (`serializeTypeForDeclaration` and
+        // `serializeReturnTypeForSignature` reuse only when
+        // `ctx.enclosingDeclaration != nil`, `nodebuilderimpl.go:2231`,
+        // `:2043`): a message serializes the type.
+        if self.print_without_enclosing {
+            return None;
+        }
         self.annotation_text_at_site(written, current, reference, None)
     }
 

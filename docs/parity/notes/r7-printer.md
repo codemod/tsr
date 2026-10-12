@@ -1528,3 +1528,129 @@ symbol and bakes the alias's name, so `qualified_name_at` read the symbol
 parentheses and `readonly`, `@typedef` included, and `None` for a
 function-local or block-local alias, whose image prints its structure). The
 rest of the naming road is unchanged. No cache or table.
+
+## 41. A message names a module object by its file
+
+**Forcing constraint.** The exact oracle's `diag:message-text-only` class
+at `5d28dbd08`: `aliasAssignments`, `allowSyntheticDefaultImports10`,
+`externalModuleImmutableBindings`, `importAsBaseClass` and others write
+`typeof import("/.src/aliasAssignments_moduleA")` natively. Once the report
+sites print through `type_to_string_for_message` (§22), the port wrote
+`typeof /.src/aliasAssignments_moduleA` (the module symbol's baked name),
+or a specifier computed from the reporting file
+(`esmNoSynthesizedDefault`: `typeof import("mdast-util-to-string")` for
+`/node_modules/mdast-util-to-string/index`).
+
+**Cause.** With no enclosing declaration the chain is the module alone
+(`lookupSymbolChainWorker`), and `symbolToTypeNode`'s import-type arm names
+it by `getSpecifierForModuleSymbol` with no enclosing file. That is the module
+symbol's own name: a file module's path without its extension (`.d.ts`
+whole), or an ambient module's name.
+
+**The port.** The worker's module arm answers
+`typeof <module_root_without_enclosing>` under `print_without_enclosing`.
+That is §30's root spelling, factored out of `fully_qualified_symbol_text`.
+No cache or table.
+
+## 42. A JavaScript file's `require` is an existing import
+
+**Forcing constraint.** `jsEnumTagOnObjectFrozen`: `usage.js` writes
+`require("./index")`, and native prints `typeof import("./index")`; the port
+computed `typeof import(".")`.
+
+**Cause.** `computeModuleSpecifiers` first tries the importing file's
+`Imports()`. In a JavaScript file those include every `require("…")` call
+(`ForEachDynamicImportOrRequireCall`, `ast/utilities.go:2715`).
+`existing_import_specifier` read only import calls and import types.
+
+**The port.** The dynamic walk also reads a `require` call with one
+string-literal argument when the importing file is JavaScript. No cache or
+table.
+
+## 43. A message renames no type parameter
+
+**Forcing constraint.** `mismatchedGenericArguments1` and
+`assignmentCompatWithGenericCallSignaturesWithOptionalParameters`, through the
+relation report printing for messages: native writes
+`'<T>(x: T) => T'` inside `class C<T>`; the site renderer wrote
+`'<T_1>(x: T_1) => T_1'`.
+
+**Cause.** `TypeToString` passes `AllowUniqueESSymbolType |
+UseAliasDefinedOutsideCurrentScope` (`printer.go:177`) and no
+`GenerateNamesForShadowedTypeParams`, which the `.types` walker alone sets
+(`type_symbol_baseline.go:394`). Without that flag `typeParameterToName`
+(`nodebuilderimpl.go:1404`) neither caches by id nor renames.
+
+**The port.** `allocate_type_parameter_name_excluding` answers the type
+parameter's own name under `print_without_enclosing`. That also holds for
+`rename_type_parameters_for_site`'s fresh names. signatures.rs'
+`type_parameter_renames` needs the same gate, which is in the routed adoption
+diff (§45). No cache or table.
+
+## 44. A message reuses no written annotation
+
+**Forcing constraint.** The oracle's `| undefined` message diffs
+(`optionalParamTypeComparison`, `optionalParamAssignmentCompat`,
+`functionSignatureAssignmentCompat1`, `assignmentCompatBug2`,
+`strictSubtypeAndNarrowing`, …): native writes
+`'(s: string, n?: number | undefined) => void'` and
+`'{ x?: number | undefined; }'`, and the port wrote the annotation, `n?: number`.
+`overloadOnConstNoStringImplementation2` is the same rule seen from the
+quotes: native writes `(x: "hi") => number` where the source wrote `'hi'`.
+
+**Cause.** `serializeTypeForDeclaration` (`nodebuilderimpl.go:2231`) and
+`serializeReturnTypeForSignature` (`:2043`) reuse a written node only when
+`ctx.enclosingDeclaration != nil`. A message has none, so it serializes the
+symbol's type. An optional parameter's type carries `undefined` under
+`strictNullChecks`. So does an optional property's `getNonMissingTypeOfSymbol`
+(`addPropertyToElementList`, `:2492`), which removes only `exactOptionalPropertyTypes`'
+missing type.
+
+**The port.** Under `print_without_enclosing`:
+- `written_annotation_text_at`, `reused_return_text` and
+  `reused_property_type_text` (node_reuse.rs) decline;
+- `type_literal_text_at` prints a property's optional type at the site
+  (with `undefined` when it is optional, `strictNullChecks` is on and
+  `exactOptionalPropertyTypes` is off).
+
+signatures.rs needs two gates, also in the adoption diff (§45):
+- `signature_parameter_source_text_at` declines;
+- `serialized_parameter_type` adds the optionality without the
+  written-equivalence exemption.
+
+`type_name_for_message` (checker.rs) also takes a function or class
+expression's first declaration as its value declaration, which this binder
+leaves unset (`bindAnonymousDeclaration` sets it natively). The source side of
+`getTypeNamesForErrorDisplay` is then printed at that expression, with reuse,
+as native prints it (`'(s: string, b?: boolean) => void'`). No cache or table.
+
+## 45. Routed: the report sites adopt the message print (`r7-printer-message-adoption.diff`)
+
+§22's `type_to_string_for_message` has one adopter on main (calls.rs). The
+report sites that native prints with `TypeToString` (nil enclosing) still
+print through the site-free `type_to_string`. The diff
+[`r7-printer-message-adoption.diff`](r7-printer-message-adoption.diff)
+touches files this lane does not own, so it is routed:
+- `report_relation_head` (assignreport.rs) takes both names from
+  `type_names_for_error_display` (`getTypeNamesForErrorDisplay`,
+  `relater.go:4752`). A generalized literal source is named by
+  `type_name_for_error_display` (`generalizedSourceType`, `:4759`).
+- `check_nonexistent_name` and the union arm (nonexistent_property.rs, TS2339)
+  print the containing type for a message.
+- TS2403 (check.rs) prints both types for a message
+  (`errorNextVariableOrPropertyDeclarationMustHaveSameType`, which uses
+  `TypeToString`).
+- signatures.rs carries the message gates of §43 and §44:
+  - `type_parameter_renames` renames nothing;
+  - `signature_parameter_source_text_at` declines;
+  - `serialized_parameter_type` adds an optional parameter's `undefined`
+    without the written-equivalence exemption.
+
+**Measured** on the exact oracle, against `5d28dbd08`'s report (`--workers 3`
+for the candidate), with §41–44 and the diff applied: exact
+**10613 → 10666, +53 / −0**. Legacy dumps unchanged (types 0/0,
+diagnostics 0/0; the legacy diagnostic suite compares codes and positions,
+not text). The first measurement, without §43, §44 and the signatures.rs
+gates, was +41 / −2: `mismatchedGenericArguments1` and
+`assignmentCompatWithGenericCallSignaturesWithOptionalParameters` printed
+`<T_1>(x: T_1) => T_1` in messages, which §43 explains.

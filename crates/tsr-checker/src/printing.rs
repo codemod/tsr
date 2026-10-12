@@ -176,6 +176,13 @@ impl Checker<'_, '_> {
         enclosing: tsr_ast::NodeId,
         excluded: Option<&str>,
     ) -> String {
+        // r7-printer §43: a message prints through `TypeToString`, whose
+        // flags lack `GenerateNamesForShadowedTypeParams` (`printer.go:177`),
+        // so `typeParameterToName` (`nodebuilderimpl.go:1404`) neither caches
+        // nor renames: every type parameter keeps its own name.
+        if self.print_without_enclosing {
+            return self.type_to_string(id);
+        }
         if let Some((_, name)) =
             self.render_type_parameter_names.allocations.iter().find(|(owner, _)| *owner == id)
         {
@@ -1027,7 +1034,22 @@ impl Checker<'_, '_> {
                 // and the producer's written-node precedence, read from the
                 // declaration rather than by comparing two rendered strings
                 // (an unresolved annotation keeps its published spelling).
-                let printed = if let Some(text) = property.origin.and_then(|symbol| {
+                let printed = if self.print_without_enclosing {
+                    // §44: with no enclosing declaration nothing is reused,
+                    // and `addPropertyToElementList` serializes
+                    // `getNonMissingTypeOfSymbol`, an optional property's
+                    // `undefined` included (`nodebuilderimpl.go:2492`).
+                    let shown = if property.optional
+                        && self.strict_null_checks
+                        && !self.exact_optional_property_types
+                    {
+                        self.get_optional_type(property_type, false)
+                    } else {
+                        property_type
+                    };
+                    self.type_to_string_at(shown, reference)
+                        .unwrap_or_else(|| self.property_printed_type(&property).into_owned())
+                } else if let Some(text) = property.origin.and_then(|symbol| {
                     self.reused_property_type_text(symbol, property_type, Some(reference))
                 }) {
                     text
@@ -1093,9 +1115,9 @@ impl Checker<'_, '_> {
     /// `tsr_parser::collect_external_module_references`). The dynamic half
     /// is a tree walk, taken only when no statement-level import matched; no
     /// cache, since the question is asked only for a module the reference
-    /// cannot name through an alias. JS `require()` calls and JSDoc import
-    /// types are not read (a JS target reached only that way falls through to
-    /// the computed specifier). r5-modules §4.
+    /// cannot name through an alias. In a JavaScript file a `require("…")`
+    /// call is read with them (r7-printer §42); JSDoc import types are not
+    /// read. r5-modules §4.
     pub(crate) fn existing_import_specifier(
         &self,
         importing: tsr_ast::NodeId,
@@ -1125,12 +1147,31 @@ impl Checker<'_, '_> {
             let usage = literal.node_id?;
             resolves(usage, literal.text).map(|mode| (literal.text, mode))
         });
+        // `ForEachDynamicImportOrRequireCall` (`ast/utilities.go:2715`): in
+        // a JavaScript file a `require("…")` call is an import too.
+        let javascript = self.in_js_file(importing);
         let found = statement_level.or_else(|| {
             let mut dynamic: Vec<(u32, tsr_ast::NodeId, &str)> = Vec::new();
             let mut stack = vec![Node::from(source)];
             let mut children = Vec::new();
             while let Some(node) = stack.pop() {
                 let literal = match node {
+                    Node::CallExpression(call)
+                        if javascript
+                            && call.arguments.len() == 1
+                            && matches!(call.expression,
+                                Some(Expression::Identifier(callee)) if callee.text == "require") =>
+                    {
+                        match Node::from(call.arguments[0]) {
+                            Node::StringLiteral(literal) => {
+                                literal.node_id.map(|id| (id, literal.text))
+                            }
+                            Node::NoSubstitutionTemplateLiteral(literal) => {
+                                literal.node_id.map(|id| (id, literal.text))
+                            }
+                            _ => None,
+                        }
+                    }
                     Node::CallExpression(call)
                         if matches!(call.expression,
                             Some(Expression::KeywordExpression(keyword))
@@ -2095,6 +2136,36 @@ mod tests {
         assert_eq!(
             checker.type_names_for_error_display(mc, md, root),
             ("C".to_string(), "D".to_string())
+        );
+    }
+
+    /// A message prints with `TypeToString`'s flags: no
+    /// `GenerateNamesForShadowedTypeParams`, so a type parameter keeps its
+    /// own name inside a scope that declares the same name, and no written
+    /// annotation is reused, so an optional property shows its `undefined`
+    /// under `strictNullChecks` (r7-printer §43, §44).
+    #[test]
+    fn a_message_print_renames_nothing_and_reuses_nothing() {
+        let source = "class K<T> { f!: { g<T>(x: T): T; o?: number }; }";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.strict_null_checks = true;
+        let class = checker.binder.lookup_local(root, "K").unwrap();
+        let member = *checker.binder.symbols().get(class).members.get("f").unwrap();
+        let declaration = checker.binder.symbols().get(member).declarations[0];
+        let ty = checker.get_type_of_symbol(member);
+        assert_eq!(
+            checker.type_to_string_for_message(ty, declaration),
+            "{ g<T>(x: T): T; o?: number | undefined; }"
         );
     }
 

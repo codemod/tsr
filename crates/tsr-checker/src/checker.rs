@@ -2297,10 +2297,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             let entry = self.binder.symbols().get(symbol);
             entry.value_declaration.or_else(|| {
                 // An object literal's symbol carries the literal as its one
-                // declaration; this binder leaves `value_declaration` unset.
+                // declaration, and a function or class expression's
+                // (`bindAnonymousDeclaration`) likewise; this binder leaves
+                // `value_declaration` unset for them.
                 entry
                     .flags
-                    .contains(SymbolFlags::OBJECT_LITERAL)
+                    .intersects(
+                        SymbolFlags::OBJECT_LITERAL | SymbolFlags::FUNCTION | SymbolFlags::CLASS,
+                    )
                     .then(|| entry.declarations.first().copied())
                     .flatten()
             })
@@ -2691,6 +2695,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 .unwrap_or_else(|| self.type_to_string(id));
             return self.qualified_name_at(id, printed, reference);
         };
+        // r7-printer §41: with no enclosing declaration the chain is the
+        // module alone (`lookupSymbolChainWorker`), and `symbolToTypeNode`'s
+        // import-type arm names it by `getSpecifierForModuleSymbol` with no
+        // enclosing file: the module symbol's own name, a file module's path
+        // without its extension (`.d.ts` whole) or an ambient module's name.
+        if self.print_without_enclosing {
+            return self.module_root_without_enclosing(module).map(|root| format!("typeof {root}"));
+        }
         if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {
             // SS197 (measured -66 cases, reverted): qualifying with
             // `globalThis.` when the bare name resolves to a DIFFERENT symbol
@@ -3519,32 +3531,42 @@ impl<'a, 'n> Checker<'a, 'n> {
             let Some(parent) = entry.parent.map(|parent| self.binder.merged_symbol(parent)) else {
                 break;
             };
-            if self.is_module_symbol(parent) {
-                // `getSpecifierForModuleSymbol` with no enclosing file
-                // (`nodebuilderimpl.go:1265`): a file module's symbol is named
-                // `"` + `tspath.RemoveFileExtension(fileName)` + `"`
-                // (`bindSourceFileAsExternalModule`), which
-                // `IsAmbientModuleSymbolName` accepts, so the specifier is the
-                // path without its extension, `.d.ts` whole:
-                // `import("/.src/renderer")` (r7-printer §30).
-                let file =
-                    self.binder.symbols().get(parent).declarations.iter().copied().find(
-                        |&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile,
-                    )?;
-                let path = self.module_host.and_then(|host| host.file_path(file))?;
-                let name = tsr_path::extension::remove_file_extension(&path);
-                parts.push(format!("import({})", crate::printing::quote(name)));
-                break;
-            }
-            if self.is_ambient_module(parent) {
-                let module = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
-                parts.push(format!("import({})", crate::printing::quote(module)));
+            if self.is_module_symbol(parent) || self.is_ambient_module(parent) {
+                parts.push(self.module_root_without_enclosing(parent)?);
                 break;
             }
             current = parent;
         }
         parts.reverse();
         Some(parts.join("."))
+    }
+
+    /// `import("<specifier>")` for `module` as `getSpecifierForModuleSymbol`
+    /// (`nodebuilderimpl.go:1265`) spells it with no enclosing file. A file
+    /// module's symbol is named `"` + `tspath.RemoveFileExtension(fileName)` +
+    /// `"` (`bindSourceFileAsExternalModule`), which
+    /// `IsAmbientModuleSymbolName` accepts, so the specifier is the path
+    /// without its extension, `.d.ts` whole: `import("/.src/renderer")`
+    /// (r7-printer §30). An ambient module's is its name.
+    pub(crate) fn module_root_without_enclosing(&self, module: SymbolId) -> Option<String> {
+        if self.is_module_symbol(module) {
+            let file = self
+                .binder
+                .symbols()
+                .get(module)
+                .declarations
+                .iter()
+                .copied()
+                .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)?;
+            let path = self.module_host.and_then(|host| host.file_path(file))?;
+            let name = tsr_path::extension::remove_file_extension(&path);
+            return Some(format!("import({})", crate::printing::quote(name)));
+        }
+        if self.is_ambient_module(module) {
+            let name = tsr_core::strip_quotes(self.binder.symbols().get(module).name);
+            return Some(format!("import({})", crate::printing::quote(name)));
+        }
+        None
     }
 
     /// Where a dotted entity name ending in `name` sits in `printed`, if
