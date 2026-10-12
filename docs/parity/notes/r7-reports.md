@@ -1868,3 +1868,21 @@ reads `The types of '(new a.b.c.d.e.f()).g'…`. The port mints a class's
 static-side `prototype` without a symbol (`members.rs`, §117 slice 2).
 The property loop therefore skips `prototype` on a class's anonymous
 static type, as well as any symbol carrying `PROTOTYPE`.
+
+## 57. TS8030: a JS function's `@type` must fit its arity
+
+`checkFunctionOrMethodDeclaration` (`checker.go:3441`) reports `A JSDoc
+'@type' tag on a function must have a signature with the correct number
+of arguments.` at the full-signature type node when
+`getContextualCallSignature(type, node)` is nil. The call signatures not
+smaller in arity than the function's leading required parameters
+(`isAritySmaller`) must leave exactly one. Several are combined by
+`getIntersectedSignatures` only under `noImplicitAny`, with identical
+type-parameter lists; anything else is nil. `check_jsdoc_full_signature_arity`
+(`jsdoc_full_signature.rs`) ports this for the hosts this port reads a
+full signature from (function and method declarations). It declines on an
+error type and on an undecided signature list. The JS per-function hook
+(`check_jsdoc_reparsed_this_parameter`) calls it, because the dispatch in
+`check.rs` is not this lane's. A quick oracle over `conformance/jsdoc`
+against c49 read 3 gained and 0 lost (`checkJsdocTypeTag5`,
+`checkJsdocTypeTagOnObjectProperty1`, `jsdocFunction_missingReturn`).
