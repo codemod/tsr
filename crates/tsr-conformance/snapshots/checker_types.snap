@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 9014/9538 (94.51%)
-Assertion lines: 476300/478853 (99.47%)  — a gradient, not a pass rate
-Failed         : 524
+Passed         : 9027/9538 (94.64%)
+Assertion lines: 476334/478853 (99.47%)  — a gradient, not a pass rate
+Failed         : 511
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 524 failures:
+First 100 of 511 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -22,7 +22,7 @@ compiler/allowJscheckJsTypeParameterNoCrash
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   file2.ts: >styled : () => Color — expected >styled : () => import("./color").default
 compiler/amdLikeInputDeclarationEmit
-  ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass").BaseClass) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
+  ExtendedClass.js: >ExtendedClass : new () => { f: () => string; } & import("deps/BaseClass") — expected >ExtendedClass : new () => { f: () => "something"; } & import("deps/BaseClass")
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >Timestamped : <TBase extends Constructor>(Base: TBase) => any — expected >Timestamped : <TBase extends Constructor>(Base: TBase) => { new (...args: any[]): (Anonymous class); prototype: Timestamped.(Anonymous class); } & TBase
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
@@ -59,12 +59,6 @@ compiler/callOfConditionalTypeWithConcreteBranches
   callOfConditionalTypeWithConcreteBranches.ts: >arg => useT(arg) : (arg: number) => void — expected >arg => useT(arg) : (arg: T & number) => void
 compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
-compiler/checkJsdocTypeTagOnExportAssignment1
-  b.js: >a : Foo — expected >a : import("./a").Foo
-compiler/checkJsdocTypeTagOnExportAssignment5
-  b.js: >a : Foo — expected >a : import("./a").Foo
-compiler/checkJsdocTypeTagOnExportAssignment6
-  b.js: >a : Foo — expected >a : import("./a").Foo
 compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
 compiler/circularInlineMappedGenericTupleTypeNoCrash
@@ -165,12 +159,8 @@ compiler/cyclicGenericTypeInstantiationInference
   cyclicGenericTypeInstantiationInference.ts: >foo : <T>() => { y2: { y2: typeof z; }; } — expected >foo : <T>() => { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: any; }; }; }; }; }; }; }; }; }; }; }
 compiler/cyclicTypeInstantiation
   cyclicTypeInstantiation.ts: >foo : <T>() => { a: T; b: { a: T; b: typeof x; }; } — expected >foo : <T>() => { a: T; b: any; }
-compiler/declFileRestParametersOfFunctionAndFunctionType
-  declFileRestParametersOfFunctionAndFunctionType.ts: >f5 : <T extends { (...args: any[]): void; }>() => void — expected >f5 : <T extends { (...args: any): void; }>() => void
 compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1
   declarationAssertionNodeNotReusedWhenTypeNotEquivalent1.ts: >unwrapped : { prop1: "hello" extends Record<string, Wrapper<any>> ? { [x: number]: never; toString: never; charAt: never; charCodeAt: never; concat: never; indexOf: never; lastIndexOf: never; localeCompare: Unwrap<{ (that: string): number; (that: string, locales?: string | string[], options?: Intl.CollatorOptions): number; }>; match: Unwrap<{ (regexp: string | RegExp): RegExpMatchArray | null; (matcher: { [Symbol.match](string: string): RegExpMatchArray | null; }): RegExpMatchArray | null; }>; replace: Unwrap<{ (searchValue: string | RegExp, replaceValue: string): string; (searchValue: string | RegExp, replacer: (substring: string, ...args: any[]) => string): string; (searchValue: { [Symbol.replace](string: string, replaceValue: string): string; }, replaceValue: string): string; (searchValue: { [Symbol.replace](string: string, replacer: (substring: string, ...args: any[]) => string): string; }, replacer: (substring: string, ...args: any[]) => string): string; }>; search: Unwrap<{ (regexp: string | RegExp): number; (searcher: { [Symbol.search](string: string): number; }): number; }>; slice: never; split: Unwrap<{ (separator: string | RegExp, limit?: number): string[]; (splitter: { [Symbol.split](string: string, limit?: number): string[]; }, limit?: number): string[]; }>; substring: never; toLowerCase: never; toLocaleLowerCase: never; toUpperCase: never; toLocaleUpperCase: never; trim: never; readonly length: never; substr: never; valueOf: never; codePointAt: never; includes: never; endsWith: never; normalize: Unwrap<{ (form: "NFC" | "NFD" | "NFKC" | "NFKD"): string; (form?: string): string; }>; repeat: never; startsWith: never; anchor: never; big: never; blink: never; bold: never; fixed: never; fontcolor: never; fontsize: Unwrap<{ (size: number): string; (size: string): string; }>; italics: never; link: never; small: never; strike: never; sub: never; sup: never; } : "hello"; } — expected >unwrapped : { prop1: "hello"; }
-compiler/declarationEmitAliasFromIndirectFile
-  app.ts: >fp.l10ns : { ar?: CustomLocale | undefined; bg?: CustomLocale | undefined; } & { default: import("./locale").Locale; } — expected >fp.l10ns : { ar?: import("./locale").CustomLocale | undefined; bg?: import("./locale").CustomLocale | undefined; } & { default: import("./locale").Locale; }
 compiler/declarationEmitAliasInlineing
   b.ts: >fn : (v: O['prop'], p: Omit<O, 'prop'>, key: keyof O, p2: Omit<O, keyof I>) => void — expected >fn : (v: string, p: Omit<{ prop: string; prop2: string; }, 'prop'>, key: keyof { prop: string; prop2: string; }, p2: Omit<{ prop: string; prop2: string; }, "prop">) => void
 compiler/declarationEmitClassMixinLocalClassDeclaration
@@ -202,7 +192,7 @@ compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
 compiler/declarationEmitLocalClassDeclarationMixin
   declarationEmitLocalClassDeclarationMixin.ts: >mixin : <B extends Constructor<{}>>(Base: B) => typeof PrivateMixed — expected >mixin : <B extends Constructor<{}>>(Base: B) => { new (...args: any[]): PrivateMixed; prototype: mixin.PrivateMixed; } & B
 compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
-  reexport.ts: >test : { fn: <T extends { x: Map<T['x']>; }>(sliceIndex: T) => AllArg<T["x"]>; } — expected >test : { fn: <T extends { x: T["x"] extends infer T_1 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_1]: T_1[K]; } : never; }>(sliceIndex: T) => T["x"] extends infer T_2 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_2]: Parameters<T_2[K]>; } : never; }
+  reexport.ts: >test : { fn: <T extends { x: Map<T["x"]>; }>(sliceIndex: T) => AllArg<T["x"]>; } — expected >test : { fn: <T extends { x: T["x"] extends infer T_1 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_1]: T_1[K]; } : never; }>(sliceIndex: T) => T["x"] extends infer T_2 extends { [x: string]: (...params: unknown[]) => unknown; } ? { [K in keyof T_2]: Parameters<T_2[K]>; } : never; }
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
   declarationEmitMappedTypePreservesTypeParameterConstraint.ts: >objectOutputType : flatten<addQuestionMarks<baseObjectOutputType<Shape>, requiredKeys<baseObjectOutputType<Shape>>>> — expected >objectOutputType : addQuestionMarks<baseObjectOutputType<Shape>, requiredKeys<baseObjectOutputType<Shape>>> extends infer T ? { [k in keyof T]: T[k]; } : never
 compiler/declarationEmitNestedGenerics
@@ -213,3 +203,13 @@ compiler/declarationEmitNoInvalidCommentReuse2
   a.ts: >object : any — expected >object : { foo: import("./id").Id<{}>; }
 compiler/declarationEmitObjectLiteralAccessorsJs1
   index.js: >obj2 : { x: string; } — expected >obj2 : { get x(): string; set x(a: number); }
+compiler/declarationEmitShadowingInferNotRenamed
+  declarationEmitShadowingInferNotRenamed.ts: >createClient : error — expected >createClient : <D extends (new (...args: any[]) => Client) | Record<string, new (...args: any[]) => Client>>(clientDef: D) => D extends new (...args: any[]) => infer C ? UpdatedClient<C> : { [K in keyof D]: D[K] extends new (...args: any[]) => infer C ? UpdatedClient<C> : never; }
+compiler/declarationEmitUsingTypeAlias1
+  src/index.ts: >bar : (thing: SomeType) => any — expected >bar : (thing: SomeType) => import("../node_modules/some-dep/dist/inner").Other
+compiler/declarationsIndirectGeneratedAliasReference
+  index.ts: >MyComp : error — expected >MyComp : import("mod/ctor").ExtendedCtor<import("mod").default>
+compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
+  declarationsWithRecursiveInternalTypesProduceUniqueTypeParams.ts: >updateIfChanged : <T>(t: T) => any — expected >updateIfChanged : <T>(t: T) => (<K extends Key<T>>(key: K) => (<K_1 extends Key<Value<K, T>>>(key: K_1) => (<K_2 extends Key<Value<K_1, Value<K, T>>>>(key: K_2) => (<K_3 extends Key<Value<K_2, Value<K_1, Value<K, T>>>>>(key: K_3) => (<K_4 extends Key<Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>(key: K_4) => (<K_5 extends Key<Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>(key: K_5) => (<K_6 extends Key<Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>(key: K_6) => (<K_7 extends Key<Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>(key: K_7) => (<K_8 extends Key<Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>(key: K_8) => (<K_9 extends Key<Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>(key: K_9) => (<K_10 extends Key<Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>>(key: K_10) => any & { map: (updater: (u: Value<K_10, Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>) => Value<K_10, Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>) => T; set: (newU: Value<K_10, Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>) => T; }) & { map: (updater: (u: Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>) => Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>) => T; set: (newU: Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>) => T; }) & { map: (updater: (u: Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>) => Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>) => T; set: (newU: Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>) => T; }) & { map: (updater: (u: Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>) => Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>) => T; set: (newU: Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>) => T; }) & { map: (updater: (u: Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>) => Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>) => T; set: (newU: Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>) => T; }) & { map: (updater: (u: Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>) => Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>) => T; set: (newU: Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>) => T; }) & { map: (updater: (u: Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>) => Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>) => T; set: (newU: Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>) => T; }) & { map: (updater: (u: Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>) => Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>) => T; set: (newU: Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>) => T; }) & { map: (updater: (u: Value<K_2, Value<K_1, Value<K, T>>>) => Value<K_2, Value<K_1, Value<K, T>>>) => T; set: (newU: Value<K_2, Value<K_1, Value<K, T>>>) => T; }) & { map: (updater: (u: Value<K_1, Value<K, T>>) => Value<K_1, Value<K, T>>) => T; set: (newU: Value<K_1, Value<K, T>>) => T; }) & { map: (updater: (u: Value<K, T>) => Value<K, T>) => T; set: (newU: Value<K, T>) => T; }) & { map: (updater: (u: T) => T) => T; set: (newU: T) => T; }
+compiler/decoratorReferences
+  decoratorReferences.ts: >1 as T : T — expected >1 as T : number
