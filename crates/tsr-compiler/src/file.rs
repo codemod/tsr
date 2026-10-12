@@ -72,6 +72,10 @@ impl<'a> ProgramFile<'a> {
         text: &'a str,
         parsed: tsr_parser::ParsedInto<'a>,
     ) -> Self {
+        let mut diagnostics = parsed.diagnostics;
+        // `parseSourceFileWorker`'s `attachFileToDiagnostics`: the parser
+        // cannot, as it never sees the file name.
+        tsr_parser::attach_file_to_diagnostics(&mut diagnostics, file_name, text);
         Self {
             path,
             file_name,
@@ -79,7 +83,7 @@ impl<'a> ProgramFile<'a> {
             source_file: parsed.source_file,
             jsdoc: parsed.jsdoc,
             node_range: parsed.node_range,
-            diagnostics: parsed.diagnostics,
+            diagnostics,
             file_references: parsed.file_references,
         }
     }

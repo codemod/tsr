@@ -223,6 +223,38 @@ pub fn parse_standalone_type<'a>(
     (diagnostics.is_empty() && consumed).then_some(r#type)
 }
 
+/// typescript-go's `attachFileToDiagnostics` (`internal/parser/parser.go:6392`):
+/// the parser sets the file on each parse diagnostic's related information,
+/// so a related report (`parseExpectedMatchingBrackets`' TS1007,
+/// `parseTypedefTag`'s TS8034) prints at a position in the file.
+///
+/// This parser never sees the file name (ADR-0016), so the caller that holds
+/// the name, the text and the parse diagnostics together calls this. The head
+/// diagnostics keep no file: a program reports them against the file that
+/// produced them. The file image is built only when some diagnostic carries
+/// related information, which only a parse error does.
+pub fn attach_file_to_diagnostics(diagnostics: &mut [Diagnostic], file_name: &str, text: &str) {
+    let mut file: Option<std::sync::Arc<tsr_diagnostics::DiagnosticFile>> = None;
+    for diagnostic in diagnostics.iter_mut() {
+        if diagnostic.related_information().iter().all(|related| related.file().is_some()) {
+            continue;
+        }
+        let file = file.get_or_insert_with(|| {
+            std::sync::Arc::new(tsr_diagnostics::DiagnosticFile::new(file_name, text))
+        });
+        let related = diagnostic
+            .related_information()
+            .iter()
+            .cloned()
+            .map(|mut related| {
+                related.set_file(std::sync::Arc::clone(file));
+                related
+            })
+            .collect();
+        diagnostic.set_related_information(std::sync::Arc::new(related));
+    }
+}
+
 /// Parse one positioned statement into an existing node table — the statement
 /// counterpart of [`parse_standalone_type`], for declaration emit's
 /// reconstruction of a JSDoc `@import` tag as the `import type` declaration
