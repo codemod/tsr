@@ -1713,3 +1713,43 @@ Pinned native, run on that test's own `SOURCE`, prints
 `enterNewScope` (`nodecopy.go:845`) after the signature's own `K` holds the
 name. The expectation now reads native's line; the rest of the test is
 unchanged.
+
+## 47. Routed: every JSDoc `@param` annotation is reused (`r7-printer-jsdoc-param-reuse.diff`)
+
+**Forcing constraint.** `callbackCrossModule` prints natively as
+`f : (k: import('./mod1').Con) => any`, keeping the JSDoc import type's
+quotes; the port printed the chain spelling `import("./mod1")`.
+`checkJsdocParamOnVariableDeclaredFunctionExpression` prints natively as
+`(n?: number | undefined, s?: string) => void` for `@param {number=} n`; the
+port printed `n?: number`. `jsDeclarationsUniqueSymbolUsage`,
+`jsDeclarationsMissingTypeParameters` (`y?: any[] | undefined` for
+`{Array=}`) and others differ the same way.
+
+**Cause.** `serializeTypeForDeclaration` reuses the reparsed annotation of a
+JSDoc parameter as it reuses a written one. The node copier rewrites the
+JSDoc-only kinds: `T=` becomes `T | undefined`, `?T` becomes `T | null`, and
+`*` becomes `any` (`nodecopy.go:480-506`). signatures.rs carried a JSDoc
+parameter's annotation as `written_text` only for a bracketed name and only
+for non-JSDoc node kinds. The note there called the rewrites unported, but
+the reuse visitor ports them (`emit_reused_type`'s JSDoc arms, §31).
+
+**The diff** (signatures.rs, not this lane's) carries every `@param`
+annotation's inner type as `written_text`. Measured against `70bcf4e9d`'s
+freeze and exact report (`--workers 2` for the candidate): types **+13 / −0**,
+diagnostics 0/0; exact **10619 → 10626, +7 / −0**
+(`jsdocTypeGenericInstantiationAttempt`, `callbackCrossModule`,
+`checkJsdocParamOnVariableDeclaredFunctionExpression`,
+`jsDeclarationsUniqueSymbolUsage`, `jsdocParseBackquotedParamName`,
+`jsdocPrefixPostfixParsing`, `returnTagTypeGuard`).
+
+**Looked at and left: a member named by a unique symbol.** Native names
+`{ [Op.equal]: "first" }`'s member by the unique symbol's declaring symbol,
+resolved at the property's declaration (`addPropertyToElementList` sets
+`enclosingDeclaration = propertySymbol.ValueDeclaration` before
+`getPropertyNameNodeForSymbol`): `[OpTypes.equal]`, and `[s0]` through
+`const s2: typeof s0` (`uniqueSymbolsPropertyNames`, `dynamicNames`). The
+port keeps the written `[Op.equal]`. The certified member plan
+(`object_member_plan_matches_source`) refuses a computed key that is not a
+literal, so such an image keeps its baked print. Renaming the member there
+first needs the plan to admit late-bound keys. That was not done for three
+lines.
