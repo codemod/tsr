@@ -265,14 +265,17 @@ impl Checker<'_, '_> {
         // `isApplicableIndexType(any, key)` holds for every key kind (`any` is
         // assignable to each), so an `any` key misses only on a receiver with
         // no index info at all.
-        if has_string
-            || index_type == self.intrinsics.any && !infos.is_empty()
-            || constituents
-                .into_iter()
-                .all(|part| self.get_applicable_index_info(apparent, part).is_some())
-        {
+        if has_string || index_type == self.intrinsics.any && !infos.is_empty() {
             return;
         }
+        // The first constituent no index info applies to: the one
+        // `getPropertyTypeForIndexType` reports for (`:26985`).
+        let Some(missing) = constituents
+            .into_iter()
+            .find(|&part| self.get_applicable_index_info(apparent, part).is_none())
+        else {
+            return;
+        };
         // `getIndexTypeOfType(objectType, numberType)` reads the ORIGINAL
         // object type; its index infos are the apparent type's for every
         // non-primitive receiver admitted above.
@@ -297,14 +300,34 @@ impl Checker<'_, '_> {
         let span = self.error_span(node);
         let index_text = self.type_to_string(index_type);
         let object_text = self.type_to_string(object_type);
-        self.report(
-            file,
-            Diagnostic::with_args(
+        // The chained explanation (`:27165-27178`): a plain `string` or
+        // `number` key's "No index signature with a parameter of type …";
+        // any other key kind admitted here (a pattern literal, `symbol`)
+        // has none.
+        let child =
+            self.store.get(missing).flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER).then(
+                || {
+                    let missing_text = self.type_to_string(missing);
+                    Diagnostic::with_args(
+                    &messages::NO_INDEX_SIGNATURE_WITH_A_PARAMETER_OF_TYPE_0_WAS_FOUND_ON_TYPE_1,
+                    span,
+                    [missing_text, object_text.clone()],
+                )
+                },
+            );
+        let diagnostic = match child {
+            Some(child) => Diagnostic::new_chain(
+                Some(child),
+                &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
+                [index_text, object_text],
+            ),
+            None => Diagnostic::with_args(
                 &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_EXPRESSION_OF_TYPE_0_CAN_T_BE_USED_TO_INDEX_TYPE_1,
                 span,
                 [index_text, object_text],
             ),
-        );
+        };
+        self.report(file, diagnostic);
     }
 
     /// TS7017 for a dotted name `typeof globalThis` does not have: the
