@@ -3833,6 +3833,31 @@ impl Checker<'_, '_> {
         Some(signature)
     }
 
+    /// Whether [`Checker::get_effects_signature`]'s `None` for `call_node` is
+    /// a decided negative: a completed no-effects call
+    /// (`completed_no_effects_calls`), or an identifier callee whose function
+    /// symbol has no effects. Any other `None` may be work this port has not
+    /// done (`r7-flow.md` §49).
+    fn effects_negative_is_certain(
+        &mut self,
+        call_node: NodeId,
+        call: &tsr_ast::CallExpression<'_>,
+    ) -> bool {
+        if self.completed_no_effects_calls.contains(&call_node) {
+            return true;
+        }
+        let Some(callee_id) = call.expression.and_then(|callee| callee.node_id()) else {
+            return true;
+        };
+        if let Some(Node::Identifier(identifier)) = self.node_map.get(callee_id)
+            && let Some(symbol) =
+                self.resolve_identifier_memo(callee_id, identifier.text, SymbolFlags::VALUE)
+        {
+            return self.function_symbol_has_no_effects(symbol);
+        }
+        false
+    }
+
     /// Native keys effects by the call node. TSR can also evaluate that AST
     /// under captured alias or mapped-template contexts, so this bounded port
     /// only retains and reads completion in the original evaluation context.
@@ -4331,8 +4356,11 @@ impl Checker<'_, '_> {
         let Some(signature) = self.get_effects_signature(call_node, call) else {
             // No effects signature is also this port's answer for one it
             // has not computed (inferred predicates, deferred signature
-            // work): an assertion it would have applied is not excluded.
-            state.unchanged.push(call_node);
+            // work): an assertion it would have applied is not excluded,
+            // unless the negative is a completed one.
+            if !self.effects_negative_is_certain(call_node, call) {
+                state.unchanged.push(call_node);
+            }
             return None;
         };
         // §128 second attempt returned the DECLARED type here, reasoning

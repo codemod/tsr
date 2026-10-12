@@ -2,7 +2,9 @@
 //! step that may have answered wider than native (r7-flow §49): `instanceof`
 //! narrowing an `any` to `C1 | C2` reports, and a type-predicate narrowing
 //! this port cannot decide (a memberless mapped predicate) stays silent,
-//! where native narrows to `ArrayLike<any>` and reports nothing. Expected
+//! where native narrows to `ArrayLike<any>` and reports nothing; a
+//! statement call whose no-effects answer is completed (`u.m()`) does not
+//! uncertify the receiver. Expected
 //! positions are pinned tsgo 5b1047d10d32e7d5b446be4de56b126ff42f82bb on the
 //! same source.
 
@@ -23,6 +25,11 @@ declare const arrayLikeOrIterable: ArrayLike<any> | Iterable<any>;
 if (hasOwnProperty(arrayLikeOrIterable, 'length')) {
     arrayLikeOrIterable.length;
 }
+interface I1 { a: string; m(): void }
+interface I2 { b: string; m(): void }
+declare var u: I1 | I2;
+u.m();
+u.a;
 ";
     let mut case = TestCase::parse("probe/union-receiver-certificate", "probe.ts", source);
     case.options.insert("target".into(), "es2015".into());
@@ -31,5 +38,5 @@ if (hasOwnProperty(arrayLikeOrIterable, 'length')) {
         .into_iter()
         .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
         .collect();
-    assert_eq!(reported, [(7, 9, 2339)]);
+    assert_eq!(reported, [(7, 9, 2339), (18, 3, 2339)]);
 }
