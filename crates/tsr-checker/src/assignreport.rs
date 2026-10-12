@@ -6214,9 +6214,25 @@ impl Checker<'_, '_> {
         let (source_symbol, source_arguments) = self.type_reference_targets.get(&source)?.clone();
         let (target_symbol, target_arguments) = self.type_reference_targets.get(&target)?.clone();
         let symbol = self.binder.merged_symbol(source_symbol);
+        // An alias relates its own arguments under its own variances
+        // (`relater.go:3392`) unless it is written as a reference, which
+        // relates as the reference it names; that case declines.
+        let alias_of_reference = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .contains(SymbolFlags::TYPE_ALIAS)
+            && self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                !matches!(
+                    self.node_map.get(declaration),
+                    Some(Node::TypeAliasDeclaration(alias))
+                        if !matches!(alias.r#type, Some(tsr_ast::TypeNode::TypeReferenceNode(_)))
+                )
+            });
         if symbol != self.binder.merged_symbol(target_symbol)
             || source_arguments.len() != target_arguments.len()
-            || self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || alias_of_reference
         {
             return None;
         }
@@ -6621,8 +6637,15 @@ impl Checker<'_, '_> {
         let (source, target) = (&source, &target);
         let source_count = self.signature_parameter_count(source);
         let target_count = self.signature_parameter_count(target);
-        if self.signature_min_argument_count(source) > target_count {
-            return None;
+        // `sourceHasMoreParameters` (`relater.go:1470`), reported outside
+        // strict arity.
+        let source_minimum = self.signature_min_argument_count(source);
+        if source_minimum > target_count {
+            stack.push(ChainEntry {
+                message: &messages::TARGET_SIGNATURE_PROVIDES_TOO_FEW_ARGUMENTS_EXPECTED_0_OR_MORE_BUT_GOT_1,
+                args: vec![source_minimum.to_string(), target_count.to_string()],
+            });
+            return Some(());
         }
         let kind = self.nodes.kind(target.declaration);
         let strict_variance = !callback

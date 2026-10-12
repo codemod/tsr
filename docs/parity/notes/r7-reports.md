@@ -1814,3 +1814,21 @@ The reverse failure is reported under `The 'this' types of each signature
 are incompatible.` `explain_signature` declined every signature with a
 `this` parameter; it now runs this arm. Only one side having `this` is
 not compared, as upstream does.
+
+## 54. Too few target arguments inside the chain; alias variances
+
+- `compareSignaturesRelated`'s arity check (`relater.go:1470`) reports
+  `Target signature provides too few arguments. Expected N or more, but
+  got M.` at any depth outside strict arity. At the head this already
+  came from the relater's own signature error. Under a property
+  (`Types of property 'a' are incompatible.` in TS2430) the retrace
+  declined; it now pushes the message.
+- An alias instantiation relates its own arguments under the alias's
+  variances (`relater.go:3392`) when the alias is not written as a type
+  reference. `explain_reference_variances` now takes those aliases too.
+  An alias of a class or interface reference relates as that reference
+  in the relater, and still declines here. The motivating case,
+  `Func<string, Object> → Func<Object, Object>` in
+  `strictFunctionTypesErrors`, does not reach this arm yet: the port's
+  type for the instantiation prints expanded (`(x: string) => Object`),
+  with no alias to relate by.
