@@ -1778,3 +1778,19 @@ anonymous image first.
 Measured (§70 with §71) on `8fddcb64`: types **+6**, diagnostics **+2**
 cases, 0 lost; exact oracle +2, 0 lost; jsTyping gap 22 → 22, new_false 0,
 lost_true 0; Ir gi 1.0001, dm 0.9999.
+
+## §72 A JS function's `@type` signature supplies its `this`
+
+`tryGetThisTypeAtEx` (`checker.go:12152`) reads
+`getSignatureOfFullSignatureType(container)` before the declaration's own
+signature, so a JS function declaration whose `@type` is a function type with
+a `this` parameter types `this` from it (`jsdocThisType`'s `f4`, `f6`).
+`this_expression.rs`' existence answer and, under the consumer-hunk grant,
+`expressions.rs`' `this` type road (the explicit-`this`-parameter arm's
+fallback, before `@this`) both read `jsdoc_full_signature`. Not covered: an
+`@type` naming an alias imported through `import('./types').M`, whose
+signature this port does not resolve there (`f1`, `f2` keep a false TS2683).
+
+Measured on `dba618bd`: legacy verdicts unchanged (`jsdocThisType` keeps
+`f1`/`f2`), exact oracle unchanged, 0 lost; jsTyping gap 18 → 18, new_false
+0, lost_true 0; Ir gi 0.9999, dm 1.0000.

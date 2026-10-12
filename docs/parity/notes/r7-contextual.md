@@ -1319,3 +1319,28 @@ across 67,722 related verdict lines). The arm now delegates to
 `context_free_object_inference_type`, the existing SkipContextSensitive
 object-literal image. **Cross-lane hunk:** one match arm in signatures.rs,
 under the default grant (same native root cause, every gate).
+
+## 49. A computed-nil contextual signature licenses the uncontextual parameter roads (signatures.rs, symbols.rs, destructure.rs)
+
+Native types a function expression's unannotated parameters from its own
+declarations whenever `getContextualSignature` answers nil. For example,
+`id1<T>(input: T): T` gives `T`'s apparent `unknown`, which has no call
+signature, so `id1(function (x = 1) { return x })` is `(x?: number) => number`
+and `id1(function ({ foo = 42 }) { return foo })` reads the pattern's implied
+type. The port had four gates on that road, and each admitted only positions
+whose absence of context `has_no_contextual_type` could show syntactically:
+- `get_type_of_function_expression`'s GROUNDED guard (signatures.rs): its
+  `Absent` arm still declined inside a single generic argument context, kept
+  for the unported overload-failure retry. It now admits a computed `Absent`.
+- the parameter-type gate of the signature builder (signatures.rs §561/§808),
+- the pattern-parameter gate of `get_widened_type_for_variable_like_declaration`
+  (symbols.rs),
+- the binding-parent gate of `get_type_for_binding_element` (destructure.rs).
+The last three now also admit a function whose `contextual_signature_result` is
+`Absent`, a semantically computed nil and not an undecided one.
+contextuallyTypedParametersWithInitializers1 goes 25 → 8 non-RIGHT lines; no
+loss across 98,499 related verdict lines, including the gate's named
+falsifier coAndContraVariantInferences3. tsgo's d.ts emit agrees on three
+probes. **Cross-lane hunks:** one arm each in signatures.rs (two sites) and
+symbols.rs, under round 7's default grant: same native root cause, small and
+atomic, named here.
