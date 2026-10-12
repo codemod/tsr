@@ -1164,3 +1164,16 @@ previous freeze: types +17 RIGHT / 0 lost / 0 missing, diagnostics +0 cases / 0 
 | `checker_types_configured` | 1,847 | 1,847 |
 | `diagnostics` | 5,107 | 5,107 |
 | `diagnostics_configured` | 1,033 | 1,033 |
+
+### Batch 70 — r7-flow `370e40c4`, r7-perf `3c228f8b`, r7-printer `a0768c5a`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **10998 / 12797 EXACT (85.94%)**, 14 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +1 RIGHT / 0 lost / 0 missing, diagnostics +1 cases / 0 lost / 0 missing. jsTyping 104 → 104 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0000, domain-model 1.0003. No suite's failure count rose.
+
+| Suite | Before | Batch 70 |
+|---|---|---|
+| `checker_types` | 9,034 | 9,035 |
+| `checker_types_configured` | 1,847 | 1,847 |
+| `diagnostics` | 5,107 | 5,108 |
+| `diagnostics_configured` | 1,033 | 1,033 |

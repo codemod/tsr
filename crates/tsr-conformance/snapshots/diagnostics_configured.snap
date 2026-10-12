@@ -64,9 +64,9 @@ compiler/functionsWithImplicitReturnTypeAssignableToUndefined(strictnullchecks=t
 compiler/implicitAnyFromCircularInference(target=es2015)
   2 unexpected (first TS7024 at implicitAnyFromCircularInference.ts(17,10)), 3 missing
 compiler/inKeywordTypeguard(strict=false)
-  4 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
+  3 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
 compiler/inKeywordTypeguard(strict=true)
-  5 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
+  4 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
 compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties2.ts(21,1)), 2 missing
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
