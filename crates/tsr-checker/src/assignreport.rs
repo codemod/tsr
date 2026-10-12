@@ -6438,7 +6438,20 @@ impl Checker<'_, '_> {
         use crate::signatures::SignatureKind;
         // `propertiesRelatedTo` walks the target's properties and looks each
         // up on the source by name; the source's own list is never read.
-        let names = self.get_property_names_of_type(target)?;
+        // A method's or function's own type (its overload set, with no
+        // members of its own) has no answer from the property enumeration;
+        // its property list is empty (`resolveAnonymousTypeMembers` of a
+        // function symbol without exports).
+        let names = match self.get_property_names_of_type(target) {
+            Some(names) => names,
+            None if self
+                .completed_callable_symbol(target)
+                .is_some_and(|symbol| self.binder.symbols().get(symbol).exports.is_empty()) =>
+            {
+                Vec::new()
+            }
+            None => return None,
+        };
         // `getUnmatchedProperty` first.
         for name in &names {
             if self.get_type_of_property_of_type(source, name).is_none()

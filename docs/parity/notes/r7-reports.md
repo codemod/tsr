@@ -1977,3 +1977,17 @@ three failures each end with `Type predicate 'P' is not assignable to
 ports the arm. On the `typeGuardFunction` subset, a quick oracle against
 c51 read 1 gained and 0 lost (`typeGuardFunctionOfFormThisErrors`).
 `typeGuardFunctionErrors` still differs on an unrelated TS2355.
+
+## 64. A method's own type has no property list in the port
+
+An interface method's overload set (`{ (x: string): any; (x: 'foo'):
+string; }`, the type of `Base.addEventListener`) gets no answer from
+`get_property_names_of_type`, so the retrace declined at the first step.
+Natively that type has no properties: `resolveAnonymousTypeMembers` of a
+function or method symbol reads only its exports, and a method has none.
+`explain_object_relation` now takes the empty list for a callable symbol
+without exports (`completed_callable_symbol`), and the N×M signature arm
+explains it: `overloadOnConstInheritance2` reads `Types of parameters 'x'
+and 'x' are incompatible.` → `Type '"foo"' is not assignable to type
+'"bar"'.` (The signature text there still prints the written `'bar'`
+quotes, which is the printer's.)
