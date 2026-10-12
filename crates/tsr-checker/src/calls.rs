@@ -518,7 +518,10 @@ impl<'a> Checker<'a, '_> {
             );
             if literal
                 && !self.is_context_sensitive_argument(argument)
-                && inner.node_id().is_some_and(|id| !self.literal_subtree_has_resolution(id))
+                && inner.node_id().is_some_and(|id| {
+                    !self.literal_subtree_has_resolution(id)
+                        || self.literal_resolutions_are_context_free(id)
+                })
             {
                 rechecked[index] = true;
                 continue;
@@ -6209,6 +6212,69 @@ impl Checker<'_, '_> {
             rechecked = true;
         }
         rechecked
+    }
+
+    /// Whether every resolution inside a literal argument's subtree is a
+    /// call or `new` whose answer cannot follow the literal's contextual type:
+    /// its callee's signatures of the kind (call, or construct for `new`)
+    /// are decided and none is generic, and none of its own arguments is
+    /// context sensitive. Such a call's return type is its declared one, and
+    /// its arguments are checked against its own parameters, so re-checking
+    /// the literal under each overload candidate
+    /// ([`Checker::check_literal_argument_in_candidate`]) resolves it to the
+    /// same signature; the subtree's published state is restored after.
+    /// Any other resolving node (a function, class, method or accessor, a
+    /// tagged template, a generic or undecided callee) answers `false`.
+    fn literal_resolutions_are_context_free(&mut self, root: tsr_ast::NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            match self.nodes.kind(id) {
+                K::CallExpression | K::NewExpression => {
+                    let (callee, arguments, kind) = match self.node_map.get(id) {
+                        Some(tsr_ast::Node::CallExpression(call)) => {
+                            (call.expression, call.arguments, SignatureKind::Call)
+                        }
+                        Some(tsr_ast::Node::NewExpression(new)) => {
+                            (new.expression, new.arguments, SignatureKind::Construct)
+                        }
+                        _ => return false,
+                    };
+                    let Some(callee) = callee else { return false };
+                    if arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+                    {
+                        return false;
+                    }
+                    let callee_type = self.check_expression(callee);
+                    let apparent = self.apparent_type(callee_type);
+                    if self.is_error(apparent)
+                        || self.could_contain_type_variables_at_head(apparent, 3)
+                    {
+                        return false;
+                    }
+                    let Some(signatures) = self.head_signatures(apparent, kind) else {
+                        return false;
+                    };
+                    if signatures.is_empty()
+                        || signatures.iter().any(|signature| !signature.type_parameters.is_empty())
+                    {
+                        return false;
+                    }
+                }
+                K::TaggedTemplateExpression
+                | K::FunctionExpression
+                | K::ArrowFunction
+                | K::ClassExpression
+                | K::MethodDeclaration
+                | K::GetAccessor
+                | K::SetAccessor => return false,
+                _ => {}
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        true
     }
 
     /// Whether a literal argument's subtree holds a node whose check resolves

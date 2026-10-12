@@ -1109,6 +1109,30 @@ when the resolved signature's `this` type is `void`
 `new` head reports it for the candidate it can tell
 (`new_head_candidate`): thisTypeInFunctionsNegative's `new VoidThis()`.
 
+## 34. A literal argument whose nested calls cannot follow its context is re-checked per candidate
+
+The non-generic overload walk (`check_overload_candidates_arguments`, §8)
+declined an object or array literal argument holding any nested
+resolution (`literal_subtree_has_resolution`). Re-checking it under each
+candidate re-enters that resolution, and a resolution that reads the
+literal's contextual type would publish a candidate-dependent answer.
+
+A nested call or `new` whose callee's signatures of the kind are decided
+and none generic, and none of whose own arguments is context sensitive,
+does not read it. Its return type is its declared one, and its arguments
+are checked against its own parameters, so the re-check resolves it to
+the same signature (and the subtree's published state is restored after,
+as before). `literal_resolutions_are_context_free` certifies a subtree
+whose every resolution is such a call. Functions, classes, methods,
+accessors, tagged templates, and generic or undecided callees still
+decline.
+
+`array.concat([...new SymbolIterator])` now reports native's TS2769
+(iteratorSpreadInArray6); its elaboration below the head is the relation
+reporter's. Only the plain-argument road (the non-generic walk's report and
+§30's TS2793 check) reads the new predicate; the type road's walk keeps
+`literal_subtree_has_resolution`.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
