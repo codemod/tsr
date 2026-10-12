@@ -48,15 +48,16 @@ impl Checker<'_, '_> {
     /// declarations. JSDoc adds no members. Removing the decline here and in
     /// `crate::type_argument_arity`, which declined for the same borrowed
     /// reason, is worth 3 cases.
-    pub(crate) fn check_nonexistent_property(&mut self, node: NodeId, ambient: bool) {
+    pub(crate) fn check_nonexistent_property(&mut self, node: NodeId, _ambient: bool) {
         // The same native function's flow arm (`getFlowTypeOfAccessExpression`).
         self.check_property_used_before_assigned(node);
         // Pinned `checkPropertyAccessExpressionOrQualifiedName` reports this
         // semantic error even with parse diagnostics. Existing receiver-image
         // completeness and unsupported-access declines still own the work.
-        if ambient {
-            return;
-        }
+        // An ambient context is checked as any other: its expressions (a
+        // heritage clause's `M.C`, a computed name's `Symbol.isRegExp`) reach
+        // `checkPropertyAccessExpressionOrQualifiedName` too (`r7-flow.md`
+        // §33).
         // **`a["nope"]` is the same question.** Eight of upstream's twelve
         // `checker.go` sites for this code are the element-access cluster
         // (`checker.go:27074`–`:27196`), and this rule saw none of them. Only a

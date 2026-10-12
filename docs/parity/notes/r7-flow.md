@@ -942,3 +942,19 @@ Measured on `e5de971c` unfiltered: diagnostics **+3**
 `objectSpreadIndexSignature`), types unchanged, 0 lost; exact oracle 9666 →
 9668, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 1.0001, dm
 1.0000.
+
+## §33 TS2339 in an ambient context
+
+`check_nonexistent_property` returned at once in an ambient context (a
+`declare` declaration, a `.d.ts`). Native has no such exit: the expressions an
+ambient context holds — a heritage clause's `M.C` (`declare class D2 extends
+M.C {}`), a computed property name's `Symbol.isRegExp` (`declare class C {
+[Symbol.isRegExp]: string }`) — are checked by
+`checkPropertyAccessExpressionOrQualifiedName` like any other, and the miss
+is reported (`genericTypeReferenceWithoutTypeArgument.d`/`3`,
+`parserES5SymbolProperty4(target=es2015)`). The exit is gone; the certificates
+below it are unchanged.
+
+Measured on `b5b993e1` unfiltered: diagnostics **+3** (those three cases),
+types unchanged, 0 lost; exact oracle 9668 → 9671 (those three), 0 lost; jsTyping
+122 → 122, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0000.
