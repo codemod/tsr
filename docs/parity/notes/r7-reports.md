@@ -2639,3 +2639,217 @@ and `ptionalProp`: 0 lost.
   lane, so this is a note rather than a change.
 - **Measured.** Quick oracles over `onPrimitive`, `xcessProperty` and
   `ntersection`: 0 lost.
+
+## 93. Variadic elements and optional elements in the tuple arm
+
+§89's tuple shape now has the fourth element kind, `Variadic` (a spread of a
+type variable), with native's flags:
+
+- `minLength` counts required and variadic elements.
+- `targetHasVariableElement` (rest or variadic) gates the second and third
+  arity checks.
+- The rest-mapped position walk still keys on a rest element.
+
+Two variadic reports come before the required-element one: *Source provides
+no match for variadic element at position i in target.* and *Variadic
+element at position i in source does not match element at position j in
+target.* (`variadicTuples3` is EXACT). A variadic source against a rest
+target, whose comparison is against the rest's array type, declines.
+
+Optional elements follow `removeMissingType`. Under
+exactOptionalPropertyTypes the target side, and the source side when both
+are optional, drop the missing type. Otherwise the element keeps the
+`undefined` that its optionality added, and an element list without one
+declines under strict null checks. In `strictOptionalProperties1`, the tuple
+lines (`Type at position 1 in source is not compatible …` / `Type 'undefined'
+is not assignable to type 'string'.`) now match. Quick oracles over `uple`,
+`ariadic`, `estParam`, `pread`, `estructuring` and `xactOptional`: 0 lost.
+
+## 94. `containsMissingType` reads the whole union
+
+`isExactOptionalPropertyMismatch` asks `containsMissingType(target)`, which
+looks for the missing type anywhere in a union. The TS2412 head test
+(`exact_optional_property_assignment_mismatch`) only accepted it as the
+union's first member, so its correctness depended on union order. It now
+checks membership. No quick-oracle movement (`xactOptional`: 0 gained, 0
+lost). The `Partial<{ a: string }>` write in `strictOptionalProperties1`
+still reports TS2322, because the mapped property's type does not carry the
+missing type in this port. That is the mapped-type lane's question.
+
+## 95. Tuple targets against non-array sources
+
+`StrNum → [number]`, where `StrNum` is an interface that extends
+`Array<string | number>`, is not an array or tuple source. Native skips the
+tuple arm and walks the target's properties. Their order comes from
+`getNamedMembers`' `compareSymbols`: the tuple's synthesized `0`, `1`, …
+and its overriding `length` have no declarations, so they sort after the
+declared `Array` members. The first failing member is `pop`, which folds
+into *The types returned by 'pop()' are incompatible between these types.*
+(`arityAndOrderCompatibility01`).
+
+The retrace had no property list for a tuple target and declined. It now
+takes the relater's `tuple_target_properties` and moves the synthesized
+names (`length` and the numeric names) after the inherited ones. Quick
+oracles over `uple`, `rray`, `rity` and `estructuring`: 0 lost.
+
+## 96. A signature kind that relates passes to the next
+
+`structuredTypeRelatedToWorker` relates call signatures, then construct
+signatures, and reports from the first kind that fails. The retrace returned
+from the first kind with target signatures, whether or not it failed. In
+`interfaceImplementation1`, a function relates `I4`'s call signature and
+lacks its construct signature, so the retrace explained the relating call
+pair, found nothing, and declined. Each kind is now asked of the relater
+first (`chain_signature_kind_related`, `related_signature_kind` on a fresh
+walk). A related kind passes on, so the chain reads *Type '() => C2'
+provides no match for the signature 'new (): I3'.*. An undecided kind
+declines. Quick oracles over `ignature`, `allback`, `unctionType`,
+`nterface` and `onstruct`: 0 lost.
+
+## 97. TS4104 inside the chain
+
+`reportErrorResults` calls `tryElaborateArrayLikeErrors` with reporting
+before its switch. A readonly array or tuple against a mutable one reports
+*The type 'readonly [1, "1"]' is 'readonly' and cannot be assigned to the
+mutable type '[a: 1 | 2, b: "1" | "2"]'.*. `reportRelationError` then drops
+the pair's own message, because `chainArgsMatch` sees TS4104 naming the
+same pair. The port did this only at the head
+(`readonly_to_mutable_array_like` → `report_readonly_to_mutable`). Inside the
+chain, the tuple and array arms declined on a readonly source against a
+mutable target.
+
+Those arms now fail the pair with nothing of their own, as native's tuple
+arm does. `chain_error_results` pushes TS4104, and
+`chain_report_relation_error` suppresses the pair's message when TS4104
+names it (`contextualTupleTypeParameterReadonly`). Quick oracles over
+`eadonly`, `uple`, `rray` and `ontextualTuple`: 0 lost.
+
+## 84. Indexed accesses sort by object and index (`unions.rs`, moved from held)
+
+(First recorded on `box/r7-reports-held`. It moves here under the
+integrator's default grant for small consumer hunks that share a native
+root cause.)
+
+`CompareTypes` (`utilities.go:544`) orders two indexed accesses by object
+type, then by index type. `getTypeNameSymbol` has no symbol for either, so
+the name comparison leaves them equal. The port compared their printed text
+(`T[number]` before `T[string]`) and then fell back to type ids. With the
+arm, §78's distribution prints as native does: `T[string] | T[number] |
+T[symbol]`.
+
+The change is in `unions.rs`: `compare_type_names` treats two deferred
+indexed accesses without aliases as equal, and `compare_types` gains the
+object-then-index arm before the type-id fallback. Measured with and
+without the hunk on the same tree: quick oracles over `keyof`, `ndexed`,
+`appedType`, `onditional` and `nion` gained `indexedAccessConstraints` and
+lost nothing.
+
+## 98. Ambient enum members without initializers have unknown values
+
+`computeEnumMemberValue`: in an ambient non-const enum, a member without an
+initializer is computed, and its value is unknown, not auto-incremented.
+`isEnumTypeRelatedTo` then reports *One value of 'DiagnosticCategory.Warning'
+is the string '"Warning"', and the other is assumed to be an unknown numeric
+value.* where the port had printed `Each declaration of … '0' was given.`
+(`enumAssignmentCompat6` is EXACT).
+
+`enum_relation_failure` treats such a member's value as unknown. Ambience
+is asked of the enum's ancestors (`is_in_ambient_context`), because the
+port's parser does not set `NodeFlags::AMBIENT` (`bd tsr-o9tl`). The
+relater's own `is_enum_type_related_to` still reads the auto values. Its
+decisions agree with native's except for an ambient member against a known
+numeric value that differs from the auto value. That would be a change in
+the relation, not the report, so it is left alone and noted here.
+
+## 99. Template-literal constituents of intersection targets
+
+`'""' → `a${string}` & `${string}a`` (`templateLiteralIntersection2`).
+`typeRelatedToEachType` reports the first constituent that fails, and the
+primitive-against-template-literal pair has nothing below it: the target's
+template arm matches the source text without reporting. The
+intersection-target arm had declined every instantiable constituent except
+type parameters. Template literals and string mappings are not normalized
+by `isRelatedTo`, so they are now admitted too. A primitive source against
+a template literal or string mapping is a leaf. Quick oracles over
+`emplate`, `ntersection` and `tringMapping`: 0 lost.
+
+## 100. Conditional targets are leaves; unsimplifiable conditional constituents
+
+- **A conditional target.** `structuredTypeRelatedToWorker`'s conditional
+  target arm (`relater.go:3594`) relates the branches with `reportErrors`
+  off. A source that is not a type variable has no later arm that reports,
+  so nothing goes below the pair: `Q → InferBecauseWhyNot<Q>` explains as
+  its constraint line and stops (`conditionalTypeAssignabilityWhenDeferred`
+  is EXACT). An instantiable source still reaches its own arms (§78), and a
+  union source the each-type arm.
+- **Conditional constituents of an intersection target.** `isRelatedTo`
+  normalizes a conditional only through `getSimplifiedConditionalType`, and
+  only when a branch is `never`. A conditional with neither branch `never`
+  is related as written, so the each-type arm now admits it
+  (`intersection_target_parts_explainable`). `conditionalTypesExcessProperties`
+  gets the right chain shape. Its constituent prints the uninstantiated
+  `T extends object ? …` where native prints `A extends object ? …`, which
+  is a printing difference outside this lane.
+- **Measured.** Quick oracles over `onditional`, `ntersection`, `nfer` and
+  `xtract`: 0 lost.
+
+## 101. Template-literal and string-mapping sources
+
+`structuredTypeRelatedToWorker`'s source arms for a template literal
+(`relater.go:3770`) and a string mapping (`:3782`) relate
+`getBaseConstraintOfType(source)` against a non-object target, with
+reporting:
+
+- `` `AA${Uppercase<string>}` → "AA" `` explains as `` `AA${string}` ``.
+- A constraint that is the source itself reports nothing below.
+- Two string mappings of the same intrinsic relate their operands:
+  `Uppercase<string> → Uppercase<Lowercase<string>>` explains as `Type
+  'string' is not assignable to type 'Lowercase<string>'.`.
+- Two different intrinsics fail without a report.
+
+The retrace now has these arms, using `explain_constraint_descent` for the
+constraint, which is a source-only recursion as in §78. Union and
+intersection targets decline. `stringMappingOverPatternLiterals` and
+`templateLiteralTypes5` are EXACT. Quick oracles over `emplate`,
+`tringMapping` and `ntrinsic`: 0 lost.
+
+## 102. `keyof` sources and two generic mapped types
+
+- **A `keyof` source is instantiable** (`TypeFlagsIndex` is in
+  `InstantiableNonPrimitive`). After `unionOrIntersectionRelatedTo` fails,
+  the worker still runs the source switch's index arm (`relater.go:3694`),
+  which relates `string | number | symbol`. The port's deferred keyof is not
+  flagged instantiable, so against a union or intersection target its
+  failure was final: `keyof T → string | number | symbol` answered
+  NotRelated. That made `reportRelationError` choose the arbitrary-type line
+  where native says *'keyof T' is assignable to the constraint of type 'K'*.
+  Both fallthroughs in `relater.rs` now take the index arm for a deferred
+  keyof source.
+- **The retrace's index arms.** A `keyof` source explains as the key domain
+  (a source-only descent), after `keyof S → keyof T` has first related `T →
+  S` without reporting. A deferred mapped index declines. A primitive
+  against `keyof T`, where `T` is an unconstrained type parameter, is a leaf
+  (the target arm has no constraint to report through).
+- **`mappedTypeRelatedTo`** (`relater.go:3972`) for two generic mapped types:
+  the target's constraint against the source's, then the source template
+  under `P := Q` against the target's, each reporting. A modifier
+  difference or an `as` clause declines. `mappedTypeRelationships`' six
+  `{ [P in …]: … }` pairs now carry native's chains, including the
+  `'keyof T' is assignable to the constraint of type 'K'` descent.
+- **Measured.** Quick oracles against base24 (`keyof`, `apped`, `eneric`,
+  `onstrain`, `nion`, `ntersection`, `ndex`): 0 lost. The relater change
+  alters decisions, so the full gate's diagnostic comparison is the real
+  test.
+
+## 103. Correction to §84: aliased indexed accesses keep their alias name
+
+Gate c68 found two TYPE_LOSS lines in `deeplyNestedMappedTypes`. The union
+`OptionalPropertyKeys<T> | ReadonlyOptionalPropertyKeys<T> |
+ReadonlyPropertyKeys<T>` is three alias instantiations whose bodies are
+indexed accesses. `getTypeNameSymbol` names them by their alias, so they
+sort by alias name. §84 treated every pair of deferred indexed accesses as
+unnamed and ordered them by object and index, which reordered this union.
+The unnamed rule and the object/index arm now apply only when neither side
+is an alias instantiation, whether recorded in `alias_of` or as a reference
+target. `deeplyNestedMappedTypes`' types match again, and
+`indexedAccessConstraints` stays EXACT.

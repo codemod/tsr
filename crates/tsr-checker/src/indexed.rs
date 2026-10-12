@@ -951,9 +951,32 @@ impl Checker<'_, '_> {
         {
             return Some(member);
         }
+        let name = self.written_unique_symbol_member_name(apparent, index_type)?;
+        self.get_type_of_property_of_type(apparent, &name)
+    }
+
+    /// The name of `apparent`'s written member whose computed key checks to
+    /// the unique symbol `index_type` (`[sym]`, `[Symbol.iterator]`): the
+    /// receiver's bracketed members are scanned, as
+    /// [`Checker::unique_symbol_property_type`] documents. `None` when no
+    /// member has that key.
+    pub(crate) fn written_unique_symbol_member_name(
+        &mut self,
+        apparent: TypeId,
+        index_type: TypeId,
+    ) -> Option<String> {
+        // An intersection's member is its constituents' member of that name
+        // (createUnionOrIntersectionProperty): the first constituent that
+        // declares the key names it.
+        if let TypeData::Intersection { types, .. } = self.store.get(apparent).data.clone() {
+            return types.into_iter().find_map(|part| {
+                let part = self.apparent_type(part);
+                self.written_unique_symbol_member_name(part, index_type)
+            });
+        }
         let names = self.get_property_names_of_type(apparent)?;
-        for name in names.iter().filter(|name| name.starts_with('[')) {
-            let Some(property) = self.get_property_of_type(apparent, name) else { continue };
+        for name in names.into_iter().filter(|name| name.starts_with('[')) {
+            let Some(property) = self.get_property_of_type(apparent, &name) else { continue };
             let declarations: Vec<tsr_ast::NodeId> =
                 self.binder.symbols().get(property).declarations.iter().copied().collect();
             for declaration in declarations {
@@ -963,7 +986,7 @@ impl Checker<'_, '_> {
                     continue;
                 };
                 if self.check_expression(expression) == index_type {
-                    return self.get_type_of_property_of_type(apparent, name);
+                    return Some(name);
                 }
             }
         }
@@ -1123,6 +1146,13 @@ impl Checker<'_, '_> {
             if let Some(value) = self.get_type_of_property_of_type(apparent, &name) {
                 return Some(value);
             }
+        }
+        // getPropertyNameFromType's unique-symbol arm (utilities.go:886): the
+        // member whose late-bound key is the index's symbol, as an element
+        // access reads it (`string[][typeof Symbol.iterator]`; r7-declared
+        // §56).
+        if let Some(value) = self.unique_symbol_property_type(object, index) {
+            return Some(value);
         }
         // getPropertyTypeForIndexType (`checker.go:27072`): once no property
         // answered, an `any` or `never` object read with a property-key type

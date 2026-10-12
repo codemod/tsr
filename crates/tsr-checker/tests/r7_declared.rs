@@ -501,3 +501,58 @@ fn a_homomorphic_mapping_keeps_a_symbol_keyed_member() {
          const x = r[sym];\n";
     assert_eq!(type_of_last_initializer(source), "1");
 }
+
+/// §55: an alias whose body instantiates itself inside a mapped argument
+/// (#30920) is not re-entered with a longer argument at every level (tsgo:
+/// `B<{ a: string; }, string>`, in milliseconds).
+#[test]
+fn a_self_instantiating_mapped_argument_alias_terminates() {
+    let source = "type StrictExtract<T, U> = T extends U ? U extends T ? T : never : never;\n\
+         type StrictExclude<T, U> = T extends StrictExtract<T, U> ? never : T;\n\
+         type A<T> = { [Q in { [P in keyof T]: P; }[keyof T]]: T[Q]; };\n\
+         type B<T, V> = A<{ [Q in keyof T]: StrictExclude<B<T[Q], V>, {}>; }>;\n\
+         declare const b: B<{ a: string }, string>;\n\
+         const x = b;\n";
+    assert_eq!(type_of_last_initializer(source), "B<{ a: string; }, string>");
+}
+
+/// §56: a homomorphic mapping over an intersection keeps a constituent's
+/// symbol-keyed members under their written names (tsgo: the mapping over
+/// `Arr & { b: 1 }` reads `[it]`, as `Readonly<string[] & {…}>` reads
+/// `[Symbol.iterator]`).
+#[test]
+fn a_readonly_array_intersection_keeps_symbol_members() {
+    let source = "declare const it: unique symbol;\n\
+         interface Arr { [it](): number; length: number }\n\
+         type P = Arr & { b: 1 };\n\
+         declare const r: { readonly [K in keyof P]: P[K] };\n\
+         const x = r[it];\n";
+    assert_eq!(type_of_last_initializer(source), "() => number");
+}
+
+/// §58: a union alias that captured an intersection alias's placeholder
+/// (the intersection declared first, its member naming the union)
+/// distributes over the completed intersection (tsgo: `Element`).
+#[test]
+fn a_captured_intersection_placeholder_completes_in_place() {
+    let source = "interface Expression { _expressionBrand: any }\n\
+         interface Identifier extends Expression { _identifierBrand: any }\n\
+         interface ElementAccessExpression extends Expression { readonly expression: Expression }\n\
+         type Element = ElementAccessExpression & { readonly expression: Name };\n\
+         type Name = Identifier | Element;\n\
+         type Ex<T, U> = T extends U ? never : T;\n\
+         declare const n: Ex<Name, Identifier>;\n\
+         const x = n;\n";
+    assert_eq!(type_of_last_initializer(source), "Element");
+}
+
+/// §59: instantiating an access that was generic at its alias's
+/// declaration, at a key the object lacks, is `unknown` (tsgo:
+/// `type G<K extends string> = { a: 1 }[K]` at `G<"b">`).
+#[test]
+fn an_instantiated_missing_property_access_is_unknown() {
+    let source = "type G<K extends string> = { a: 1 }[K];\n\
+         declare const g: G<\"b\">;\n\
+         const x = g;\n";
+    assert_eq!(type_of_last_initializer(source), "unknown");
+}
