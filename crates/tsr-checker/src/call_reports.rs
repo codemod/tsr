@@ -248,7 +248,24 @@ impl<'a> Checker<'a, '_> {
             let Some(target) = self.signature_type_at_position(signature, position) else {
                 return ApplicabilityReport::Declined;
             };
-            if self.is_gap(target) {
+            // A literal argument checked against a `NoInfer` of an object
+            // type (`getNoInferType` keeps the wrapper there,
+            // `isNoInferTargetType`): native's contextual type reads through
+            // the substitution and keeps the literal's members literal
+            // (`foo3('foo', ['bar'])` elaborates `"bar"` against `"foo"`);
+            // this port's check under the wrapper widened them, so the pair is
+            // not native's.
+            if self.is_gap(target)
+                || (matches!(
+                    *argument,
+                    ReportArgument::Written(expression)
+                        if matches!(
+                            Self::effective_check_expression(expression),
+                            Expression::ObjectLiteralExpression(_)
+                                | Expression::ArrayLiteralExpression(_)
+                        )
+                ) && self.holds_kept_no_infer(target, 3))
+            {
                 return ApplicabilityReport::Declined;
             }
             let (at, source, expression, written) = match *argument {
@@ -467,6 +484,25 @@ impl<'a> Checker<'a, '_> {
         ApplicabilityReport::Applicable
     }
 
+    /// Whether `t` holds, at its head, inside a union or intersection, or in
+    /// a type reference's arguments (to `depth` levels), a `NoInfer`
+    /// reference whose base `isNoInferTargetType` accepts: a wrapper
+    /// `getNoInferType` keeps.
+    fn holds_kept_no_infer(&self, t: TypeId, depth: u8) -> bool {
+        if let Some(base) = self.no_infer_base_type(t) {
+            return self.is_no_infer_target_type(base);
+        }
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(t).data
+        {
+            return types.iter().any(|&member| self.holds_kept_no_infer(member, depth));
+        }
+        depth != 0
+            && self.type_reference_targets.get(&t).is_some_and(|(_, arguments)| {
+                arguments.iter().any(|&argument| self.holds_kept_no_infer(argument, depth - 1))
+            })
+    }
+
     /// Whether a written argument's published type (`source`) is the type
     /// `checkExpressionWithContextualType(arg, target)` gives it natively,
     /// asked once the pair fails; `false` declines the report.
@@ -483,8 +519,8 @@ impl<'a> Checker<'a, '_> {
     ///   has a member this port cannot resolve; an array literal is native's
     ///   unless either side is tuple-like or could contain type variables
     ///   (tuple-ness follows the context), or an element could keep a
-    ///   literal; a class expression (a re-check re-creates the class)
-    ///   declines.
+    ///   literal; a class expression declines (inference from one is not
+    ///   native's, so neither is the instantiation it is related against).
     ///
     /// A mapped type with an `as` clause is a published type this port
     /// computes by a road native does not take, and declines everywhere.
@@ -517,6 +553,19 @@ impl<'a> Checker<'a, '_> {
                 !(self.literal_member_may_keep_literal(inner, target, 3)
                     || self.absent_member_is_unreadable(source, target))
             }
+            // An empty literal has no element to widen: under a tuple-like
+            // target its checked type is the empty tuple whatever the
+            // instantiation (`f0([])` against `[T, ...U[]]`).
+            Expression::ArrayLiteralExpression(literal)
+                if literal.elements.is_empty()
+                    && self.is_tuple_like_type(target)
+                    && self
+                        .tuple_element_lists
+                        .get(&source)
+                        .is_some_and(|(types, _)| types.is_empty()) =>
+            {
+                true
+            }
             Expression::ArrayLiteralExpression(_) => {
                 !(self.is_tuple_like_type(source)
                     || self.is_tuple_like_type(target)
@@ -524,6 +573,11 @@ impl<'a> Checker<'a, '_> {
                     || self.could_contain_type_variables_at_head(target, 3)
                     || self.literal_member_may_keep_literal(inner, target, 3))
             }
+            // A class expression's type does not follow the context, but
+            // this port's inference from one (a generic candidate's `T`
+            // read off a static or instance member) is not native's, so
+            // its instantiation is not either
+            // (typeArgumentInferenceWithClassExpression1/3).
             Expression::ClassExpression(_) => false,
             _ => !self.is_context_sensitive_argument(&argument),
         }

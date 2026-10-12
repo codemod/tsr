@@ -1238,7 +1238,11 @@ the line of `body.Pos()`, the end of `=>`, so `() =>\n{ … }` ends at the
 `=>` line's break. The ECMAScript line terminators (U+2028, U+2029) count as line breaks too. A probe file with all three shapes now prints
 byte for byte as tsgo does.
 
-## 39. The types dump reads `getTypeOfExpression`'s quick path (held: needs a types_producer.rs grant)
+## 39. The types dump reads `getTypeOfExpression`'s quick path
+
+Consumer hunk in another lane's file, under the default grant for an atomic
+hunk of the same root cause: `tsr-conformance/src/types_producer.rs`,
+`type_id_at_location_arm_inner`'s expression arm.
 
 Native's type writer asks `getTypeAtLocation`, which reaches
 `getTypeOfExpression`. That function answers first from
@@ -1269,7 +1273,10 @@ Types dump against main `41e3bf25`: +10 RIGHT, 0 lost (abstractClassInLocalScope
 fallbackToBindingPatternForTypeInference ×6, inferFromGenericFunctionReturnTypes3,
 inferredRestTypeFixedOnce ×2).
 
-## 40. A non-array rest parameter relates its trailing arguments' spread tuple (held: needs inference.rs visibility)
+## 40. A non-array rest parameter relates its trailing arguments' spread tuple
+
+Consumer hunk in another lane's file, under the default grant: visibility
+only, `inference.rs`'s `inference_spread_argument_type` made `pub(crate)`.
 
 `isSignatureApplicable` (`checker.go:9256`) relates the arguments past a
 non-array rest parameter (a tuple, a variadic tuple, `never`) as one
@@ -1300,6 +1307,33 @@ variadicTuples2 gets five of native's missing TS2345s (`[]`, `[1, 2]`,
 `["abc", 1, "def"]`, `["abc", "def", true]` against
 `[...strs: string[], n2: number]`, and `boolean` against `number`). The
 others there sit behind generic candidates whose inference declines.
+
+## 41. Report-pass certification: empty literals, kept `NoInfer`
+
+`report_argument_type_is_certified` decides whether a written argument's
+published type is the type `checkExpressionWithContextualType(arg, target)`
+gives it natively under an instantiated candidate. Two arms change, and a
+third was tried and kept:
+
+- **A class expression still declines.** Its type does not follow the
+  context (`checkClassExpression` answers the class symbol's type), but this
+  port's inference from a class expression (a generic candidate's `T` read
+  off a member) is not native's. Certifying it turned
+  typeArgumentInferenceWithClassExpression1/3 into false TS2345s on the
+  corpus compare, so the arm stays.
+- **An empty array literal under a tuple-like target is certified** when
+  its published type is the empty tuple. It has no element to widen, so
+  `f0([])` against `[T, ...U[]]` reports `'[]'` against
+  `'[unknown, ...unknown[]]'` (restTupleElements1). Other array literals
+  under a tuple-like side still decline (tuple-ness follows the context).
+- **A literal argument against a kept `NoInfer` declines.** `getNoInferType`
+  keeps the wrapper around an object type (`isNoInferTargetType`), and
+  native's contextual type reads through the substitution, so
+  `foo3('foo', ['bar'])` keeps `"bar"` literal and elaborates it against
+  `"foo"`. This port's check under the wrapper widened it to `string[]`, so
+  the pair is not native's. noInfer's three false TS2345s (and
+  noInferUnionExcessPropertyCheck1's one) go. The contextual-type half is
+  routed.
 
 ## Proposed issues (for the integrator to file)
 
