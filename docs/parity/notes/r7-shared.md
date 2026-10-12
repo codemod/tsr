@@ -951,3 +951,39 @@ symbol, the static `x`, and `import def from "./code"` is `number`
 assignment-alias arm of `get_target_of_alias_symbol` already does for
 `module.exports = a.b`. The check is the one native performs, so this adds
 no new work order.
+
+## 31. REFUSED: a lazy return for every uncontextualized function expression (LAZY-FUNCEXPR-RETURN-CIRCULARITY)
+
+**The item.** `returnInfiniteIntersection`: `function recursive() { let x =
+<T>(subkey: T) => recursive(); return x as typeof x & { p } }`. Native's
+`checkFunctionExpressionOrObjectLiteralMethod` (checker.go:10166) builds the
+arrow's type with its signature return unresolved, so `typeof x` does not
+recurse into `recursive`'s return. This port computes the arrow's return
+while typing `x`, closes the cycle, and answers `any`.
+
+**Tried.** `get_type_of_function_expression` (this lane's) called the
+existing `defer_object_member_return` (today asked only by `objects.rs` for
+object-literal member values) for every arrow or function expression, as
+native's placement is. Its guards are unchanged: no contextual type, no JS,
+no annotation, no captured mapper.
+
+**Refused, with the number.** Measured on `ff310002` (batch 46): types
+**+0 / −12**, diagnostics **+0 / −1**. The losses are in `modulePreserve4` ×4,
+`subtypingWithCallSignatures4` ×4, `inferTypePredicates` ×3,
+`declarationEmitTypeParameterNameShadowedInternally` ×1 and
+`declarationEmitGlobalThisPreserved` (diagnostics). Two causes, both the
+consumers `r4-anyaudit.md` already named. (1) A consumer that copies or prints
+a signature reads the pending sentinel: `{ default: () => error }` where
+native has `() => void`. Native's `getReturnTypeOfSignature` completes on
+demand everywhere, and this port's completion
+(`complete_pending_signature_returns_of_type`) is asked on the inference
+road only. (2) Type-predicate inference from a body
+(`(x) => x is number | true`) needs the return computed on the eager road,
+and got `boolean`. Even the target case did not convert. Its remaining
+difference is the printer parenthesising a cycle placeholder (`(any) & { p:
+any }` where native prints `any & { p: any }`).
+
+**What would have to change.** Every signature consumer completes a pending
+return before reading it (printing, return aggregation, relation, predicate
+inference), and the printer stops parenthesising the cycle placeholder.
+Until both hold, the item stays open; it is 1 case and 12 lines.
