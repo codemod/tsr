@@ -4744,7 +4744,12 @@ impl Checker<'_, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        let mut diagnostic = Diagnostic::with_args(message, span, [text.to_string()]);
+        // `addTypeOnlyDeclarationRelatedInfo(…, getTypeOnlyAliasDeclarationEx(result,
+        // SymbolFlagsValue), name)` (`checker.go:1866`).
+        let declaration = self.type_only_alias_declaration_node_ex(symbol, SymbolFlags::VALUE);
+        self.add_type_only_declaration_related_info(&mut diagnostic, declaration, text);
+        self.report(file, diagnostic);
     }
 
     /// `IsValidTypeOnlyAliasUseSite` (`ast/utilities.go:3124`) — §121's debt,
