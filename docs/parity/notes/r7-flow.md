@@ -1195,3 +1195,22 @@ origin only shape printing), so the constituents are `null`, `{ value?:
 string }`, `{ value?: boolean }`. The same declaration without `| null`, or a
 non-generic alias, narrows here. The union constructor is `unions.rs` /
 `declared.rs`' (r7-declared); not changed in this lane.
+
+## §45 The class-chain miss certificate declines a value base
+
+§13's `class_chain_lacks` walks a class's `extends` chain by symbol, reading
+each base symbol's declarations. A class's base type is its base
+constructor's instance type (`getBaseConstructorTypeOfClass`): for a class
+symbol that is its declared type, but for a value (`declare const Base02:
+Base02Constructor` merged with `interface Base02`, whose construct signature
+is `new <T = A>(a: T): Base02 & T`) it is the signature's return, `Base02 & A`
+here. The walk read the merged interface and certified `a` absent from
+`Derived03` (`genericDefaults`, a false TS2339). A class's base must now be a
+class symbol (a class declaration or expression among its declarations);
+anything else declines. An interface's `extends` keeps reading the type
+meaning.
+
+Measured on `ead5eb83` unfiltered: types and diagnostics verdicts unchanged
+(`genericDefaults` stays WRONG on a TS2415 of the heritage check), 0 lost;
+exact oracle 9681 → 9681, 0 lost; jsTyping 111 → 111, new_false 0, lost_true 0;
+Ir gi 0.9999, dm 1.0001.
