@@ -351,3 +351,25 @@ React.createClass({});
         "{lines:?}"
     );
 }
+
+/// A key union whose origin is `keyof T` prints that origin with the operand
+/// named at the site (`nodebuilderimpl.go:3472`): inside `N` the interface is
+/// `Registry`, outside it `N.Registry` (the `keyof Intl.…Registry` lines of
+/// `intlNumberFormatES2020`; r7-printer §32). Expected lines read from pinned
+/// native tsgo 5b1047d on the same source.
+#[test]
+fn a_keyof_origin_names_its_operand_at_the_site() {
+    let lines = assertions(
+        "probe/keyof_origin_site",
+        r"// @target: es2020
+// @strict: true
+declare namespace N {
+    interface Registry { a: never; b: never; }
+    interface Options { style: keyof Registry; }
+    function options(): Options;
+}
+const { style } = N.options();
+",
+    );
+    assert_has(&lines, &["style : keyof Registry", "style : keyof N.Registry"]);
+}

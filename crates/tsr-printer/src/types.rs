@@ -351,6 +351,38 @@ impl Printer<'_> {
                 }
                 self.emit_type_arguments(import.type_arguments);
             }
+            // Ported from `Printer.emitJSDocAllType` (`printer.go:2422`).
+            TypeNode::JSDocAllType(_) => self.write("*"),
+            // Ported from `Printer.emitJSDocNonNullableType` (`printer.go:2426`):
+            // always the prefix form, whichever side the source wrote.
+            TypeNode::JSDocNonNullableType(non_null) => {
+                self.write_punctuation("!");
+                if let Some(inner) = &non_null.r#type {
+                    self.emit_type_node(inner);
+                }
+            }
+            // Ported from `Printer.emitJSDocNullableType` (`printer.go:2433`):
+            // always the prefix form, so `string?` prints `?string`.
+            TypeNode::JSDocNullableType(nullable) => {
+                self.write_punctuation("?");
+                if let Some(inner) = &nullable.r#type {
+                    self.emit_type_node(inner);
+                }
+            }
+            // Ported from `Printer.emitJSDocOptionalType` (`printer.go:2440`).
+            TypeNode::JSDocOptionalType(optional) => {
+                if let Some(inner) = &optional.r#type {
+                    self.emit_type_node(inner);
+                }
+                self.write_punctuation("=");
+            }
+            // Ported from `Printer.emitJSDocVariadicType` (`printer.go:2447`).
+            TypeNode::JSDocVariadicType(variadic) => {
+                self.write_punctuation("...");
+                if let Some(inner) = &variadic.r#type {
+                    self.emit_type_node(inner);
+                }
+            }
             other => {
                 let kind = self.kind_of(other.node_id());
                 self.unsupported(kind);
