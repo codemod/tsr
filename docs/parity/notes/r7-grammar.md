@@ -1796,3 +1796,17 @@ The walk now skips a Decorator child whose owner fails grammar.rs's
 predicate runs only for a node with a decorator child). Checked with the
 CLI against `target/tsgo-pinned`: both variants of that case and the
 parameter-decorator cases.
+
+## §80 TS2300 on duplicate members names the member as written
+
+`reportDuplicateMemberErrors` (`checker.go:3213`) reports
+`c.symbolToString(symbol)`. For a member that is not late-bound that is
+`getNameOfSymbolAsWritten`: `DeclarationNameToString` of the first
+declaration's name, so `0b11`, `"artist"`, `0.0` and `["a"]` print as
+written. check.rs's `check_object_type_for_duplicate_declarations` printed
+the binder's canonical name (`3`, `artist`, `0`, `a`). It now prints the
+first declaration's name source text (`declaration_name_source_text`, §35),
+the canonical name only without source text. Checked with the CLI against
+`target/tsgo-pinned`: `duplicateIdentifierComputedName`,
+`duplicateIdentifierDifferentSpelling`, `duplicateStringNamedProperty1`,
+`numericClassMembers1` and four controls.

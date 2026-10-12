@@ -7771,8 +7771,19 @@ impl Checker<'_, '_> {
             // `symbolToString(symbol)`: a late-bound symbol prints its first
             // declaration's written name.
             let name = match key {
+                // `symbolToString` → `getNameOfSymbolAsWritten`'s
+                // `DeclarationNameToString` of the first declaration's name
+                // (`nodebuilderimpl.go:1002`): `'0b11'`, `'"artist"'`,
+                // `'["a"]'` as written (r7-grammar §80).
                 DuplicateMemberKey::Early(symbol) => {
-                    self.binder.symbols().get(*symbol).name.to_string()
+                    let record = self.binder.symbols().get(*symbol);
+                    let fallback = record.name.to_string();
+                    record
+                        .declarations
+                        .iter()
+                        .find_map(|&declaration| self.node_map.get(declaration)?.name_id())
+                        .and_then(|name| self.declaration_name_source_text(name))
+                        .unwrap_or(fallback)
                 }
                 DuplicateMemberKey::Late(..) => {
                     let Some(first) = entries
