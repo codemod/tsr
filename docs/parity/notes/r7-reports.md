@@ -2760,3 +2760,15 @@ relater's own `is_enum_type_related_to` still reads the auto values. Its
 decisions agree with native's except for an ambient member against a known
 numeric value that differs from the auto value. That would be a change in
 the relation, not the report, so it is left alone and noted here.
+
+## 99. Template-literal constituents of intersection targets
+
+`'""' → `a${string}` & `${string}a`` (`templateLiteralIntersection2`).
+`typeRelatedToEachType` reports the first constituent that fails, and the
+primitive-against-template-literal pair has nothing below it: the target's
+template arm matches the source text without reporting. The
+intersection-target arm had declined every instantiable constituent except
+type parameters. Template literals and string mappings are not normalized
+by `isRelatedTo`, so they are now admitted too. A primitive source against
+a template literal or string mapping is a leaf. Quick oracles over
+`emplate`, `ntersection` and `tringMapping`: 0 lost.

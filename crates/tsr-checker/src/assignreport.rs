@@ -6412,6 +6412,15 @@ impl Checker<'_, '_> {
         {
             return Some(());
         }
+        // A primitive against a template literal or string mapping: the
+        // target arm matches the source's text and reports nothing below
+        // (r7-reports §99).
+        if source_flags.intersects(TypeFlags::PRIMITIVE)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE)
+            && target_flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+        {
+            return Some(());
+        }
         // `typeRelatedToSomeType`: only `getBestMatchingType`'s pick is
         // elaborated, with no elaboration when there is none.
         if target_flags.contains(TypeFlags::UNION)
@@ -6459,7 +6468,11 @@ impl Checker<'_, '_> {
                 let flags = self.type_of(part).flags;
                 flags.contains(TypeFlags::UNION)
                     || flags.intersects(TypeFlags::INSTANTIABLE)
-                        && !flags.contains(TypeFlags::TYPE_PARAMETER)
+                        && !flags.intersects(
+                            TypeFlags::TYPE_PARAMETER
+                                | TypeFlags::TEMPLATE_LITERAL
+                                | TypeFlags::STRING_MAPPING,
+                        )
             })
         {
             let previous = std::mem::replace(&mut stack.intersection_target, true);
