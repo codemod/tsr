@@ -454,3 +454,18 @@ fn mapped_members_are_ordered_by_name() {
          const x = m;\n";
     assert_eq!(type_of_last_initializer(source), "{ 1: 1; 10: 1; 2: 1; }");
 }
+
+/// §51: an unconstrained parameter is its own restrictive form, and a
+/// conditional whose permissive relation holds while its restrictive one
+/// fails is deferred under the reference's alias (tsgo: `[A<T>] extends
+/// [0, 0]` is definitely false, so `T4<T>` is `0`).
+#[test]
+fn an_open_conditional_reference_defers_and_a_definite_outer_check_decides() {
+    let source = "type A<T> = { x: T } extends { x: 0 } ? 1 : 0;\n\
+         type T4<T> = [A<T>] extends [0, 0] ? 1 : 0;\n\
+         function f<T>() {\n\
+             declare const t: T4<T>;\n\
+             const x = t;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "0");
+}

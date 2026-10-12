@@ -1614,3 +1614,54 @@ residue is the union printer's qualification, not the mapped type.
   declaration cannot name (`Foo : T | { x: T | any; }`). The printer's
   accessibility arm.
 
+
+## 51. An unconstrained parameter is its own restrictive form, and an open conditional reference defers
+
+**Forcing constraint.** deferredConditionalTypes 0:7 and 0:8: over `type
+A<T> = { x: T } extends { x: 0 } ? 1 : 0`, native declares `type T4<T> =
+[A<T>] extends [0, 0] ? 1 : 0` as `0` (and `T5` likewise); TSR declared
+`T4<T>`. Two gaps sat on the road:
+
+1. `A<T>` in an alias-declared position answered `error`. Its check `{ x:
+   T }` is not generic, so `conditional_alias_check_is_deferred` said no,
+   and §36's site keeps the gap for every other refusal. Native's
+   getConditionalType (checker.go:24339) relates the permissive
+   instantiations (related: `{ x: any }` to `{ x: 0 }`), then the
+   restrictive ones (not related), and falls through to the deferred
+   ConditionalType carrying the reference's alias. An open outcome defers
+   exactly as a generic check does.
+2. The restrictive relation answered `Unknown`, because
+   `restrictive_type_parameter` always minted a clone the relater cannot
+   trace to a declaration. getRestrictiveTypeParameter (checker.go:24512)
+   returns the parameter itself when it has no constraint and no constraint
+   declaration; the clone exists only to drop a constraint.
+
+**Port.** `restrictive_type_parameter` returns the parameter when
+`declares_no_constraint` holds (no known constraint, and every declaration
+a type parameter declaration without a constraint node; untraceable
+parameters keep the clone). `conditional_alias_outcome_is_open` binds the
+alias's parameters as `conditional_alias_check_is_deferred` does and
+answers true only when the permissive relation is `Related` and the
+restrictive one is `NotRelated`; infer parameters, an `any` check, an
+`any`/`unknown` extends type, a deferred operand, or any `Unknown` answer
+false. §36's site keeps its gap unless one of the two deferral tests holds.
+No new state: the restrictive cache keeps its key and owner, and a parameter
+that is its own form is never inserted.
+
+**Alternatives.** Teaching the relater to treat an unregistered type
+parameter as unconstrained would decide the clone too, but the clone is
+wrong in the first place for these parameters: native never makes one, so
+a cache keyed by it would hold types native never builds. Accepting
+`Unknown` from the restrictive relation as "open" would publish a deferred
+name where native might take the true branch.
+
+**Measured** (unfiltered against `e9011546`): types **+11, 0 lost**
+(mappedTypeOverlappingStringEnumKeys 5, conditionalTypes2 4,
+deferredConditionalTypes 2); diagnostics **+1 case, 0 lost**
+(mappedTypeOverlappingStringEnumKeys); jsTyping new_false 0 / lost_true 0;
+Ir gi 0.9998, dm 1.0000; exact oracle +1 (mappedTypeOverlappingStringEnumKeys),
+0 lost.
+
+**Not reached:** `[q, r]` over `q: [A<T>]` and `r: A<T>` is still `error`.
+Subtype reduction relates the tuple and the conditional-alias mint, and the
+relater answers `Unknown` (relater.rs, routed).
