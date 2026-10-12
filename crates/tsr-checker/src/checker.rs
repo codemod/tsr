@@ -2607,18 +2607,17 @@ impl<'a, 'n> Checker<'a, 'n> {
                     let entry = match part {
                         crate::unions::UnionPrintPart::Type(entry) => entry,
                         crate::unions::UnionPrintPart::Keyword(keyword) => {
-                            parts.push(keyword.to_string());
+                            parts.push((None, keyword.to_string()));
                             continue;
                         }
                     };
                     if let Some(part) = self.type_to_string_at(entry, reference) {
                         let parenthesised =
                             crate::unions::union_constituent_needs_parentheses(&self.store, entry);
-                        parts.push(if multiple && parenthesised {
-                            format!("({part})")
-                        } else {
-                            part
-                        });
+                        parts.push((
+                            Some(entry),
+                            if multiple && parenthesised { format!("({part})") } else { part },
+                        ));
                     } else {
                         complete = false;
                         break;
@@ -2626,6 +2625,9 @@ impl<'a, 'n> Checker<'a, 'n> {
                 }
                 self.rendering_composites.remove(&id);
                 if complete {
+                    // r7-printer §64: `mapToTypeNodes`' duplicate-name pass.
+                    self.disambiguate_message_names(&mut parts);
+                    let parts: Vec<_> = parts.into_iter().map(|(_, text)| text).collect();
                     return Some(parts.join(" | "));
                 }
             }
