@@ -13942,6 +13942,15 @@ impl Checker<'_, '_> {
         {
             return token;
         }
+        // The constructor arm (`scanner.go:2645`): from the first token to
+        // the end of the `constructor` keyword (or its string-literal
+        // spelling), so modifiers are included and the signature is not.
+        if self.nodes.kind(node) == SyntaxKind::Constructor
+            && !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED)
+            && let Some(span) = self.constructor_keyword_span(node, span.start)
+        {
+            return span;
+        }
         // The case/default-clause arm (`scanner.go:2614`): from the clause's
         // start to its first statement's `Pos()`, the end of the `:` (the
         // whitespace before the statement stepped back over), else the
@@ -13980,6 +13989,29 @@ impl Checker<'_, '_> {
             .and_then(|text| text.get(start as usize..))?;
         let token = tsr_scanner::Scanner::new(rest).scan().span;
         Some(tsr_core::Span::new(start + token.start, start + token.end))
+    }
+
+    /// `GetErrorRangeForNode`'s `KindConstructor` arm: scan from the node's
+    /// first token until `constructor`, a string literal or the end of the
+    /// file, and span from the first token's start to that token's end.
+    fn constructor_keyword_span(&self, node: NodeId, start: u32) -> Option<tsr_core::Span> {
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let rest = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(start as usize..))?;
+        let mut scanner = tsr_scanner::Scanner::new(rest);
+        let first = scanner.scan().span;
+        let mut token = scanner.token();
+        loop {
+            match token.kind {
+                SyntaxKind::ConstructorKeyword
+                | SyntaxKind::StringLiteral
+                | SyntaxKind::EndOfFile => break,
+                _ => token = scanner.scan(),
+            }
+        }
+        Some(tsr_core::Span::new(start + first.start, start + token.span.end))
     }
 
     /// `node.Pos()` for a zero-width (missing) node whose span sits at the
