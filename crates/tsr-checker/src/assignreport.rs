@@ -2932,6 +2932,68 @@ impl<'a> Checker<'a, '_> {
             .is_some_and(|&operand| self.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER))
     }
 
+    /// `reportUnmatchedProperty`'s private-identifier arm: the target's
+    /// `#name` is declared by another class than the source's own `#name`.
+    fn private_name_mismatch(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        name: &str,
+    ) -> Option<ChainEntry> {
+        let source_property = self.get_property_of_type(source, name)?;
+        let target_property = self.get_property_of_type(target, name)?;
+        let source_declaration = self.binder.symbols().get(source_property).value_declaration?;
+        let target_declaration = self.binder.symbols().get(target_property).value_declaration?;
+        if source_declaration == target_declaration {
+            return None;
+        }
+        let class_name = |checker: &Self, declaration: NodeId| -> Option<String> {
+            let class = checker.nodes.parent(declaration)?;
+            let symbol = checker.binder.symbol_of(class)?;
+            let symbols = checker.binder.symbols();
+            symbols
+                .get(symbol)
+                .flags
+                .contains(SymbolFlags::CLASS)
+                .then(|| symbols.get(symbol).name.to_string())
+        };
+        let source_class = class_name(self, source_declaration)?;
+        let target_class = class_name(self, target_declaration)?;
+        Some(ChainEntry {
+            message: &messages::PROPERTY_0_IN_TYPE_1_REFERS_TO_A_DIFFERENT_MEMBER_THAT_CANNOT_BE_ACCESSED_FROM_WITHIN_TYPE_2,
+            args: vec![name.to_string(), source_class, target_class],
+        })
+    }
+
+    /// Every instantiable constituent of an intersection is a type parameter
+    /// whose apparent type has no members (no constraint, `unknown` or
+    /// `object`), and none is a union.
+    fn intersection_instantiables_are_unconstrained(&mut self, ty: TypeId) -> bool {
+        let TypeData::Intersection { types, .. } = self.type_of(ty).data.clone() else {
+            return false;
+        };
+        types.into_iter().all(|part| {
+            let flags = self.type_of(part).flags;
+            if flags.contains(TypeFlags::UNION) {
+                return false;
+            }
+            if !flags.intersects(TypeFlags::INSTANTIABLE) {
+                return true;
+            }
+            // Unconstrained, or constrained to `unknown` or `object`: the
+            // apparent type has no members either way.
+            flags.contains(TypeFlags::TYPE_PARAMETER)
+                && match self.constraint_of_type(part) {
+                    crate::constraints::ConstraintOfType::Nil => true,
+                    crate::constraints::ConstraintOfType::Constraint(constraint) => {
+                        constraint == self.intrinsics.unknown
+                            || self.type_of(constraint).flags == TypeFlags::NON_PRIMITIVE
+                    }
+                    crate::constraints::ConstraintOfType::Undecided => false,
+                }
+        })
+    }
+
     /// The global `Object` interface's own declared type.
     fn is_global_object_type(&mut self, ty: TypeId) -> bool {
         matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
@@ -6580,6 +6642,22 @@ impl Checker<'_, '_> {
             let empty = self.intrinsics.empty_object;
             return self.explain_object_relation(stack, empty, target, depth, false);
         }
+        // `reportErrorResults`' never-intersection arm (`relater.go:4729`):
+        // the target reduced to `never`, so nothing structural reports, and
+        // the intersection and the property that reduced it are named
+        // (r7-reports §113).
+        if target_flags.contains(TypeFlags::INTERSECTION)
+            && let Some((property, private)) = self.never_reduced_property(target)
+        {
+            let message = if private {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_EXISTS_IN_MULTIPLE_CONSTITUENTS_AND_IS_PRIVATE_IN_SOME
+            } else {
+                &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_HAS_CONFLICTING_TYPES_IN_SOME_CONSTITUENTS
+            };
+            let text = self.type_to_string(target);
+            stack.push(ChainEntry { message, args: vec![text, property] });
+            return Some(());
+        }
         // An `any` source fails only where `isSimpleTypeRelatedTo` decided
         // it (a `never` target), and nothing structural reports below
         // (r7-reports §90).
@@ -6732,10 +6810,14 @@ impl Checker<'_, '_> {
         // constituent makes that pass read `getApparentType` of the
         // intersection (`Number & { __brand: T }`), which this arm does not
         // build, so it declines (r7-reports §78).
+        // An unconstrained type-parameter constituent contributes nothing to
+        // the intersection's apparent members (its apparent type is `{}`),
+        // so the same pass applies (r7-reports §113).
         if source_flags.contains(TypeFlags::INTERSECTION)
             && target_flags.contains(TypeFlags::OBJECT)
             && !target_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
-            && !self.intersection_has_instantiable(source)
+            && (!self.intersection_has_instantiable(source)
+                || self.intersection_instantiables_are_unconstrained(source))
         {
             if let TypeData::Intersection { types, .. } = &self.type_of(source).data
                 && types
@@ -7602,6 +7684,16 @@ impl Checker<'_, '_> {
         };
         // `getUnmatchedProperty` first.
         for name in &names {
+            // A `#name` is keyed per declaring class natively
+            // (`GetSymbolNameForPrivateIdentifier`), so another class's
+            // `#name` is unmatched, and `reportUnmatchedProperty` names the
+            // two classes (r7-reports §113).
+            if name.starts_with('#')
+                && let Some(entry) = self.private_name_mismatch(source, target, name)
+            {
+                stack.push(entry);
+                return Some(());
+            }
             if self.get_type_of_property_of_type(source, name).is_none()
                 && !self.chain_property_is_optional(target, name)?
             {
