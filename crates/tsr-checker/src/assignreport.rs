@@ -6100,12 +6100,98 @@ impl Checker<'_, '_> {
                 || checker.variadic_tuple_elements.contains_key(&ty)
         };
         if array_like(self, source) && array_like(self, target) {
-            return None;
+            return self.explain_fixed_tuple_target(stack, source, target, depth);
         }
         if let Some(explained) = self.explain_reference_variances(stack, source, target, depth) {
             return explained;
         }
         self.explain_object_relation(stack, source, target, depth, false)
+    }
+
+    /// `propertiesRelatedTo`'s tuple-target arm (`relater.go:4103`) for a
+    /// fixed tuple target (required elements only) against a fixed tuple or
+    /// an array source: the arity messages, then the first element that
+    /// fails (`Type at position i in source is not compatible with type at
+    /// position i in target.` when either side has more than one element).
+    /// A readonly source against a mutable target, an optional, rest or
+    /// variadic element on either side, decline (r7-reports §52).
+    fn explain_fixed_tuple_target(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        let fixed = |checker: &Self, ty: TypeId| {
+            if checker.tuple_optional_masks.contains_key(&ty)
+                || checker.variadic_tuple_elements.contains_key(&ty)
+                || checker.tuple_rest_tails.contains_key(&ty)
+            {
+                return None;
+            }
+            checker.tuple_element_lists.get(&ty).cloned()
+        };
+        let (target_elements, target_readonly) = fixed(self, target)?;
+        let target_arity = target_elements.len();
+        let push_count = |stack: &mut ChainStack,
+                          message: &'static tsr_diagnostics::Message,
+                          args: Vec<usize>| {
+            stack.push(ChainEntry {
+                message,
+                args: args.into_iter().map(|n| n.to_string()).collect(),
+            });
+            Some(())
+        };
+        if let Some(readonly) = self.array_reference_readonly(source) {
+            if readonly && !target_readonly {
+                return None;
+            }
+            // An array source is all rest: its minimum length is 0.
+            let message = if target_arity > 0 {
+                &messages::TARGET_REQUIRES_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_FEWER
+            } else {
+                &messages::TARGET_ALLOWS_ONLY_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_MORE
+            };
+            return push_count(stack, message, vec![target_arity]);
+        }
+        let (source_elements, source_readonly) = fixed(self, source)?;
+        if source_readonly && !target_readonly {
+            return None;
+        }
+        let source_arity = source_elements.len();
+        if source_arity < target_arity {
+            return push_count(
+                stack,
+                &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_REQUIRES_1,
+                vec![source_arity, target_arity],
+            );
+        }
+        if target_arity < source_arity {
+            return push_count(
+                stack,
+                &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_ALLOWS_ONLY_1,
+                vec![source_arity, target_arity],
+            );
+        }
+        for (position, (&from, &to)) in source_elements.iter().zip(&target_elements).enumerate() {
+            match self.chain_relate(stack, from, to) {
+                Ternary::Related => {}
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, from, to, depth)?;
+                    if target_arity > 1 || source_arity > 1 {
+                        push_count(
+                            stack,
+                            &messages::TYPE_AT_POSITION_0_IN_SOURCE_IS_NOT_COMPATIBLE_WITH_TYPE_AT_POSITION_1_IN_TARGET,
+                            vec![position, position],
+                        );
+                    }
+                    return Some(());
+                }
+            }
+        }
+        None
     }
 
     /// `relateVariances` for two references to one class or interface

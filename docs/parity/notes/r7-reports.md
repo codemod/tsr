@@ -1783,3 +1783,24 @@ it. The target member must carry `SymbolFlagsClassMember`
 (method, accessor or property, which is every property symbol). The
 property loop now checks this after a related member pair, so `C` with
 `x?` against `{ x: any }` reads it.
+
+## 52. Fixed tuple targets in the chain
+
+`propertiesRelatedTo`'s tuple-target arm (`relater.go:4103`) runs before
+any property. For a target whose elements are all required, and a source
+that is a fixed tuple or an array:
+
+- an array source (all rest, minimum length 0) reads `Target requires N
+  element(s) but source may have fewer.`, or `Target allows only 0…`
+  against the empty tuple;
+- a shorter tuple reads `Source has M element(s) but target requires N.`,
+  and a longer one `…but target allows only N.`;
+- otherwise the first element that fails is explained under `Type at
+  position i in source is not compatible with type at position i in
+  target.` (only when either side has more than one element).
+
+Optional, rest and variadic elements on either side decline, since their
+position mapping, `removeMissingType` and the variadic messages are not
+retraced. A readonly source against a mutable target also declines: the
+arm fails silently there, and `tryElaborateArrayLikeErrors` reports
+instead.
