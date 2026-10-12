@@ -1927,3 +1927,26 @@ assignreport.rs: `Type '…' is not assignable to type '…'` at depth, TS2741,
 TS2353, TS2559. Natively each prints with `TypeToString` or
 `getTypeNamesForErrorDisplay` (nil enclosing). §45's diff adopts the head
 sites; the chain sites are the reports lane's continuation of it.
+
+## 55. `needsQualification` is the table walk, also where the name resolves to the symbol
+
+**Forcing constraint.** `genericDefaults` 0:1050: `interface i07 { a: A; }`
+beside `interface i07<A = number> { b: A; }` prints natively as
+`a : globalThis.A`. The port printed `A`.
+
+**Cause.** Resolving `A` in the first declaration finds the global interface,
+since the type parameter belongs to the other declaration. That is the type
+both sides compute. The node builder's `needsQualification`
+(`symbolaccessibility.go:688`) does not resolve, though. It walks
+`someSymbolTableInScope`, whose class/interface arm is the merged symbol's
+`members` (`:766`), and that holds the type parameter `A` from the second
+declaration. So `A` is shadowed at the site, and `trySymbolTable`'s globals
+arm names it `globalThis.A`. The port's `chain_needs_qualification` asked
+`resolve_name_at_print_site` first and stopped at "resolves to the symbol",
+and `qualified_name_at`'s §509 same-spelling arm returned the bare name on
+the same answer.
+
+**The port.** When the site resolves the name to the symbol itself,
+`chain_needs_qualification` still asks `shadow_walk` (the transcribed table
+walk) and qualifies when a table holds another symbol first. The same-spelling
+arm keeps the bare name only when `is_shadowed_at` agrees. No cache or table.

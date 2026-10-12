@@ -3437,7 +3437,15 @@ impl<'a, 'n> Checker<'a, 'n> {
                     false
                 })
             };
-            if same_spelling && lexically_contains_reference(self) {
+            // r7-printer §55: `needsQualification`'s table walk decides,
+            // not the semantic resolution: a merged interface's type
+            // parameter declared by ANOTHER declaration is in the members
+            // table at the site (`someSymbolTableInScope`) though a reference
+            // there resolves past it (`interface i07 { a: A }` beside
+            // `interface i07<A>` prints `a : globalThis.A`).
+            let type_shadowed = !printed.starts_with("typeof ")
+                && self.merged_type_parameter_shadows(symbol, name, reference);
+            if same_spelling && lexically_contains_reference(self) && !type_shadowed {
                 return Some(printed);
             }
         }
@@ -4378,13 +4386,63 @@ impl<'a, 'n> Checker<'a, 'n> {
     ) -> bool {
         match self.resolve_name_at_print_site(reference, name, meaning) {
             None => true,
+            // r7-printer §55: the semantic answer is not the last word:
+            // `needsQualification` walks the symbol tables in scope, which
+            // hold a merged class/interface's type parameters from every
+            // declaration, so a name that resolves to the symbol can still be
+            // shadowed there by another declaration's type parameter.
             Some(found)
                 if self.binder.merged_symbol(found) == self.binder.merged_symbol(symbol) =>
             {
-                false
+                meaning.intersects(SymbolFlags::TYPE)
+                    && self.merged_type_parameter_shadows(symbol, name, reference)
             }
             Some(_) => self.shadow_walk(symbol, name, reference, meaning) != Some(false),
         }
+    }
+
+    /// r7-printer §55: whether, walking out from `reference`, a class or
+    /// interface's merged `members` table (`someSymbolTableInScope`'s
+    /// class/interface arm, `symbolaccessibility.go:766`) holds a type
+    /// parameter named `name` other than `symbol` before any lexical table
+    /// holds the name. That is a type parameter of another declaration of a
+    /// merged class or interface, which resolution at the site does not see
+    /// (`interface i07 { a: A }` beside `interface i07<A>`). Only type
+    /// parameters are asked: the port's other tables do not merge as
+    /// native's do (a script's own `interface Promise` beside the lib's).
+    fn merged_type_parameter_shadows(
+        &self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+    ) -> bool {
+        let target = self.binder.merged_symbol(symbol);
+        let mut current = Some(reference);
+        while let Some(location) = current {
+            if self.binder.locals(location).is_some_and(|table| table.contains_key(name)) {
+                return false;
+            }
+            if matches!(
+                self.nodes.kind(location),
+                SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration
+            ) && let Some(owner) = self.binder.symbol_of(location)
+                && let Some(&found) =
+                    self.binder.symbols().get(self.binder.merged_symbol(owner)).members.get(name)
+            {
+                let found = self.binder.merged_symbol(found);
+                return found != target
+                    && self
+                        .binder
+                        .symbols()
+                        .get(found)
+                        .flags
+                        .contains(SymbolFlags::TYPE_PARAMETER);
+            }
+            current = self.nodes.parent(location);
+        }
+        false
     }
 
     /// `trySymbolTable`'s globals arm
