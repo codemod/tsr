@@ -6990,7 +6990,19 @@ impl<'a> Checker<'a, '_> {
         let instantiated = self.instantiate_signature(signature.clone(), &map, &own, &names);
         self.identity_unmapped_type_parameters = saved;
         let Some(mut instantiated) = instantiated else {
-            return signature;
+            // r7-printer §37: the fresh names are already allocated by type
+            // id, so every slot printed at the site names the parameters
+            // `T_1`; a declaration left `T` would contradict them
+            // (`inferenceContextualReturnTypeUnion3`'s `Reflect.set`, whose
+            // conditional slot the substitution declines). Rename the
+            // declarations in place; the slots keep their by-id names.
+            let mut declared = signature;
+            for (parameter, rename) in declared.type_parameters.iter_mut().zip(renames) {
+                if let Some(fresh_name) = rename {
+                    parameter.name = fresh_name;
+                }
+            }
+            return declared;
         };
         for (parameter, rename) in instantiated.type_parameters.iter_mut().zip(renames) {
             if let Some(fresh_name) = rename {
