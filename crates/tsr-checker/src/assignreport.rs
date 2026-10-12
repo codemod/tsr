@@ -6257,6 +6257,72 @@ impl Checker<'_, '_> {
         written.unwrap_or_else(|| chain_property_display(name))
     }
 
+    /// `compareTypePredicateRelatedTo` (`relater.go:1662`): kinds (this or
+    /// parameter, asserting or not) must agree, a parameter predicate must
+    /// name the same position, and the predicate types must relate; each
+    /// failure ends with `Type predicate 'P' is not assignable to 'Q'.`
+    fn explain_type_predicates(
+        &mut self,
+        stack: &mut ChainStack,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+        source_predicate: &crate::signatures::TypePredicate,
+        target_predicate: &crate::signatures::TypePredicate,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        let source_text = self.type_predicate_to_string(source_predicate);
+        let target_text = self.type_predicate_to_string(target_predicate);
+        let not_assignable = ChainEntry {
+            message: &messages::TYPE_PREDICATE_0_IS_NOT_ASSIGNABLE_TO_1,
+            args: vec![source_text, target_text],
+        };
+        let kind = |predicate: &crate::signatures::TypePredicate| {
+            (predicate.asserts, predicate.parameter_name.is_some())
+        };
+        if kind(source_predicate) != kind(target_predicate) {
+            stack.push(ChainEntry {
+                message: &messages::A_THIS_BASED_TYPE_GUARD_IS_NOT_COMPATIBLE_WITH_A_PARAMETER_BASED_TYPE_GUARD,
+                args: Vec::new(),
+            });
+            stack.push(not_assignable);
+            return Some(());
+        }
+        if let (Some(source_name), Some(target_name)) =
+            (&source_predicate.parameter_name, &target_predicate.parameter_name)
+        {
+            let position = |signature: &crate::signatures::Signature, name: &str| {
+                signature.parameters.iter().position(|parameter| parameter.name == name)
+            };
+            let (source_index, target_index) =
+                (position(source, source_name)?, position(target, target_name)?);
+            if source_index != target_index {
+                stack.push(ChainEntry {
+                    message: &messages::PARAMETER_0_IS_NOT_IN_THE_SAME_POSITION_AS_PARAMETER_1,
+                    args: vec![source_name.clone(), target_name.clone()],
+                });
+                stack.push(not_assignable);
+                return Some(());
+            }
+        }
+        match (source_predicate.r#type, target_predicate.r#type) {
+            (Some(from), Some(to)) if from == to => None,
+            (Some(from), Some(to)) => match self.chain_relate(stack, from, to) {
+                Ternary::Related | Ternary::Unknown => None,
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, from, to, depth)?;
+                    stack.push(not_assignable);
+                    Some(())
+                }
+            },
+            (None, None) => None,
+            _ => {
+                stack.push(not_assignable);
+                Some(())
+            }
+        }
+    }
+
     /// `getParameterNameAtPosition` (`relater.go:1929`): a non-rest
     /// parameter's own name, else the rest parameter's. A tuple rest names
     /// its element by label (`getTupleElementLabel`), which declines here.
@@ -6733,9 +6799,7 @@ impl Checker<'_, '_> {
         (callback, bivariant_callback): (bool, bool),
     ) -> Option<()> {
         use crate::relater::Ternary;
-        if source.predicate.is_some() || target.predicate.is_some() {
-            return None;
-        }
+
         // compareSignaturesRelated (`relater.go:1462`): a generic source whose
         // type parameters are not the target's own is instantiated in the
         // context of the target's canonical signature, as
@@ -6919,6 +6983,29 @@ impl Checker<'_, '_> {
         let target_return = self.get_return_type_of_signature(target)?;
         if target_return == self.intrinsics.void || target_return == self.intrinsics.any {
             return None;
+        }
+        // A target type predicate replaces the return comparison
+        // (`relater.go:1606`).
+        if let Some(target_predicate) = target.predicate.clone() {
+            return match source.predicate.clone() {
+                Some(source_predicate) => self.explain_type_predicates(
+                    stack,
+                    source,
+                    target,
+                    &source_predicate,
+                    &target_predicate,
+                    depth,
+                ),
+                None if !target_predicate.asserts => {
+                    let signature = self.signature_to_string(source);
+                    stack.push(ChainEntry {
+                        message: &messages::SIGNATURE_0_MUST_BE_A_TYPE_PREDICATE,
+                        args: vec![signature],
+                    });
+                    Some(())
+                }
+                None => None,
+            };
         }
         let source_return = self.get_return_type_of_signature(source)?;
         // A bivariant callback check accepts the reverse return relation

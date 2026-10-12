@@ -1955,3 +1955,25 @@ named by the rest parameter. A tuple rest names its element by label,
 which declines here. `(...x: number[]) => void` against `(x: number[], y:
 string) => void` reads `Types of parameters 'x' and 'x' are
 incompatible.`
+
+## 63. Type predicates in the chain
+
+`compareSignaturesRelated` (`relater.go:1606`) replaces the return-type
+comparison with `compareTypePredicateRelatedTo` (`relater.go:1662`) when
+the target has a type predicate. A source with none fails with `Signature
+'…' must be a type predicate.`, unless the target only asserts. Otherwise
+three failures each end with `Type predicate 'P' is not assignable to
+'Q'.`:
+
+- the kinds differ (this or parameter, asserting or not), with `A
+  this-based type guard is not compatible with a parameter-based type
+  guard.` below it;
+- the predicates name different parameter positions, with `Parameter 'a'
+  is not in the same position as parameter 'b'.` below it;
+- the predicate types fail to relate, with their own explanation below
+  it.
+
+`explain_signature` declined every predicate; `explain_type_predicates`
+ports the arm. On the `typeGuardFunction` subset, a quick oracle against
+c51 read 1 gained and 0 lost (`typeGuardFunctionOfFormThisErrors`).
+`typeGuardFunctionErrors` still differs on an unrelated TS2355.
