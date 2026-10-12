@@ -1064,3 +1064,28 @@ built on the first related diagnostic of the file only (the copy of the
 text is paid by files that have a default-export conflict). Not ported:
 `binder.go:255`'s `Did you mean 'export type { T }'` on a type-less `export
 type T;`, which needs the declaration node and not only its id.
+
+## 36. TS2305 on an `export =` module whose target is a variable or a type
+
+`errorNoModuleMemberSymbol` runs whenever `getExternalModuleMember` finds
+nothing. For an `export =` module that lookup is `getPropertyOfType(
+getTypeOfSymbol(target), name, skipObjectFunctionPropertyAugment)`, then
+`getExportOfModule(target, name)`. `report_missing_module_export` decided
+only declaration-shaped targets (namespace, class, function, enum) and
+declined the rest. Its stated reason was that a variable's
+`getPropertyOfType` misses in this port (unions, augmented interfaces) are
+not proof of absence. Two shapes are now decided:
+
+- **A type-only target** (`export = I` of an interface): it has no value
+  and so no property (`getTypeOfSymbol` is `errorType` natively), and only
+  its exports answer (`es6ExportEqualsInterop`'s `"interface"` imports).
+- **A variable target** whose declared type this port computed (not `any`,
+  an error or a gap). The existence test now also asks the type-read road
+  for a union receiver, because `get_property_of_type_ex` routes no union,
+  and native's union property is `createUnionOrIntersectionProperty`
+  (present in every constituent). So `export = x` with `x: { a; c } | { b;
+  c }` exports `c` and neither `a` nor `b`, and `toString` is absent because
+  the augment is skipped (`namedImportNonExistentName`).
+
+An alias target, and any value other than a variable that is not
+declaration-shaped, still decline.
