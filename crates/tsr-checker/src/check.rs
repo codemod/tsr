@@ -3071,15 +3071,15 @@ impl Checker<'_, '_> {
         let [first, rest @ ..] = declarations.declarations else { return };
         if let Some(second) = rest.first()
             && let Some(id) = second.node_id
-            && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
-            let span = self.error_span(id);
             let message = if for_in {
                 &messages::ONLY_A_SINGLE_VARIABLE_DECLARATION_IS_ALLOWED_IN_A_FOR_IN_STATEMENT
             } else {
                 &messages::ONLY_A_SINGLE_VARIABLE_DECLARATION_IS_ALLOWED_IN_A_FOR_OF_STATEMENT
             };
-            self.report(file, Diagnostic::new(message, span));
+            // `grammarErrorOnFirstToken(declarations.Nodes[1], …)`
+            // (`grammarchecks.go:1279`): `{` of a destructuring name.
+            self.grammar_error_on_first_token(id, message);
             return;
         }
         if first.initializer.is_some()
