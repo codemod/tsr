@@ -270,6 +270,24 @@ impl Checker<'_, '_> {
                     let initializer_type = self.check_expression(initializer);
                     self.report_errors_from_widening(parameter, initializer_type);
                 }
+                // An array binding pattern initialized by a shorter array
+                // literal: an element past the literal's end, without an
+                // initializer of its own, is implicitly `any` in the
+                // pattern-padded type the widening reports on (r7-reports §74).
+                if !documented
+                    && uncontextual
+                    && !private_member
+                    && !ambient
+                    && let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name
+                    && pattern.kind.kind == SyntaxKind::OpenBracketToken
+                    && let tsr_ast::Expression::ArrayLiteralExpression(literal) = initializer
+                    && !literal
+                        .elements
+                        .iter()
+                        .any(|element| matches!(element, tsr_ast::Expression::SpreadElement(_)))
+                {
+                    self.report_padded_binding_elements(pattern.elements, literal.elements.len());
+                }
                 continue;
             }
             // `tryGetTypeFromTypeNode` over the reparsed `@param`/`@type`, then
@@ -348,7 +366,9 @@ impl Checker<'_, '_> {
             } else {
                 &messages::PARAMETER_0_IMPLICITLY_HAS_AN_1_TYPE
             };
-            let text = name.text.to_string();
+            // `declarationNameToString`: a missing name reads `(Missing)`.
+            let text =
+                if name.text.is_empty() { "(Missing)".to_string() } else { name.text.to_string() };
             let diagnostic = if rest {
                 Diagnostic::with_args(message, span, [text])
             } else {
@@ -1157,6 +1177,32 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// TS7031 for the elements of an array binding pattern at or past
+    /// `length`, the initializing literal's element count.
+    fn report_padded_binding_elements(
+        &mut self,
+        elements: &[&tsr_ast::BindingElement<'_>],
+        length: usize,
+    ) {
+        for element in elements.iter().skip(length) {
+            if element.initializer.is_some() || element.dot_dot_dot_token.is_some() {
+                continue;
+            }
+            let Some(tsr_ast::BindingName::Identifier(name)) = element.name else { continue };
+            let Some(name_id) = name.node_id else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
+            let span = self.error_span(name_id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::BINDING_ELEMENT_0_IMPLICITLY_HAS_AN_1_TYPE,
+                    span,
+                    [name.text.to_string(), "any".to_string()],
+                ),
+            );
+        }
+    }
+
     /// The parameter nodes of a declaration this rule admits.
     fn implicit_any_candidates(&self, node: NodeId) -> Vec<NodeId> {
         let collect = |parameters: &[&tsr_ast::ParameterDeclaration<'_>]| -> Vec<NodeId> {
@@ -1477,6 +1523,37 @@ impl Checker<'_, '_> {
         }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(node) else { return };
         let Some(initializer) = variable.initializer else { return };
+        // An array binding pattern over an array literal: the widened
+        // element types report per element (TS7031). Outside
+        // strictNullChecks a `null`/`undefined` element widens to `any`
+        // (`wideningTuples5`); an element past the literal's end is padded
+        // `any` (r7-reports §74).
+        if let Some(tsr_ast::BindingName::BindingPattern(pattern)) = variable.name
+            && pattern.kind.kind == SyntaxKind::OpenBracketToken
+            && let tsr_ast::Expression::ArrayLiteralExpression(literal) = initializer
+            && !literal.elements.is_empty()
+            && !literal
+                .elements
+                .iter()
+                .any(|element| matches!(element, tsr_ast::Expression::SpreadElement(_)))
+        {
+            if !self.strict_null_checks {
+                for (element, &value) in pattern.elements.iter().zip(literal.elements) {
+                    if element.initializer.is_some() || element.dot_dot_dot_token.is_some() {
+                        continue;
+                    }
+                    let value_type = self.check_expression(value);
+                    if self.is_null_or_undefined_expression(value)
+                        || [self.intrinsics.undefined, self.intrinsics.undefined_widening]
+                            .contains(&value_type)
+                    {
+                        self.report_padded_binding_elements(std::slice::from_ref(element), 0);
+                    }
+                }
+            }
+            self.report_padded_binding_elements(pattern.elements, literal.elements.len());
+            return;
+        }
         if !matches!(variable.name, Some(tsr_ast::BindingName::Identifier(_))) {
             return;
         }
@@ -1749,17 +1826,22 @@ impl Checker<'_, '_> {
             }
             Some(Node::ParameterDeclaration(parameter)) => {
                 let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { return };
+                let text = if name.text.is_empty() {
+                    "(Missing)".to_string()
+                } else {
+                    name.text.to_string()
+                };
                 if parameter.dot_dot_dot_token.is_some() {
                     Diagnostic::with_args(
                         &messages::REST_PARAMETER_0_IMPLICITLY_HAS_AN_ANY_TYPE,
                         span,
-                        [name.text.to_string()],
+                        [text],
                     )
                 } else {
                     Diagnostic::with_args(
                         &messages::PARAMETER_0_IMPLICITLY_HAS_AN_1_TYPE,
                         span,
-                        [name.text.to_string(), widened],
+                        [text, widened],
                     )
                 }
             }

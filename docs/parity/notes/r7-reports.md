@@ -2140,3 +2140,24 @@ value declaration, and `chain_class_derives_from` walks
 `base_symbols_of_ex`; an unreadable base list declines. `protectedMembers`
 (`b1 = a1` / `a1 = b1`) and `derivedClassTransitivity4` now read native's
 levels; the latter still differs on `(x?: string)`'s printed `| undefined`.
+
+## 74. TS7031 under an array literal; TS7006's `(Missing)`
+
+- **An array binding pattern over an array literal.** The pattern's
+  declared type is the literal's type padded by the pattern
+  (`getTypeFromBindingPattern` with the initializer), and
+  `widenTypeForVariableLikeDeclaration` reports each element that widens to
+  `any`. An element past the literal's end, with no initializer of its
+  own, is padded `any`: `function f([x, y] = [1])` reads TS7031 at `y`
+  (`destructuringWithLiteralInitializers2`). Outside `strictNullChecks`, a
+  `null` or `undefined` element widens to `any` too: `var [a, b] =
+  [undefined, null]` (`wideningTuples5`). The parameter arm in
+  `check_implicit_any_parameters` and the variable arm in
+  `check_widening_of_variable_initializer` now walk the pattern; a spread
+  in the literal, an empty literal, a rest element and a nested pattern
+  are left alone.
+- **`declarationNameToString`** prints a missing parameter name as
+  `(Missing)` (`templateStringInFunctionParameterType`).
+
+A quick oracle over `destructuring`, `idening` and `wideningTuples`
+against base20 read 2 gained and 0 lost.
