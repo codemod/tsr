@@ -974,6 +974,9 @@ impl Checker<'_, '_> {
             self.resolve_accessor_symbol_type(node);
         }
         self.check_constructor_named_member(node, typed);
+        if matches!(typed, Node::InferTypeNode(_)) {
+            self.check_infer_type_position(node);
+        }
         // **Every kind 's default arm names**, not
         // just  — §623, and §600's dispatch class for the
         // ninth time.
@@ -9389,6 +9392,27 @@ impl Checker<'_, '_> {
             )));
         }
         self.report(file, diagnostic);
+    }
+
+    /// `checkInferType`'s grammar arm (`checker.go:3289`): an `infer`
+    /// declaration with no ancestor that is a conditional type's `extends`
+    /// type is TS1338 on the node, behind the file's parse errors.
+    fn check_infer_type_position(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let in_extends = std::iter::once(node).chain(self.nodes.ancestors(node)).any(|at| {
+            self.nodes.parent(at).is_some_and(|parent| {
+                matches!(self.node_map.get(parent), Some(Node::ConditionalTypeNode(conditional))
+                    if conditional.extends_type.and_then(|t| t.node_id()) == Some(at))
+            })
+        });
+        if !in_extends {
+            self.grammar_error_on_node(
+                node,
+                &messages::INFER_DECLARATIONS_ARE_ONLY_PERMITTED_IN_THE_EXTENDS_CLAUSE_OF_A_CONDITIONAL_TYPE,
+            );
+        }
     }
 
     /// A class member named `constructor` that is not one:
