@@ -1930,3 +1930,13 @@ assignable to very few other types.…` beneath it
 (`typeParametersShouldNotBeEqual3`). `add_relation_chain` now places the
 chain by the head's own child: it is dropped under TS5082, nested under
 TS5075, and appended otherwise. Both heads (TS2322 and TS2345) use it.
+
+## 61. The expected-type origin under a union target
+
+`elaborateElement` reads `getPropertyOfType(target, name)` on the union
+itself. That is the synthesized union property, whose declarations are
+its constituents' in union order (`createUnionOrIntersectionProperty`),
+so the origin is the first constituent's declaration, `…declared here on
+type 'Blah'`. The port's `get_property_of_type` has no union property, so
+`add_expected_type_related_info` takes the first constituent that has the
+member (`indirectDiscriminantAndExcessProperty`).

@@ -3889,7 +3889,16 @@ impl<'a> Checker<'a, '_> {
         if !self.is_member_relation_report(before, prop, next) {
             return;
         }
-        let related = if let Some(property) = self.get_property_of_type(target, name) {
+        // A union target's property is the synthesized union property,
+        // whose declarations are its constituents' in union order
+        // (`createUnionOrIntersectionProperty`).
+        let property = self.get_property_of_type(target, name).or_else(|| {
+            let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+                return None;
+            };
+            types.into_iter().find_map(|part| self.get_property_of_type(part, name))
+        });
+        let related = if let Some(property) = property {
             let Some(&declaration) = self.binder.symbols().get(property).declarations.first()
             else {
                 return;
