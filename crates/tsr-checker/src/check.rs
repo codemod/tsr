@@ -1016,6 +1016,7 @@ impl Checker<'_, '_> {
             for (_, list) in self.jsdoc_template_lists(node) {
                 self.check_type_parameter_list(&list);
             }
+            self.check_jsdoc_import_specifiers(node);
         }
         if self.nodes.kind(node) == SyntaxKind::SwitchStatement {
             self.check_switch_case_comparable(node);
