@@ -851,3 +851,85 @@ signature (bucket `TS2411 span-only MethodSignature`). `GetErrorRangeForNode`
 gives a method signature its whole node (method signatures are not in its
 name list), and the shared `error_span` gives the name. That is the same
 arm TS7010's 10-case span bucket needs, and it belongs with grant (e).
+
+## §44 TS2842's names as written and its TS2843
+
+`checkUnusedRenamedBindingElements` reports TS2842 with
+`DeclarationNameToString` of both names, so a property name keeps its
+spelling (`"a"`, `["a"]`, `[2]`, `[sym]`). When the wrapping parameter has no
+type annotation, it adds `We can only write a type for '{0}' by adding a type
+for the entire parameter here.` at the parameter's end (TS2843).
+`check_renamed_binding_element_in_signature` (check.rs, a declaration check)
+printed the property name only when it was an identifier, and never added
+the related entry. It now reads the name through
+`declaration_name_source_text` (§35), records the parameter its walk already
+finds, and attaches TS2843 at `Span::at(parameter.end)` with its file (§34).
+Converted (oracle): `excessPropertyCheckWithSpread`,
+`paramterDestrcuturingDeclaration`, `renamingDestructuredPropertyInFunctionType`
+(both variants).
+
+## §45 TS2552/TS2833's related declaration of the suggestion
+
+`onFailedToResolveSymbol`'s spelling-suggestion arm (`checker.go:1590`)
+reports `Cannot find name '{0}'. Did you mean '{1}'?` (TS2552), or TS2833 for
+a namespace. When the suggested symbol has a value declaration, it adds
+`'{0}' is declared here.` there. The port's reporters (check.rs's value and
+type sites, namespace_not_found.rs) took only the suggestion's text from
+`spelling_suggestion_for`. `spelling_suggestion_with_declaration`
+(grammar.rs) makes the same single lookup
+(`suggested_symbol_for_nonexistent_symbol`, with the same
+global-augmentation exclusion) and also returns the related diagnostic, with
+its file (§34). This was the `TS2728 in TS2552` family of `full_oracle_run
+rank` (about 34 cases over five buckets). Measured near-full oracle vs
+`f32a7263e`, together with §44: +42, 0 lost. Not changed: the JSX-factory
+and export-specifier suggestion sites, whose messages are other codes.
+
+## §46 TS2448/TS2449/TS2450's related declaration
+
+`checkResolvedBlockScopedVariable` (`checker.go:1895`) adds
+`'{0}' is declared here.` at the block-scoped, class or enum declaration to
+every used-before-declaration report
+(`AddRelatedInfo(createDiagnosticForNode(declaration, …))`). The port's
+reporter (check.rs, a declaration check) emitted the head alone at both of
+its report sites (the class's own computed-name/decorator arm and the
+ordinary arm). `report_used_before_declaration` now builds both with the
+related diagnostic, with its file (§34). This was the `TS2728 in
+TS2448/TS2449/TS2450` family (about 25 cases in `full_oracle_run rank` on
+`bdd9ce10`). Measured near-full oracle vs `dbb3ef7ef`: +34, 0 lost. Not here:
+TS2729's related declaration (`Property used before its initialization`,
+24 cases), whose reporter is readonly_target.rs (r7-flow's).
+
+## §47 TS1192 quotes the module
+
+`reportNonDefaultExport`'s TS1192 is `c.error(node, Module_0_has_no_default_export,
+c.symbolToString(moduleSymbol))`. An external or ambient module symbol is
+named with its quotes upstream (`"/.src/server"`), and with no enclosing
+declaration that name is what prints. This binder names those symbols with
+the bare path. `check_module_has_default_export` (check.rs, an
+import-declaration check) now quotes the name of a module whose declaration
+is a source file or a string-named module declaration. TS2305 is unaffected:
+it prints the specifier as written (`quoted_module_name`). Converted:
+`es6ImportDefaultBinding*` (5 cases, the `TS1192 message-text-only` bucket).
+
+## §48 TS2694/TS2724 name the namespace fully qualified
+
+`resolveEntityName`'s qualified arm reports
+`Namespace '{0}' has no exported member '{1}'` (TS2694), or its TS2724
+suggestion form, with `getFullyQualifiedName(namespace)` (`checker.go:14888`).
+That is the resolved namespace's parents joined by `.`, with an external or
+ambient module quoted (`"/.src/file".c`, and `foo.bar.baz` for an alias
+`booz` of it). Both of `check_qualified_type_name_at`'s sites (check.rs)
+printed the left name as written. `fully_qualified_name`
+(meaning_mismatch.rs) walks the binder's parents and quotes module symbols,
+which this binder names with the bare path (as §47).
+
+*A resolution fix in the same arm.* `resolveEntityName` returns
+`symbol.Flags&meaning != 0 ? symbol : resolveAlias(symbol)`, so an import
+alias merged with a namespace (`import * as Lib` beside `namespace Lib`)
+already has the namespace meaning and is not resolved. The port resolved
+every alias. Printing the fully qualified name exposed that:
+`namespaceMergedWithImportAliasNoCrash` named the module and was the one
+loss in the first measurement. The alias is now resolved only without the
+namespace meaning. Measured with oracle filters `lias`, `odule` and
+`amespace`: +8 (`aliasBug`, `aliasErrors`, `internalAlias*`,
+`moduleVisibilityTest3`, …), 0 lost.
