@@ -1042,3 +1042,23 @@ context-sensitive. `const { f = (x: string) => x.length } = id({ f: x => x.charA
 now types `x : string`, and `f` is
 `((x: string) => number) | ((x: string) => (pos: number) => string)`
 (objectBindingPatternContextuallyTypesArgument 9 → 0 non-RIGHT lines).
+
+## 35. A for-of head's binding element default copies its pattern's optionality
+
+`getContextualTypeForInitializerExpression` (`checker.go`) gives a binding
+element's default its parent's projected type
+(`getContextualTypeForBindingElement`). That is the root's annotation, else
+its initializer's type (`checkDeclarationInitializer`). Only with neither does
+it fall back to `getTypeFromBindingPattern`, whose optional members the
+literal copies (`contextualTypeHasPattern`). `contextual_binding_pattern`'s
+BindingElement arm certified only a parameter root. A variable root with no
+annotation and no initializer, as in `for (let { skills: { primary: p = "a" }
+= { primary: "x" } } of arr)`, now also yields the element's pattern, so the
+default prints `{ primary?: string; }`
+(sourceMapValidationDestructuringForOfObjectBindingPatternDefaultValues 6 → 0
+non-RIGHT lines). A JS root keeps the old answer, since its JSDoc `@type` is an
+annotation. A root with an initializer keeps no `?`, as native does
+(`declarationsAndAssignments`' `{ x: 10, y: false } : { x: number; y: boolean; }`).
+Not fixed here: such a default under an initialized root
+(`const { skills: { primary: p = "a" } = { primary: "x" } } = obj`) prints
+`{ primary: "x"; }`, where the projected `obj.skills` context should widen it.
