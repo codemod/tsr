@@ -1549,3 +1549,55 @@ lane does not own.
 A function declaration's own overload set (`typeof f`) still declines.
 `get_property_names_of_type` has no answer for it, and the unmatched-
 property step needs one.
+
+## 41. Common properties, intersection targets and the elaborated source
+
+- **The common-property check in the chain** (`isRelatedTo`,
+  `relater.go:2731`). A weak target that shares no property with the
+  source fails before any structural step. It reports TS2559, or TS2560
+  when the source's first call/construct return relates, and there is no
+  relation error under it. `explain_pair` checks it first, sharing
+  `weak_type_message` with `report_weak_type_failure`.
+- **Intersection target.** `typeRelatedToEachType` relates the source to
+  each constituent under `IntersectionStateTarget`. Every nested pair
+  inherits that state, and it skips the common-property and
+  excess-property checks. When every constituent relates, `isRelatedTo`'s
+  extra `propertiesRelatedTo` over the intersection as one object is what
+  failed (`relater.go:2770`); under the target state that pass is skipped.
+  The chain mirrors this with `ChainStack::intersection_target`.
+  `chain_relate` reads verdicts through the new
+  `relate_ternary_in_intersection_target`, which runs a verdict-only walk
+  with the relater's existing `intersection_target` flag. Without the
+  state, `C1 → A1` in `nestedExcessPropertyChecking` fails on a nested weak
+  check that upstream never makes. The retrace then explains a constituent
+  native relates.
+- **`specificSource`** (`elaborateElement`, `relater.go:565`). The member's
+  report relates the expression's own type, checked against the source
+  member's type as contextual type, and falls back to the member's type
+  when that relates. For a literal, `false` against `boolean` stays `false`.
+  So TS2559 names `'false'`, as upstream does. TS2322's display
+  generalizes it back to `boolean` through `reportRelationError`'s literal
+  generalization. Only a literal-typed expression is re-read; any other
+  keeps the member type, since re-checking under a contextual type is not
+  free here.
+- **`This type parameter might need…` on every head.** The hint now
+  attaches in `report_relation_head` (both of its report sites). Before,
+  it attached only in the final branch, and a missing-property `Kept` head
+  lacked it. `createDiagnosticChainFromErrorChain` gives every chain level
+  the walk's related information, so the head pair's hint is appended at
+  every level, not only the head.
+- **Arrow-return related information appends.** §39 attached TS6502 /
+  TS1356 only to a diagnostic with no related information, and replaced
+  the list. `AddRelatedInfo` appends: a TS2741 under an arrow return reads
+  `'z' is declared here.` and then `The expected type comes from the
+  return type of this signature.`
+
+**Not done: `mappedTypeAsClauseRelationships`' `Modify<T>`.** Native fails
+`T → { [P in keyof T as P extends string ? \`bool${P}\` : P]: T[P] }`
+because the name type's constraint `` `bool${P}` | P `` does not relate to
+`keyof T`. The port's generic-mapped-target arm has no `keyof T` for a
+type-parameter source (`keyof_without_index_signatures` reads index
+infos). With that supplied, `` `bool${P}` → keyof T `` is still `Unknown`
+in the port. That needs the index-target arm's `getSimplifiedTypeOrConstraint`
+and the template-source arm against an instantiable target. It was tried
+and reverted in this commit. The case's verdict stays as it was.
