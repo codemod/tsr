@@ -982,7 +982,10 @@ expression, so those uses were TS2448. It now reads either bit on any
 function-like (arrow: `async` only). Converted:
 `blockScopedVariablesUseBeforeDef`.
 
-## §53 TS1106 reads `NodeFlagsAwaitContext`; the stale "parser drops `await`" comments
+## §56 TS1106 reads `NodeFlagsAwaitContext`; the stale "parser drops `await`" comments
+
+*Renumbered:* this section was first committed as a second §53 (`cee33e03`),
+beside the IIFE section above; the number is now its own.
 
 `checkGrammarForInOrForOfStatement`'s `async` arm (`grammarchecks.go:1251`)
 reports `for (async of xs)` on a statement without `NodeFlagsAwaitContext`.
