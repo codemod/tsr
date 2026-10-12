@@ -434,7 +434,7 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
          \x20   clippy::new_without_default,\n\
          )]\n\n\
          use super::alias::*;\n\
-         use crate::{NodeId, SyntaxKind, Token};\n\n",
+         use crate::{NodeId, NodeIdCell, SyntaxKind, Token};\n\n",
     );
 
     for name in ast.nodes.definitions.keys() {
@@ -457,16 +457,12 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
              /// immediately after allocating it, so a finished tree has `Some`\n    \
              /// everywhere.\n    \
              ///\n    \
-             /// A plain field rather than a `Cell`: the arena hands back `&mut`\n    \
-             /// for a freshly allocated value, so registration never needs\n    \
-             /// interior mutability. That is what makes every node `Sync` and the\n    \
-             /// tree shareable across threads — see\n    \
-             /// `docs/adr/0012-ast-is-sync.md`.\n    \
-             ///\n    \
+             /// A [`NodeIdCell`], an atomic, so that publication can rebase a\n    \
+             /// private parse's ids in place through `&` while every node stays\n    \
+             /// `Sync` (ADR-0056, amending `docs/adr/0012-ast-is-sync.md`).\n    \
              /// Crate-private: read it through `node_id()` and write it through\n    \
-             /// `HasNodeId::set_node_id`, so its representation can change behind\n    \
-             /// them (ADR-0056).\n    \
-             pub(crate) node_id: Option<NodeId>,"
+             /// `HasNodeId::set_node_id`.\n    \
+             pub(crate) node_id: NodeIdCell,"
         )?;
         // Nodes such as `KeywordExpression` carry only a kind, so nothing in the
         // struct mentions `'a`. Keep the parameter for uniformity — every node is
@@ -516,7 +512,7 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
              /// kind and span in the side tables.\n    \
              #[must_use]\n    \
              pub fn new({params}) -> Self {{\n        \
-             Self {{ node_id: None{}{} }}\n    }}\n\n    \
+             Self {{ node_id: NodeIdCell::unset(){}{} }}\n    }}\n\n    \
              /// The id the parser registered this node under; `None` until it\n    \
              /// does.\n    \
              ///\n    \
@@ -526,7 +522,7 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
              #[inline]\n    \
              #[must_use]\n    \
              pub fn node_id(&self) -> Option<NodeId> {{\n        \
-             self.node_id\n    }}\n}}\n",
+             self.node_id.get()\n    }}\n}}\n",
             if inits.is_empty() { String::new() } else { format!(", {inits}") },
             marker,
         )?;
@@ -535,10 +531,11 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
         writeln!(
             out,
             "impl crate::HasNodeId for {name}<'_> {{\n    \
+             #[inline]\n    \
              fn set_node_id(&mut self, id: NodeId) {{\n        \
-             self.node_id = Some(id);\n    }}\n\n    \
+             self.node_id.set_mut(id);\n    }}\n\n    \
              fn node_id(&self) -> Option<NodeId> {{\n        \
-             self.node_id\n    }}\n}}\n"
+             self.node_id.get()\n    }}\n}}\n"
         )?;
     }
 
@@ -557,13 +554,13 @@ pub fn generate_publication(ast: &AstDefinition, nullability: &GoNullability) ->
     );
     for name in ast.nodes.definitions.keys() {
         if name == "Token" {
-            out.push_str("Node::Token(n) => { let mut node = Token::new(n.kind); node.node_id = n.node_id.map(|id| p.id(id)); Node::Token(p.arena.alloc(node)) },\n");
+            out.push_str("Node::Token(n) => { let node = Token::new(n.kind); if let Some(id) = n.node_id() { node.node_id.set(p.id(id)); } Node::Token(p.arena.alloc(node)) },\n");
             continue;
         }
         let fields = resolve_fields(ast, nullability, name)?;
         writeln!(
             out,
-            "Node::{name}(n) => {{ let node = {name} {{ node_id: n.node_id.map(|id| p.id(id)),"
+            "Node::{name}(n) => {{ let node = {name} {{ node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),"
         )?;
         if !fields.iter().any(|f| f.rust_type.contains("'a")) {
             out.push_str("_marker: std::marker::PhantomData,\n");
@@ -677,6 +674,7 @@ pub fn generate_aliases(ast: &AstDefinition, nullability: &GoNullability) -> Res
             out,
             "impl {alias_name}<'_> {{\n    \
              /// The id assigned when the parser registered this node.\n    \
+             #[inline]\n    \
              #[must_use]\n    \
              pub fn node_id(&self) -> Option<crate::NodeId> {{\n        \
              match self {{"

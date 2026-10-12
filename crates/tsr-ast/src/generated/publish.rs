@@ -10,7 +10,7 @@ impl<'a> Node<'_> {
         match self {
             Node::ArrayLiteralExpression(n) => {
                 let node = ArrayLiteralExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     elements: n.elements.publish(p),
                     multi_line: n.multi_line,
                 };
@@ -18,14 +18,14 @@ impl<'a> Node<'_> {
             }
             Node::ArrayTypeNode(n) => {
                 let node = ArrayTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     element_type: n.element_type.publish(p),
                 };
                 Node::ArrayTypeNode(p.arena.alloc(node))
             }
             Node::ArrowFunction(n) => {
                 let node = ArrowFunction {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     type_parameters: n.type_parameters.publish(p),
                     parameters: n.parameters.publish(p),
@@ -39,7 +39,7 @@ impl<'a> Node<'_> {
             }
             Node::AsExpression(n) => {
                 let node = AsExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     r#type: n.r#type.publish(p),
                 };
@@ -47,14 +47,14 @@ impl<'a> Node<'_> {
             }
             Node::AwaitExpression(n) => {
                 let node = AwaitExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::AwaitExpression(p.arena.alloc(node))
             }
             Node::BigIntLiteral(n) => {
                 let node = BigIntLiteral {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     token_flags: n.token_flags,
                 };
@@ -62,7 +62,7 @@ impl<'a> Node<'_> {
             }
             Node::BinaryExpression(n) => {
                 let node = BinaryExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     left: n.left.publish(p),
                     r#type: n.r#type.publish(p),
@@ -73,7 +73,7 @@ impl<'a> Node<'_> {
             }
             Node::BindingElement(n) => {
                 let node = BindingElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     dot_dot_dot_token: n.dot_dot_dot_token.publish(p),
                     property_name: n.property_name.publish(p),
                     name: n.name.publish(p),
@@ -83,7 +83,7 @@ impl<'a> Node<'_> {
             }
             Node::BindingPattern(n) => {
                 let node = BindingPattern {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     kind: n.kind.publish(p),
                     elements: n.elements.publish(p),
                 };
@@ -91,7 +91,7 @@ impl<'a> Node<'_> {
             }
             Node::Block(n) => {
                 let node = Block {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     statements: n.statements.publish(p),
                     multi_line: n.multi_line,
                 };
@@ -99,14 +99,14 @@ impl<'a> Node<'_> {
             }
             Node::BreakStatement(n) => {
                 let node = BreakStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     label: n.label.publish(p),
                 };
                 Node::BreakStatement(p.arena.alloc(node))
             }
             Node::CallExpression(n) => {
                 let node = CallExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     question_dot_token: n.question_dot_token.publish(p),
                     type_arguments: n.type_arguments.publish(p),
@@ -116,7 +116,7 @@ impl<'a> Node<'_> {
             }
             Node::CallSignatureDeclaration(n) => {
                 let node = CallSignatureDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     type_parameters: n.type_parameters.publish(p),
                     parameters: n.parameters.publish(p),
                     r#type: n.r#type.publish(p),
@@ -126,14 +126,14 @@ impl<'a> Node<'_> {
             }
             Node::CaseBlock(n) => {
                 let node = CaseBlock {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     clauses: n.clauses.publish(p),
                 };
                 Node::CaseBlock(p.arena.alloc(node))
             }
             Node::CaseOrDefaultClause(n) => {
                 let node = CaseOrDefaultClause {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     kind: n.kind.publish(p),
                     expression: n.expression.publish(p),
                     statements: n.statements.publish(p),
@@ -142,7 +142,7 @@ impl<'a> Node<'_> {
             }
             Node::CatchClause(n) => {
                 let node = CatchClause {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     variable_declaration: n.variable_declaration.publish(p),
                     block: n.block.publish(p),
                 };
@@ -150,7 +150,7 @@ impl<'a> Node<'_> {
             }
             Node::ClassDeclaration(n) => {
                 let node = ClassDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     type_parameters: n.type_parameters.publish(p),
@@ -161,7 +161,7 @@ impl<'a> Node<'_> {
             }
             Node::ClassExpression(n) => {
                 let node = ClassExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     type_parameters: n.type_parameters.publish(p),
@@ -172,7 +172,7 @@ impl<'a> Node<'_> {
             }
             Node::ClassStaticBlockDeclaration(n) => {
                 let node = ClassStaticBlockDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     body: n.body.publish(p),
                 };
@@ -180,14 +180,14 @@ impl<'a> Node<'_> {
             }
             Node::ComputedPropertyName(n) => {
                 let node = ComputedPropertyName {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::ComputedPropertyName(p.arena.alloc(node))
             }
             Node::ConditionalExpression(n) => {
                 let node = ConditionalExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     condition: n.condition.publish(p),
                     question_token: n.question_token.publish(p),
                     when_true: n.when_true.publish(p),
@@ -198,7 +198,7 @@ impl<'a> Node<'_> {
             }
             Node::ConditionalTypeNode(n) => {
                 let node = ConditionalTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     check_type: n.check_type.publish(p),
                     extends_type: n.extends_type.publish(p),
                     true_type: n.true_type.publish(p),
@@ -208,7 +208,7 @@ impl<'a> Node<'_> {
             }
             Node::ConstructSignatureDeclaration(n) => {
                 let node = ConstructSignatureDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     type_parameters: n.type_parameters.publish(p),
                     parameters: n.parameters.publish(p),
                     r#type: n.r#type.publish(p),
@@ -218,7 +218,7 @@ impl<'a> Node<'_> {
             }
             Node::ConstructorDeclaration(n) => {
                 let node = ConstructorDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     type_parameters: n.type_parameters.publish(p),
                     parameters: n.parameters.publish(p),
@@ -231,7 +231,7 @@ impl<'a> Node<'_> {
             }
             Node::ConstructorTypeNode(n) => {
                 let node = ConstructorTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     type_parameters: n.type_parameters.publish(p),
                     parameters: n.parameters.publish(p),
@@ -242,35 +242,35 @@ impl<'a> Node<'_> {
             }
             Node::ContinueStatement(n) => {
                 let node = ContinueStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     label: n.label.publish(p),
                 };
                 Node::ContinueStatement(p.arena.alloc(node))
             }
             Node::DebuggerStatement(n) => {
                 let node = DebuggerStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::DebuggerStatement(p.arena.alloc(node))
             }
             Node::Decorator(n) => {
                 let node = Decorator {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::Decorator(p.arena.alloc(node))
             }
             Node::DeleteExpression(n) => {
                 let node = DeleteExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::DeleteExpression(p.arena.alloc(node))
             }
             Node::DoStatement(n) => {
                 let node = DoStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     statement: n.statement.publish(p),
                     expression: n.expression.publish(p),
                 };
@@ -278,7 +278,7 @@ impl<'a> Node<'_> {
             }
             Node::ElementAccessExpression(n) => {
                 let node = ElementAccessExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     question_dot_token: n.question_dot_token.publish(p),
                     argument_expression: n.argument_expression.publish(p),
@@ -287,14 +287,14 @@ impl<'a> Node<'_> {
             }
             Node::EmptyStatement(n) => {
                 let node = EmptyStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::EmptyStatement(p.arena.alloc(node))
             }
             Node::EnumDeclaration(n) => {
                 let node = EnumDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     members: n.members.publish(p),
@@ -303,7 +303,7 @@ impl<'a> Node<'_> {
             }
             Node::EnumMember(n) => {
                 let node = EnumMember {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                     initializer: n.initializer.publish(p),
                     modifiers: n.modifiers.publish(p),
@@ -313,7 +313,7 @@ impl<'a> Node<'_> {
             }
             Node::ExportAssignment(n) => {
                 let node = ExportAssignment {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     is_export_equals: n.is_export_equals,
                     r#type: n.r#type.publish(p),
@@ -323,7 +323,7 @@ impl<'a> Node<'_> {
             }
             Node::ExportDeclaration(n) => {
                 let node = ExportDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     is_type_only: n.is_type_only,
                     export_clause: n.export_clause.publish(p),
@@ -334,7 +334,7 @@ impl<'a> Node<'_> {
             }
             Node::ExportSpecifier(n) => {
                 let node = ExportSpecifier {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     is_type_only: n.is_type_only,
                     property_name: n.property_name.publish(p),
                     name: n.name.publish(p),
@@ -343,14 +343,14 @@ impl<'a> Node<'_> {
             }
             Node::ExpressionStatement(n) => {
                 let node = ExpressionStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::ExpressionStatement(p.arena.alloc(node))
             }
             Node::ExpressionWithTypeArguments(n) => {
                 let node = ExpressionWithTypeArguments {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     type_arguments: n.type_arguments.publish(p),
                 };
@@ -358,14 +358,14 @@ impl<'a> Node<'_> {
             }
             Node::ExternalModuleReference(n) => {
                 let node = ExternalModuleReference {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::ExternalModuleReference(p.arena.alloc(node))
             }
             Node::ForInOrOfStatement(n) => {
                 let node = ForInOrOfStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     kind: n.kind.publish(p),
                     await_modifier: n.await_modifier.publish(p),
                     initializer: n.initializer.publish(p),
@@ -376,7 +376,7 @@ impl<'a> Node<'_> {
             }
             Node::ForStatement(n) => {
                 let node = ForStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     initializer: n.initializer.publish(p),
                     condition: n.condition.publish(p),
                     incrementor: n.incrementor.publish(p),
@@ -386,7 +386,7 @@ impl<'a> Node<'_> {
             }
             Node::FunctionDeclaration(n) => {
                 let node = FunctionDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     asterisk_token: n.asterisk_token.publish(p),
                     name: n.name.publish(p),
@@ -400,7 +400,7 @@ impl<'a> Node<'_> {
             }
             Node::FunctionExpression(n) => {
                 let node = FunctionExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     asterisk_token: n.asterisk_token.publish(p),
                     name: n.name.publish(p),
@@ -414,7 +414,7 @@ impl<'a> Node<'_> {
             }
             Node::FunctionTypeNode(n) => {
                 let node = FunctionTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     type_parameters: n.type_parameters.publish(p),
                     parameters: n.parameters.publish(p),
                     r#type: n.r#type.publish(p),
@@ -425,7 +425,7 @@ impl<'a> Node<'_> {
             }
             Node::GetAccessorDeclaration(n) => {
                 let node = GetAccessorDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     type_parameters: n.type_parameters.publish(p),
@@ -440,20 +440,22 @@ impl<'a> Node<'_> {
             }
             Node::HeritageClause(n) => {
                 let node = HeritageClause {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     token: n.token.publish(p),
                     types: n.types.publish(p),
                 };
                 Node::HeritageClause(p.arena.alloc(node))
             }
             Node::Identifier(n) => {
-                let node =
-                    Identifier { node_id: n.node_id.map(|id| p.id(id)), text: n.text.publish(p) };
+                let node = Identifier {
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
+                    text: n.text.publish(p),
+                };
                 Node::Identifier(p.arena.alloc(node))
             }
             Node::IfStatement(n) => {
                 let node = IfStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     then_statement: n.then_statement.publish(p),
                     else_statement: n.else_statement.publish(p),
@@ -462,7 +464,7 @@ impl<'a> Node<'_> {
             }
             Node::ImportAttribute(n) => {
                 let node = ImportAttribute {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                     value: n.value.publish(p),
                 };
@@ -470,7 +472,7 @@ impl<'a> Node<'_> {
             }
             Node::ImportAttributes(n) => {
                 let node = ImportAttributes {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     token: n.token.publish(p),
                     attributes: n.attributes.publish(p),
                     multi_line: n.multi_line,
@@ -479,7 +481,7 @@ impl<'a> Node<'_> {
             }
             Node::ImportClause(n) => {
                 let node = ImportClause {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     phase_modifier: n.phase_modifier.publish(p),
                     name: n.name.publish(p),
                     named_bindings: n.named_bindings.publish(p),
@@ -488,7 +490,7 @@ impl<'a> Node<'_> {
             }
             Node::ImportDeclaration(n) => {
                 let node = ImportDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     import_clause: n.import_clause.publish(p),
                     module_specifier: n.module_specifier.publish(p),
@@ -498,7 +500,7 @@ impl<'a> Node<'_> {
             }
             Node::ImportEqualsDeclaration(n) => {
                 let node = ImportEqualsDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     is_type_only: n.is_type_only,
                     name: n.name.publish(p),
@@ -508,7 +510,7 @@ impl<'a> Node<'_> {
             }
             Node::ImportSpecifier(n) => {
                 let node = ImportSpecifier {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     is_type_only: n.is_type_only,
                     property_name: n.property_name.publish(p),
                     name: n.name.publish(p),
@@ -517,7 +519,7 @@ impl<'a> Node<'_> {
             }
             Node::ImportTypeNode(n) => {
                 let node = ImportTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     is_type_of: n.is_type_of,
                     argument: n.argument.publish(p),
                     attributes: n.attributes.publish(p),
@@ -528,7 +530,7 @@ impl<'a> Node<'_> {
             }
             Node::IndexSignatureDeclaration(n) => {
                 let node = IndexSignatureDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     parameters: n.parameters.publish(p),
                     r#type: n.r#type.publish(p),
@@ -539,7 +541,7 @@ impl<'a> Node<'_> {
             }
             Node::IndexedAccessTypeNode(n) => {
                 let node = IndexedAccessTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     object_type: n.object_type.publish(p),
                     index_type: n.index_type.publish(p),
                 };
@@ -547,14 +549,14 @@ impl<'a> Node<'_> {
             }
             Node::InferTypeNode(n) => {
                 let node = InferTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     type_parameter: n.type_parameter.publish(p),
                 };
                 Node::InferTypeNode(p.arena.alloc(node))
             }
             Node::InterfaceDeclaration(n) => {
                 let node = InterfaceDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     type_parameters: n.type_parameters.publish(p),
@@ -565,14 +567,14 @@ impl<'a> Node<'_> {
             }
             Node::IntersectionTypeNode(n) => {
                 let node = IntersectionTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     types: n.types.publish(p),
                 };
                 Node::IntersectionTypeNode(p.arena.alloc(node))
             }
             Node::JSDoc(n) => {
                 let node = JSDoc {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     comment: n.comment.publish(p),
                     tags: n.tags.publish(p),
                 };
@@ -580,14 +582,14 @@ impl<'a> Node<'_> {
             }
             Node::JSDocAllType(n) => {
                 let node = JSDocAllType {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::JSDocAllType(p.arena.alloc(node))
             }
             Node::JSDocAugmentsTag(n) => {
                 let node = JSDocAugmentsTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     class_name: n.class_name.publish(p),
                     comment: n.comment.publish(p),
@@ -596,7 +598,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocCallbackTag(n) => {
                 let node = JSDocCallbackTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     name: n.name.publish(p),
@@ -606,7 +608,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocDeprecatedTag(n) => {
                 let node = JSDocDeprecatedTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     comment: n.comment.publish(p),
                 };
@@ -614,7 +616,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocImplementsTag(n) => {
                 let node = JSDocImplementsTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     class_name: n.class_name.publish(p),
                     comment: n.comment.publish(p),
@@ -623,7 +625,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocImportTag(n) => {
                 let node = JSDocImportTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     import_clause: n.import_clause.publish(p),
                     module_specifier: n.module_specifier.publish(p),
@@ -634,7 +636,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocLink(n) => {
                 let node = JSDocLink {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                     text: n.text.publish(p),
                 };
@@ -642,7 +644,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocLinkCode(n) => {
                 let node = JSDocLinkCode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                     text: n.text.publish(p),
                 };
@@ -650,7 +652,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocLinkPlain(n) => {
                 let node = JSDocLinkPlain {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                     text: n.text.publish(p),
                 };
@@ -658,35 +660,35 @@ impl<'a> Node<'_> {
             }
             Node::JSDocNameReference(n) => {
                 let node = JSDocNameReference {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                 };
                 Node::JSDocNameReference(p.arena.alloc(node))
             }
             Node::JSDocNonNullableType(n) => {
                 let node = JSDocNonNullableType {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::JSDocNonNullableType(p.arena.alloc(node))
             }
             Node::JSDocNullableType(n) => {
                 let node = JSDocNullableType {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::JSDocNullableType(p.arena.alloc(node))
             }
             Node::JSDocOptionalType(n) => {
                 let node = JSDocOptionalType {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::JSDocOptionalType(p.arena.alloc(node))
             }
             Node::JSDocOverloadTag(n) => {
                 let node = JSDocOverloadTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     comment: n.comment.publish(p),
@@ -695,7 +697,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocOverrideTag(n) => {
                 let node = JSDocOverrideTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     comment: n.comment.publish(p),
                 };
@@ -703,7 +705,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocParameterOrPropertyTag(n) => {
                 let node = JSDocParameterOrPropertyTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     kind: n.kind.publish(p),
                     tag_name: n.tag_name.publish(p),
                     name: n.name.publish(p),
@@ -716,7 +718,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocPrivateTag(n) => {
                 let node = JSDocPrivateTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     comment: n.comment.publish(p),
                 };
@@ -724,7 +726,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocProtectedTag(n) => {
                 let node = JSDocProtectedTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     comment: n.comment.publish(p),
                 };
@@ -732,7 +734,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocPublicTag(n) => {
                 let node = JSDocPublicTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     comment: n.comment.publish(p),
                 };
@@ -740,7 +742,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocReadonlyTag(n) => {
                 let node = JSDocReadonlyTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     comment: n.comment.publish(p),
                 };
@@ -748,7 +750,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocReturnTag(n) => {
                 let node = JSDocReturnTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     comment: n.comment.publish(p),
@@ -757,7 +759,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocSatisfiesTag(n) => {
                 let node = JSDocSatisfiesTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     comment: n.comment.publish(p),
@@ -766,7 +768,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocSeeTag(n) => {
                 let node = JSDocSeeTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     name_expression: n.name_expression.publish(p),
                     comment: n.comment.publish(p),
@@ -775,7 +777,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocSignature(n) => {
                 let node = JSDocSignature {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     type_parameters: n.type_parameters.publish(p),
                     parameters: n.parameters.publish(p),
                     r#type: n.r#type.publish(p),
@@ -785,7 +787,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocTemplateTag(n) => {
                 let node = JSDocTemplateTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     constraint: n.constraint.publish(p),
                     type_parameters: n.type_parameters.publish(p),
@@ -794,13 +796,15 @@ impl<'a> Node<'_> {
                 Node::JSDocTemplateTag(p.arena.alloc(node))
             }
             Node::JSDocText(n) => {
-                let node =
-                    JSDocText { node_id: n.node_id.map(|id| p.id(id)), text: n.text.publish(p) };
+                let node = JSDocText {
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
+                    text: n.text.publish(p),
+                };
                 Node::JSDocText(p.arena.alloc(node))
             }
             Node::JSDocThisTag(n) => {
                 let node = JSDocThisTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     comment: n.comment.publish(p),
@@ -809,7 +813,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocThrowsTag(n) => {
                 let node = JSDocThrowsTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     comment: n.comment.publish(p),
@@ -818,14 +822,14 @@ impl<'a> Node<'_> {
             }
             Node::JSDocTypeExpression(n) => {
                 let node = JSDocTypeExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::JSDocTypeExpression(p.arena.alloc(node))
             }
             Node::JSDocTypeLiteral(n) => {
                 let node = JSDocTypeLiteral {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     js_doc_property_tags: n.js_doc_property_tags.publish(p),
                     is_array_type: n.is_array_type,
                 };
@@ -833,7 +837,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocTypeTag(n) => {
                 let node = JSDocTypeTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     comment: n.comment.publish(p),
@@ -842,7 +846,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocTypedefTag(n) => {
                 let node = JSDocTypedefTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_expression: n.type_expression.publish(p),
                     name: n.name.publish(p),
@@ -852,7 +856,7 @@ impl<'a> Node<'_> {
             }
             Node::JSDocUnknownTag(n) => {
                 let node = JSDocUnknownTag {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     comment: n.comment.publish(p),
                 };
@@ -860,14 +864,14 @@ impl<'a> Node<'_> {
             }
             Node::JSDocVariadicType(n) => {
                 let node = JSDocVariadicType {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::JSDocVariadicType(p.arena.alloc(node))
             }
             Node::JsxAttribute(n) => {
                 let node = JsxAttribute {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                     initializer: n.initializer.publish(p),
                 };
@@ -875,28 +879,28 @@ impl<'a> Node<'_> {
             }
             Node::JsxAttributes(n) => {
                 let node = JsxAttributes {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     properties: n.properties.publish(p),
                 };
                 Node::JsxAttributes(p.arena.alloc(node))
             }
             Node::JsxClosingElement(n) => {
                 let node = JsxClosingElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                 };
                 Node::JsxClosingElement(p.arena.alloc(node))
             }
             Node::JsxClosingFragment(n) => {
                 let node = JsxClosingFragment {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::JsxClosingFragment(p.arena.alloc(node))
             }
             Node::JsxElement(n) => {
                 let node = JsxElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     opening_element: n.opening_element.publish(p),
                     children: n.children.publish(p),
                     closing_element: n.closing_element.publish(p),
@@ -905,7 +909,7 @@ impl<'a> Node<'_> {
             }
             Node::JsxExpression(n) => {
                 let node = JsxExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     dot_dot_dot_token: n.dot_dot_dot_token.publish(p),
                     expression: n.expression.publish(p),
                 };
@@ -913,7 +917,7 @@ impl<'a> Node<'_> {
             }
             Node::JsxFragment(n) => {
                 let node = JsxFragment {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     opening_fragment: n.opening_fragment.publish(p),
                     children: n.children.publish(p),
                     closing_fragment: n.closing_fragment.publish(p),
@@ -922,7 +926,7 @@ impl<'a> Node<'_> {
             }
             Node::JsxNamespacedName(n) => {
                 let node = JsxNamespacedName {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     namespace: n.namespace.publish(p),
                     name: n.name.publish(p),
                 };
@@ -930,7 +934,7 @@ impl<'a> Node<'_> {
             }
             Node::JsxOpeningElement(n) => {
                 let node = JsxOpeningElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_arguments: n.type_arguments.publish(p),
                     attributes: n.attributes.publish(p),
@@ -939,14 +943,14 @@ impl<'a> Node<'_> {
             }
             Node::JsxOpeningFragment(n) => {
                 let node = JsxOpeningFragment {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::JsxOpeningFragment(p.arena.alloc(node))
             }
             Node::JsxSelfClosingElement(n) => {
                 let node = JsxSelfClosingElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag_name: n.tag_name.publish(p),
                     type_arguments: n.type_arguments.publish(p),
                     attributes: n.attributes.publish(p),
@@ -955,14 +959,14 @@ impl<'a> Node<'_> {
             }
             Node::JsxSpreadAttribute(n) => {
                 let node = JsxSpreadAttribute {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::JsxSpreadAttribute(p.arena.alloc(node))
             }
             Node::JsxText(n) => {
                 let node = JsxText {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     contains_only_trivia_white_spaces: n.contains_only_trivia_white_spaces,
                     token_flags: n.token_flags,
@@ -971,7 +975,7 @@ impl<'a> Node<'_> {
             }
             Node::KeywordExpression(n) => {
                 let node = KeywordExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                     kind: n.kind,
                 };
@@ -979,7 +983,7 @@ impl<'a> Node<'_> {
             }
             Node::KeywordTypeNode(n) => {
                 let node = KeywordTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                     kind: n.kind,
                 };
@@ -987,7 +991,7 @@ impl<'a> Node<'_> {
             }
             Node::LabeledStatement(n) => {
                 let node = LabeledStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     label: n.label.publish(p),
                     statement: n.statement.publish(p),
                 };
@@ -995,14 +999,14 @@ impl<'a> Node<'_> {
             }
             Node::LiteralTypeNode(n) => {
                 let node = LiteralTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     literal: n.literal.publish(p),
                 };
                 Node::LiteralTypeNode(p.arena.alloc(node))
             }
             Node::MappedTypeNode(n) => {
                 let node = MappedTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     readonly_token: n.readonly_token.publish(p),
                     type_parameter: n.type_parameter.publish(p),
                     name_type: n.name_type.publish(p),
@@ -1014,7 +1018,7 @@ impl<'a> Node<'_> {
             }
             Node::MetaProperty(n) => {
                 let node = MetaProperty {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     keyword_token: n.keyword_token.publish(p),
                     name: n.name.publish(p),
                 };
@@ -1022,7 +1026,7 @@ impl<'a> Node<'_> {
             }
             Node::MethodDeclaration(n) => {
                 let node = MethodDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     asterisk_token: n.asterisk_token.publish(p),
                     name: n.name.publish(p),
@@ -1037,7 +1041,7 @@ impl<'a> Node<'_> {
             }
             Node::MethodSignatureDeclaration(n) => {
                 let node = MethodSignatureDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     postfix_token: n.postfix_token.publish(p),
@@ -1050,21 +1054,21 @@ impl<'a> Node<'_> {
             }
             Node::MissingDeclaration(n) => {
                 let node = MissingDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                 };
                 Node::MissingDeclaration(p.arena.alloc(node))
             }
             Node::ModuleBlock(n) => {
                 let node = ModuleBlock {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     statements: n.statements.publish(p),
                 };
                 Node::ModuleBlock(p.arena.alloc(node))
             }
             Node::ModuleDeclaration(n) => {
                 let node = ModuleDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     keyword: n.keyword.publish(p),
                     name: n.name.publish(p),
@@ -1075,21 +1079,21 @@ impl<'a> Node<'_> {
             }
             Node::NamedExports(n) => {
                 let node = NamedExports {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     elements: n.elements.publish(p),
                 };
                 Node::NamedExports(p.arena.alloc(node))
             }
             Node::NamedImports(n) => {
                 let node = NamedImports {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     elements: n.elements.publish(p),
                 };
                 Node::NamedImports(p.arena.alloc(node))
             }
             Node::NamedTupleMember(n) => {
                 let node = NamedTupleMember {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     dot_dot_dot_token: n.dot_dot_dot_token.publish(p),
                     name: n.name.publish(p),
                     question_token: n.question_token.publish(p),
@@ -1099,14 +1103,14 @@ impl<'a> Node<'_> {
             }
             Node::NamespaceExport(n) => {
                 let node = NamespaceExport {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                 };
                 Node::NamespaceExport(p.arena.alloc(node))
             }
             Node::NamespaceExportDeclaration(n) => {
                 let node = NamespaceExportDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                 };
@@ -1114,14 +1118,14 @@ impl<'a> Node<'_> {
             }
             Node::NamespaceImport(n) => {
                 let node = NamespaceImport {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                 };
                 Node::NamespaceImport(p.arena.alloc(node))
             }
             Node::NewExpression(n) => {
                 let node = NewExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     type_arguments: n.type_arguments.publish(p),
                     arguments: n.arguments.publish(p),
@@ -1130,7 +1134,7 @@ impl<'a> Node<'_> {
             }
             Node::NoSubstitutionTemplateLiteral(n) => {
                 let node = NoSubstitutionTemplateLiteral {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     template_flags: n.template_flags,
                     token_flags: n.token_flags,
@@ -1140,28 +1144,28 @@ impl<'a> Node<'_> {
             }
             Node::NonNullExpression(n) => {
                 let node = NonNullExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::NonNullExpression(p.arena.alloc(node))
             }
             Node::NotEmittedStatement(n) => {
                 let node = NotEmittedStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::NotEmittedStatement(p.arena.alloc(node))
             }
             Node::NotEmittedTypeElement(n) => {
                 let node = NotEmittedTypeElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::NotEmittedTypeElement(p.arena.alloc(node))
             }
             Node::NumericLiteral(n) => {
                 let node = NumericLiteral {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     token_flags: n.token_flags,
                 };
@@ -1169,7 +1173,7 @@ impl<'a> Node<'_> {
             }
             Node::ObjectLiteralExpression(n) => {
                 let node = ObjectLiteralExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     properties: n.properties.publish(p),
                     multi_line: n.multi_line,
                 };
@@ -1177,21 +1181,21 @@ impl<'a> Node<'_> {
             }
             Node::OmittedExpression(n) => {
                 let node = OmittedExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::OmittedExpression(p.arena.alloc(node))
             }
             Node::OptionalTypeNode(n) => {
                 let node = OptionalTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::OptionalTypeNode(p.arena.alloc(node))
             }
             Node::ParameterDeclaration(n) => {
                 let node = ParameterDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     dot_dot_dot_token: n.dot_dot_dot_token.publish(p),
                     name: n.name.publish(p),
@@ -1203,28 +1207,28 @@ impl<'a> Node<'_> {
             }
             Node::ParenthesizedExpression(n) => {
                 let node = ParenthesizedExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::ParenthesizedExpression(p.arena.alloc(node))
             }
             Node::ParenthesizedTypeNode(n) => {
                 let node = ParenthesizedTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::ParenthesizedTypeNode(p.arena.alloc(node))
             }
             Node::PartiallyEmittedExpression(n) => {
                 let node = PartiallyEmittedExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::PartiallyEmittedExpression(p.arena.alloc(node))
             }
             Node::PostfixUnaryExpression(n) => {
                 let node = PostfixUnaryExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     operand: n.operand.publish(p),
                     operator: n.operator.publish(p),
                 };
@@ -1232,7 +1236,7 @@ impl<'a> Node<'_> {
             }
             Node::PrefixUnaryExpression(n) => {
                 let node = PrefixUnaryExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     operator: n.operator.publish(p),
                     operand: n.operand.publish(p),
                 };
@@ -1240,14 +1244,14 @@ impl<'a> Node<'_> {
             }
             Node::PrivateIdentifier(n) => {
                 let node = PrivateIdentifier {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                 };
                 Node::PrivateIdentifier(p.arena.alloc(node))
             }
             Node::PropertyAccessExpression(n) => {
                 let node = PropertyAccessExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     question_dot_token: n.question_dot_token.publish(p),
                     name: n.name.publish(p),
@@ -1256,7 +1260,7 @@ impl<'a> Node<'_> {
             }
             Node::PropertyAssignment(n) => {
                 let node = PropertyAssignment {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     postfix_token: n.postfix_token.publish(p),
@@ -1267,7 +1271,7 @@ impl<'a> Node<'_> {
             }
             Node::PropertyDeclaration(n) => {
                 let node = PropertyDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     postfix_token: n.postfix_token.publish(p),
@@ -1278,7 +1282,7 @@ impl<'a> Node<'_> {
             }
             Node::PropertySignatureDeclaration(n) => {
                 let node = PropertySignatureDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     postfix_token: n.postfix_token.publish(p),
@@ -1289,7 +1293,7 @@ impl<'a> Node<'_> {
             }
             Node::QualifiedName(n) => {
                 let node = QualifiedName {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     left: n.left.publish(p),
                     right: n.right.publish(p),
                 };
@@ -1297,7 +1301,7 @@ impl<'a> Node<'_> {
             }
             Node::RegularExpressionLiteral(n) => {
                 let node = RegularExpressionLiteral {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     token_flags: n.token_flags,
                 };
@@ -1305,21 +1309,21 @@ impl<'a> Node<'_> {
             }
             Node::RestTypeNode(n) => {
                 let node = RestTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                 };
                 Node::RestTypeNode(p.arena.alloc(node))
             }
             Node::ReturnStatement(n) => {
                 let node = ReturnStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::ReturnStatement(p.arena.alloc(node))
             }
             Node::SatisfiesExpression(n) => {
                 let node = SatisfiesExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     r#type: n.r#type.publish(p),
                 };
@@ -1327,14 +1331,14 @@ impl<'a> Node<'_> {
             }
             Node::SemicolonClassElement(n) => {
                 let node = SemicolonClassElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::SemicolonClassElement(p.arena.alloc(node))
             }
             Node::SetAccessorDeclaration(n) => {
                 let node = SetAccessorDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     type_parameters: n.type_parameters.publish(p),
@@ -1349,7 +1353,7 @@ impl<'a> Node<'_> {
             }
             Node::ShorthandPropertyAssignment(n) => {
                 let node = ShorthandPropertyAssignment {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     postfix_token: n.postfix_token.publish(p),
@@ -1361,7 +1365,7 @@ impl<'a> Node<'_> {
             }
             Node::SourceFile(n) => {
                 let node = SourceFile {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     statements: n.statements.publish(p),
                     end_of_file_token: n.end_of_file_token.publish(p),
                 };
@@ -1369,21 +1373,21 @@ impl<'a> Node<'_> {
             }
             Node::SpreadAssignment(n) => {
                 let node = SpreadAssignment {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::SpreadAssignment(p.arena.alloc(node))
             }
             Node::SpreadElement(n) => {
                 let node = SpreadElement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::SpreadElement(p.arena.alloc(node))
             }
             Node::StringLiteral(n) => {
                 let node = StringLiteral {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     token_flags: n.token_flags,
                 };
@@ -1391,7 +1395,7 @@ impl<'a> Node<'_> {
             }
             Node::SwitchStatement(n) => {
                 let node = SwitchStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     case_block: n.case_block.publish(p),
                 };
@@ -1399,14 +1403,14 @@ impl<'a> Node<'_> {
             }
             Node::SyntaxList(n) => {
                 let node = SyntaxList {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     children: n.children.publish(p),
                 };
                 Node::SyntaxList(p.arena.alloc(node))
             }
             Node::SyntheticExpression(n) => {
                 let node = SyntheticExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                     is_spread: n.is_spread,
                     tuple_name_source: n.tuple_name_source.publish(p),
@@ -1415,7 +1419,7 @@ impl<'a> Node<'_> {
             }
             Node::SyntheticReferenceExpression(n) => {
                 let node = SyntheticReferenceExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     this_arg: n.this_arg.publish(p),
                 };
@@ -1423,7 +1427,7 @@ impl<'a> Node<'_> {
             }
             Node::TaggedTemplateExpression(n) => {
                 let node = TaggedTemplateExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     tag: n.tag.publish(p),
                     question_dot_token: n.question_dot_token.publish(p),
                     type_arguments: n.type_arguments.publish(p),
@@ -1433,7 +1437,7 @@ impl<'a> Node<'_> {
             }
             Node::TemplateExpression(n) => {
                 let node = TemplateExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     head: n.head.publish(p),
                     template_spans: n.template_spans.publish(p),
                 };
@@ -1441,7 +1445,7 @@ impl<'a> Node<'_> {
             }
             Node::TemplateHead(n) => {
                 let node = TemplateHead {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     raw_text: n.raw_text.publish(p),
                     template_flags: n.template_flags,
@@ -1451,7 +1455,7 @@ impl<'a> Node<'_> {
             }
             Node::TemplateLiteralTypeNode(n) => {
                 let node = TemplateLiteralTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     head: n.head.publish(p),
                     template_spans: n.template_spans.publish(p),
                 };
@@ -1459,7 +1463,7 @@ impl<'a> Node<'_> {
             }
             Node::TemplateLiteralTypeSpan(n) => {
                 let node = TemplateLiteralTypeSpan {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                     literal: n.literal.publish(p),
                 };
@@ -1467,7 +1471,7 @@ impl<'a> Node<'_> {
             }
             Node::TemplateMiddle(n) => {
                 let node = TemplateMiddle {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     raw_text: n.raw_text.publish(p),
                     template_flags: n.template_flags,
@@ -1477,7 +1481,7 @@ impl<'a> Node<'_> {
             }
             Node::TemplateSpan(n) => {
                 let node = TemplateSpan {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     literal: n.literal.publish(p),
                 };
@@ -1485,7 +1489,7 @@ impl<'a> Node<'_> {
             }
             Node::TemplateTail(n) => {
                 let node = TemplateTail {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     text: n.text.publish(p),
                     raw_text: n.raw_text.publish(p),
                     template_flags: n.template_flags,
@@ -1495,26 +1499,28 @@ impl<'a> Node<'_> {
             }
             Node::ThisTypeNode(n) => {
                 let node = ThisTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     _marker: std::marker::PhantomData,
                 };
                 Node::ThisTypeNode(p.arena.alloc(node))
             }
             Node::ThrowStatement(n) => {
                 let node = ThrowStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::ThrowStatement(p.arena.alloc(node))
             }
             Node::Token(n) => {
-                let mut node = Token::new(n.kind);
-                node.node_id = n.node_id.map(|id| p.id(id));
+                let node = Token::new(n.kind);
+                if let Some(id) = n.node_id() {
+                    node.node_id.set(p.id(id));
+                }
                 Node::Token(p.arena.alloc(node))
             }
             Node::TryStatement(n) => {
                 let node = TryStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     try_block: n.try_block.publish(p),
                     catch_clause: n.catch_clause.publish(p),
                     finally_block: n.finally_block.publish(p),
@@ -1523,14 +1529,14 @@ impl<'a> Node<'_> {
             }
             Node::TupleTypeNode(n) => {
                 let node = TupleTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     elements: n.elements.publish(p),
                 };
                 Node::TupleTypeNode(p.arena.alloc(node))
             }
             Node::TypeAliasDeclaration(n) => {
                 let node = TypeAliasDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     type_parameters: n.type_parameters.publish(p),
@@ -1540,7 +1546,7 @@ impl<'a> Node<'_> {
             }
             Node::TypeAssertion(n) => {
                 let node = TypeAssertion {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     r#type: n.r#type.publish(p),
                     expression: n.expression.publish(p),
                 };
@@ -1548,21 +1554,21 @@ impl<'a> Node<'_> {
             }
             Node::TypeLiteralNode(n) => {
                 let node = TypeLiteralNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     members: n.members.publish(p),
                 };
                 Node::TypeLiteralNode(p.arena.alloc(node))
             }
             Node::TypeOfExpression(n) => {
                 let node = TypeOfExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::TypeOfExpression(p.arena.alloc(node))
             }
             Node::TypeOperatorNode(n) => {
                 let node = TypeOperatorNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     operator: n.operator.publish(p),
                     r#type: n.r#type.publish(p),
                 };
@@ -1570,7 +1576,7 @@ impl<'a> Node<'_> {
             }
             Node::TypeParameterDeclaration(n) => {
                 let node = TypeParameterDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     name: n.name.publish(p),
                     constraint: n.constraint.publish(p),
@@ -1581,7 +1587,7 @@ impl<'a> Node<'_> {
             }
             Node::TypePredicateNode(n) => {
                 let node = TypePredicateNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     asserts_modifier: n.asserts_modifier.publish(p),
                     parameter_name: n.parameter_name.publish(p),
                     r#type: n.r#type.publish(p),
@@ -1590,7 +1596,7 @@ impl<'a> Node<'_> {
             }
             Node::TypeQueryNode(n) => {
                 let node = TypeQueryNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expr_name: n.expr_name.publish(p),
                     type_arguments: n.type_arguments.publish(p),
                 };
@@ -1598,7 +1604,7 @@ impl<'a> Node<'_> {
             }
             Node::TypeReferenceNode(n) => {
                 let node = TypeReferenceNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     type_name: n.type_name.publish(p),
                     type_arguments: n.type_arguments.publish(p),
                 };
@@ -1606,14 +1612,14 @@ impl<'a> Node<'_> {
             }
             Node::UnionTypeNode(n) => {
                 let node = UnionTypeNode {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     types: n.types.publish(p),
                 };
                 Node::UnionTypeNode(p.arena.alloc(node))
             }
             Node::VariableDeclaration(n) => {
                 let node = VariableDeclaration {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     name: n.name.publish(p),
                     exclamation_token: n.exclamation_token.publish(p),
                     r#type: n.r#type.publish(p),
@@ -1623,14 +1629,14 @@ impl<'a> Node<'_> {
             }
             Node::VariableDeclarationList(n) => {
                 let node = VariableDeclarationList {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     declarations: n.declarations.publish(p),
                 };
                 Node::VariableDeclarationList(p.arena.alloc(node))
             }
             Node::VariableStatement(n) => {
                 let node = VariableStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     modifiers: n.modifiers.publish(p),
                     declaration_list: n.declaration_list.publish(p),
                 };
@@ -1638,14 +1644,14 @@ impl<'a> Node<'_> {
             }
             Node::VoidExpression(n) => {
                 let node = VoidExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                 };
                 Node::VoidExpression(p.arena.alloc(node))
             }
             Node::WhileStatement(n) => {
                 let node = WhileStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     statement: n.statement.publish(p),
                 };
@@ -1653,7 +1659,7 @@ impl<'a> Node<'_> {
             }
             Node::WithStatement(n) => {
                 let node = WithStatement {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     expression: n.expression.publish(p),
                     statement: n.statement.publish(p),
                 };
@@ -1661,7 +1667,7 @@ impl<'a> Node<'_> {
             }
             Node::YieldExpression(n) => {
                 let node = YieldExpression {
-                    node_id: n.node_id.map(|id| p.id(id)),
+                    node_id: NodeIdCell::of(n.node_id().map(|id| p.id(id))),
                     asterisk_token: n.asterisk_token.publish(p),
                     expression: n.expression.publish(p),
                 };

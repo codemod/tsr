@@ -52,6 +52,73 @@ define_index! {
     pub struct NodeId;
 }
 
+/// A node's id: written once at registration, and once more if publication
+/// rebases a private parse into the program's id space (ADR-0056).
+///
+/// An `AtomicU32` with relaxed ordering rather than an `Option<NodeId>`, so
+/// that the rebase can run through `&` on a tree other threads may already
+/// share: a plain field would need `&mut` to every node, which a published
+/// tree no longer offers, and a `Cell` would make the tree `!Sync`
+/// ([ADR-0012](../../../docs/adr/0012-ast-is-sync.md)). A relaxed load is an
+/// ordinary load on `x86_64` and `aarch64`. Ordering comes from how the tree is
+/// handed over (a channel or a join), never from this cell.
+///
+/// The cell holds `Option<NodeId>`'s own bits: a `NodeId` is a `NonMaxU32`,
+/// stored as its value XOR `u32::MAX`, so 0 is `None`. The XORs in
+/// [`Self::get`] and [`Self::set`] then cancel at compile time, and a read is
+/// one load and the niche test, as reading the plain field was. A first
+/// version kept the raw value with `u32::MAX` as unset and cost 1.4% of
+/// generic-imports' instructions (`r7-perf.md` §43).
+pub struct NodeIdCell(std::sync::atomic::AtomicU32);
+
+impl NodeIdCell {
+    /// Not yet registered.
+    #[must_use]
+    pub const fn unset() -> Self {
+        Self(std::sync::atomic::AtomicU32::new(0))
+    }
+
+    /// A cell holding `id`, or an unset one for `None`.
+    #[must_use]
+    pub fn of(id: Option<NodeId>) -> Self {
+        Self(std::sync::atomic::AtomicU32::new(id.map_or(0, |id| id.as_u32() ^ u32::MAX)))
+    }
+
+    /// The id, or `None` before registration.
+    #[inline]
+    #[must_use]
+    pub fn get(&self) -> Option<NodeId> {
+        let bits = self.0.load(std::sync::atomic::Ordering::Relaxed);
+        if bits == 0 { None } else { Some(NodeId::new(bits ^ u32::MAX)) }
+    }
+
+    /// Record `id` through `&mut`: a plain store, which is how the parser
+    /// registers a node it has just allocated. Atomic stores there moved
+    /// `Parser::finish_node` out of line (`r7-perf.md` §43).
+    #[inline]
+    pub fn set_mut(&mut self, id: NodeId) {
+        *self.0.get_mut() = id.as_u32() ^ u32::MAX;
+    }
+
+    /// Record `id` through `&`, for a rebase of a tree already shared.
+    #[inline]
+    pub fn set(&self, id: NodeId) {
+        self.0.store(id.as_u32() ^ u32::MAX, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl Clone for NodeIdCell {
+    fn clone(&self) -> Self {
+        Self::of(self.get())
+    }
+}
+
+impl std::fmt::Debug for NodeIdCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.get().fmt(f)
+    }
+}
+
 /// Nodes that carry a [`NodeId`] slot.
 ///
 /// Implemented for every generated node, so the parser can register any of them
@@ -83,7 +150,7 @@ pub struct Token<'a> {
     pub kind: SyntaxKind,
     /// Key into the side tables holding this node's kind, span, and parent.
     /// Crate-private, as on every generated node (ADR-0056).
-    pub(crate) node_id: Option<NodeId>,
+    pub(crate) node_id: NodeIdCell,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -91,7 +158,7 @@ impl Token<'_> {
     /// Create a token of the given kind.
     #[must_use]
     pub const fn new(kind: SyntaxKind) -> Self {
-        Self { kind, node_id: None, _marker: std::marker::PhantomData }
+        Self { kind, node_id: NodeIdCell::unset(), _marker: std::marker::PhantomData }
     }
 
     /// The id the parser registered this token under; `None` until it does.
@@ -101,17 +168,18 @@ impl Token<'_> {
     #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<NodeId> {
-        self.node_id
+        self.node_id.get()
     }
 }
 
 impl HasNodeId for Token<'_> {
+    #[inline]
     fn set_node_id(&mut self, id: NodeId) {
-        self.node_id = Some(id);
+        self.node_id.set_mut(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id
+        self.node_id.get()
     }
 }
 

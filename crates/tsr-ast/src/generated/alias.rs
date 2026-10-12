@@ -860,6 +860,7 @@ pub enum AccessExpression<'a> {
 
 impl AccessExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -905,6 +906,7 @@ pub enum AccessorDeclaration<'a> {
 
 impl AccessorDeclaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -950,6 +952,7 @@ pub enum AnyImportSyntax<'a> {
 
 impl AnyImportSyntax<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -995,6 +998,7 @@ pub enum ArrayBindingElement<'a> {
 
 impl ArrayBindingElement<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1038,6 +1042,7 @@ pub enum ArrayDestructuringAssignment<'a> {
 
 impl ArrayDestructuringAssignment<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1080,6 +1085,7 @@ pub enum AssertionExpression<'a> {
 
 impl AssertionExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1125,6 +1131,7 @@ pub enum BindingName<'a> {
 
 impl BindingName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1268,6 +1275,7 @@ pub enum BlockOrExpression<'a> {
 
 impl BlockOrExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1472,6 +1480,7 @@ pub enum BooleanLiteral<'a> {
 
 impl BooleanLiteral<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1514,6 +1523,7 @@ pub enum BreakOrContinueStatement<'a> {
 
 impl BreakOrContinueStatement<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1569,6 +1579,7 @@ pub enum CallLikeExpression<'a> {
 
 impl CallLikeExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1631,6 +1642,7 @@ pub enum CallOrNewExpression<'a> {
 
 impl CallOrNewExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1688,6 +1700,7 @@ pub enum ClassElement<'a> {
 
 impl ClassElement<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1753,6 +1766,7 @@ pub enum ClassLikeDeclaration<'a> {
 
 impl ClassLikeDeclaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -1896,6 +1910,7 @@ pub enum ConciseBody<'a> {
 
 impl ConciseBody<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -2196,6 +2211,7 @@ pub enum Declaration<'a> {
 
 impl Declaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -2417,6 +2433,7 @@ pub enum DeclarationName<'a> {
 
 impl DeclarationName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -2485,6 +2502,7 @@ pub enum DestructuringAssignment<'a> {
 
 impl DestructuringAssignment<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -2527,6 +2545,7 @@ pub enum EntityName<'a> {
 
 impl EntityName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -2668,6 +2687,7 @@ pub enum Expression<'a> {
 
 impl Expression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -2961,6 +2981,7 @@ pub enum ForInitializer<'a> {
 
 impl ForInitializer<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3166,6 +3187,7 @@ pub enum FunctionBody<'a> {
 
 impl FunctionBody<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3218,6 +3240,7 @@ pub enum FunctionLikeDeclaration<'a> {
 
 impl FunctionLikeDeclaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3284,6 +3307,7 @@ pub enum ImportAttributeName<'a> {
 
 impl ImportAttributeName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3329,6 +3353,7 @@ pub enum ImportClauseOrBindingPattern<'a> {
 
 impl ImportClauseOrBindingPattern<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3424,6 +3449,7 @@ pub enum IncrementExpression<'a> {
 
 impl IncrementExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3562,6 +3588,7 @@ pub enum JSDocComment<'a> {
 
 impl JSDocComment<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3613,6 +3640,7 @@ pub enum JSDocFullName<'a> {
 
 impl JSDocFullName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3696,6 +3724,7 @@ pub enum JSDocTag<'a> {
 
 impl JSDocTag<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3798,6 +3827,7 @@ pub enum JsxAttributeLike<'a> {
 
 impl JsxAttributeLike<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3843,6 +3873,7 @@ pub enum JsxAttributeName<'a> {
 
 impl JsxAttributeName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3894,6 +3925,7 @@ pub enum JsxAttributeValue<'a> {
 
 impl JsxAttributeValue<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -3954,6 +3986,7 @@ pub enum JsxChild<'a> {
 
 impl JsxChild<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4008,6 +4041,7 @@ pub enum JsxOpeningLikeElement<'a> {
 
 impl JsxOpeningLikeElement<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4057,6 +4091,7 @@ pub enum JsxTagNameExpression<'a> {
 
 impl JsxTagNameExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4156,6 +4191,7 @@ pub enum LeftHandSideExpression<'a> {
 
 impl LeftHandSideExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4304,6 +4340,7 @@ pub enum LiteralExpression<'a> {
 
 impl LiteralExpression<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4370,6 +4407,7 @@ pub enum LiteralLikeNode<'a> {
 
 impl LiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4435,6 +4473,7 @@ pub enum LiteralToken<'a> {
 
 impl LiteralToken<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4496,6 +4535,7 @@ pub enum MemberName<'a> {
 
 impl MemberName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4539,6 +4579,7 @@ pub enum Modifier<'a> {
 
 impl Modifier<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4581,6 +4622,7 @@ pub enum ModifierLike<'a> {
 
 impl ModifierLike<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4626,6 +4668,7 @@ pub enum ModuleBody<'a> {
 
 impl ModuleBody<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4671,6 +4714,7 @@ pub enum ModuleExportName<'a> {
 
 impl ModuleExportName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4716,6 +4760,7 @@ pub enum ModuleName<'a> {
 
 impl ModuleName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4763,6 +4808,7 @@ pub enum ModuleReference<'a> {
 
 impl ModuleReference<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4811,6 +4857,7 @@ pub enum NamedExportBindings<'a> {
 
 impl NamedExportBindings<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4856,6 +4903,7 @@ pub enum NamedImportBindings<'a> {
 
 impl NamedImportBindings<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -4901,6 +4949,7 @@ pub enum NamedImportsOrExports<'a> {
 
 impl NamedImportsOrExports<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5048,6 +5097,7 @@ pub enum NodeBody<'a> {
 
 impl NodeBody<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5250,6 +5300,7 @@ pub enum NumericOrStringLikeLiteral<'a> {
 
 impl NumericOrStringLikeLiteral<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5300,6 +5351,7 @@ pub enum ObjectDestructuringAssignment<'a> {
 
 impl ObjectDestructuringAssignment<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5352,6 +5404,7 @@ pub enum ObjectLiteralElement<'a> {
 
 impl ObjectLiteralElement<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5424,6 +5477,7 @@ pub enum ObjectLiteralElementLike<'a> {
 
 impl ObjectLiteralElementLike<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5489,6 +5543,7 @@ pub enum ObjectLiteralLikeNode<'a> {
 
 impl ObjectLiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5540,6 +5595,7 @@ pub enum ObjectTypeDeclaration<'a> {
 
 impl ObjectTypeDeclaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5601,6 +5657,7 @@ pub enum PropertyName<'a> {
 
 impl PropertyName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5667,6 +5724,7 @@ pub enum PropertyNameLiteral<'a> {
 
 impl PropertyNameLiteral<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5713,6 +5771,7 @@ pub enum PseudoLiteralToken<'a> {
 
 impl PseudoLiteralToken<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5777,6 +5836,7 @@ pub enum SignatureDeclaration<'a> {
 
 impl SignatureDeclaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -5929,6 +5989,7 @@ pub enum Statement<'a> {
 
 impl Statement<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6064,6 +6125,7 @@ pub enum StringLiteralLikeNode<'a> {
 
 impl StringLiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6113,6 +6175,7 @@ pub enum TemplateLiteral<'a> {
 
 impl TemplateLiteral<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6160,6 +6223,7 @@ pub enum TemplateLiteralLikeNode<'a> {
 
 impl TemplateLiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6202,6 +6266,7 @@ pub enum TemplateLiteralToken<'a> {
 
 impl TemplateLiteralToken<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6251,6 +6316,7 @@ pub enum TemplateMiddleOrTail<'a> {
 
 impl TemplateMiddleOrTail<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6308,6 +6374,7 @@ pub enum TypeElement<'a> {
 
 impl TypeElement<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6439,6 +6506,7 @@ pub enum TypeNode<'a> {
 
 impl TypeNode<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6580,6 +6648,7 @@ pub enum TypePredicateParameterName<'a> {
 
 impl TypePredicateParameterName<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6625,6 +6694,7 @@ pub enum UnionOrIntersectionTypeNode<'a> {
 
 impl UnionOrIntersectionTypeNode<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6672,6 +6742,7 @@ pub enum VariableOrParameterDeclaration<'a> {
 
 impl VariableOrParameterDeclaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
@@ -6723,6 +6794,7 @@ pub enum VariableOrPropertyDeclaration<'a> {
 
 impl VariableOrPropertyDeclaration<'_> {
     /// The id assigned when the parser registered this node.
+    #[inline]
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
         match self {
