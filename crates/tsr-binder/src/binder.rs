@@ -4745,6 +4745,17 @@ impl<'a, 'n> Binder<'a, 'n> {
             // default` merged silently and the ported TS2528 below never fired.
             // §957.
             SymbolFlags::all()
+        } else if matches!(node, Node::MethodDeclaration(_))
+            && self.nodes.parent(id).is_some_and(|parent| {
+                self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+            })
+        {
+            // `IsObjectLiteralMethod(node) ? SymbolFlagsValue : MethodExcludes`
+            // (binder.go:661): an object-literal method collides with any
+            // value of its name, another method included, so `{ foo(x = 1),
+            // foo(x = 1) {} }` is TS2300 (`callSignaturesWithParameterInitializers2`,
+            // r7-shared.md §39).
+            SymbolFlags::VALUE
         } else {
             flags.excludes()
         };
@@ -4876,6 +4887,141 @@ impl<'a, 'n> Binder<'a, 'n> {
         tsr_core::Span::new(start, span.end)
     }
 
+    /// `declareSymbolEx`'s conflict report (binder.go:203-277): TS2300 /
+    /// TS2451 / TS2567 / TS2528 at the new declaration and every earlier one,
+    /// with the multiple-default-export related information (§35). Out of
+    /// line: it runs only on a conflict, and inlined it cost
+    /// `declare_into_with_excludes`, the binder's hottest function, +0.1% Ir
+    /// on generic-imports once it grew (`docs/parity/notes/r7-shared.md` §39).
+    #[cold]
+    #[inline(never)]
+    fn report_declaration_conflict(
+        &mut self,
+        existing: SymbolId,
+        existing_flags: SymbolFlags,
+        flags: SymbolFlags,
+        name: &'a str,
+        declaration: NodeId,
+    ) {
+        let enum_conflict =
+            existing_flags.intersects(SymbolFlags::ENUM) || flags.intersects(SymbolFlags::ENUM);
+        let mut message = if enum_conflict {
+            &messages::ENUM_DECLARATIONS_CAN_ONLY_MERGE_WITH_NAMESPACE_OR_OTHER_ENUM_DECLARATIONS
+        } else if existing_flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
+            &messages::CANNOT_REDECLARE_BLOCK_SCOPED_VARIABLE_0
+        } else {
+            &messages::DUPLICATE_IDENTIFIER_0
+        };
+        // Upstream tracks "does the message take the name as an argument"
+        // separately from which message it is (`messageNeedsName`,
+        // `binder.go:222`); it was previously derived from `enum_conflict`,
+        // which worked only while the enum message was the sole nameless one.
+        let mut message_needs_name = !enum_conflict;
+
+        // A second `export default` in one module is
+        // `A_module_cannot_have_multiple_default_exports` (TS2528), not a
+        // duplicate identifier — upstream's `binder.go:224-244`, checked
+        // after the enum case and overriding it.
+        //
+        // Upstream reaches this through two conditions: `isDefaultExport`,
+        // and separately an `ExportAssignment` that is not `export =` (so
+        // that `export default { }` after `export default class` is caught,
+        // since that form carries no `default` *modifier* to test). Both are
+        // properties of the *declaration*, recorded by `declare` in
+        // `default_export_declaration`. This used to test
+        // `name == INTERNAL_DEFAULT` on the claim that nothing else is
+        // filed under that name; parser recovery spells it —
+        // `import { default } from "m"` binds a local named `default`,
+        // and upstream reports TS2300 there, not TS2528
+        // (`es6ImportNamedImportIdentifiersParsing`,
+        // `docs/parity/notes/decls.md` §14).
+        //
+        let mut multiple_default_exports = false;
+        if self.default_export_declaration == Some(declaration)
+            && !self.symbols.get(existing).declarations.is_empty()
+        {
+            message = &messages::A_MODULE_CANNOT_HAVE_MULTIPLE_DEFAULT_EXPORTS;
+            message_needs_name = false;
+            multiple_default_exports = true;
+        }
+
+        let diagnostic_at = |binder: &mut Self, at: NodeId| {
+            let span = binder.declaration_name_span(at);
+            if message_needs_name {
+                let display = binder.display_name(at, name);
+                Diagnostic::with_args(message, span, [display])
+            } else {
+                Diagnostic::new(message, span)
+            }
+        };
+        // `binder.go:249-277`, in its order: the new declaration's
+        // diagnostic is built first and added last; each earlier
+        // declaration's is added in turn. For multiple default exports
+        // each earlier one relates "Another export default is here"
+        // (then "and here") at the new declaration, and the new one
+        // relates "The first export default is here" at each earlier one
+        // (r7-shared.md §35).
+        // Not ported: `binder.go:255`'s `Did you mean 'export type { T }'`
+        // related information on a type-less `export type T;`, which
+        // needs the declaration's node, not only its id.
+        let mut head = diagnostic_at(self, declaration);
+        let head_span = self.declaration_name_span(declaration);
+        let previous: Vec<NodeId> = self.symbols.get(existing).declarations.to_vec();
+        for (index, earlier) in previous.into_iter().enumerate() {
+            let mut diagnostic = diagnostic_at(self, earlier);
+            if multiple_default_exports {
+                let message = if index == 0 {
+                    &messages::ANOTHER_EXPORT_DEFAULT_IS_HERE
+                } else {
+                    &messages::AND_HERE
+                };
+                diagnostic.add_related_information(Some(self.related_diagnostic(
+                    message,
+                    head_span,
+                    Vec::new(),
+                )));
+                let earlier_span = diagnostic.span;
+                head.add_related_information(Some(self.related_diagnostic(
+                    &messages::THE_FIRST_EXPORT_DEFAULT_IS_HERE,
+                    earlier_span,
+                    Vec::new(),
+                )));
+            }
+            self.diagnostics.push(diagnostic);
+        }
+        self.diagnostics.push(head);
+    }
+
+    /// `getDisplayName` (binder.go:357): the declaration's name as written
+    /// (`DeclarationNameToString`: `["a"]`, `"1"`, `0b11`), `(Missing)` for a
+    /// missing one, else the declared name (r7-shared.md §40).
+    fn display_name(&mut self, declaration: NodeId, name: &str) -> String {
+        for &(id, name_node) in &self.name_nodes[self.name_indexed..] {
+            self.name_index.insert(id, name_node);
+        }
+        self.name_indexed = self.name_nodes.len();
+        // `node.Name()` is nil for an `export =` / `export default`
+        // assignment (its indexed node is the expression, kept for the error
+        // span), so it prints its declared name, `export=` / `default`
+        // (`multipleExportAssignments`).
+        if self.nodes.kind(declaration) != SyntaxKind::ExportAssignment
+            && let Some(&name_node) = self.name_index.get(&declaration)
+        {
+            let span = self.nodes.span(name_node);
+            let text = self
+                .source
+                .get(span.start as usize..span.end as usize)
+                .map(str::trim)
+                .unwrap_or_default();
+            return if text.is_empty() { "(Missing)".to_string() } else { text.to_string() };
+        }
+        if name.is_empty() || name == INTERNAL_MISSING {
+            "(Missing)".to_string()
+        } else {
+            name.to_string()
+        }
+    }
+
     /// `createDiagnosticForNode` for a related location in this file: the
     /// diagnostic names the file through its image, built once per file.
     fn related_diagnostic(
@@ -4978,7 +5124,19 @@ impl<'a, 'n> Binder<'a, 'n> {
                     .and_then(|owner| self.symbols.get(owner).members.get(name).copied()),
                 Destination::Exports => symbol_owner
                     .and_then(|owner| self.symbols.get(owner).exports.get(name).copied()),
-                Destination::GlobalExports => self.global_exports.get(name).copied(),
+                // `file.Symbol.GlobalExports` is per file: a second file's
+                // `export as namespace Alpha` does not collide with the first
+                // (first-in-wins happens at the globals merge,
+                // `umdGlobalConflict`, r7-shared.md §39). This table is shared
+                // across the files of a program, so only a symbol declared in
+                // the file being bound is an existing declaration here.
+                Destination::GlobalExports => {
+                    self.global_exports.get(name).copied().filter(|&symbol| {
+                        self.symbols.get(symbol).declarations.first().is_some_and(|&declaration| {
+                            self.nodes.ancestors(declaration).any(|node| node == self.file_node)
+                        })
+                    })
+                }
             };
 
         let symbol = if let Some(existing) = existing {
@@ -5035,92 +5193,13 @@ impl<'a, 'n> Binder<'a, 'n> {
                 // And upstream reports on *every* declaration involved
                 // (`binder.go:259`), which the previous comment here claimed while
                 // the code reported only the latest.
-                let enum_conflict = existing_flags.intersects(SymbolFlags::ENUM)
-                    || flags.intersects(SymbolFlags::ENUM);
-                let mut message = if enum_conflict {
-                    &messages::ENUM_DECLARATIONS_CAN_ONLY_MERGE_WITH_NAMESPACE_OR_OTHER_ENUM_DECLARATIONS
-                } else if existing_flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
-                    &messages::CANNOT_REDECLARE_BLOCK_SCOPED_VARIABLE_0
-                } else {
-                    &messages::DUPLICATE_IDENTIFIER_0
-                };
-                // Upstream tracks "does the message take the name as an argument"
-                // separately from which message it is (`messageNeedsName`,
-                // `binder.go:222`); it was previously derived from `enum_conflict`,
-                // which worked only while the enum message was the sole nameless one.
-                let mut message_needs_name = !enum_conflict;
-
-                // A second `export default` in one module is
-                // `A_module_cannot_have_multiple_default_exports` (TS2528), not a
-                // duplicate identifier — upstream's `binder.go:224-244`, checked
-                // after the enum case and overriding it.
-                //
-                // Upstream reaches this through two conditions: `isDefaultExport`,
-                // and separately an `ExportAssignment` that is not `export =` (so
-                // that `export default { }` after `export default class` is caught,
-                // since that form carries no `default` *modifier* to test). Both are
-                // properties of the *declaration*, recorded by `declare` in
-                // `default_export_declaration`. This used to test
-                // `name == INTERNAL_DEFAULT` on the claim that nothing else is
-                // filed under that name; parser recovery spells it —
-                // `import { default } from "m"` binds a local named `default`,
-                // and upstream reports TS2300 there, not TS2528
-                // (`es6ImportNamedImportIdentifiersParsing`,
-                // `docs/parity/notes/decls.md` §14).
-                //
-                let mut multiple_default_exports = false;
-                if self.default_export_declaration == Some(declaration)
-                    && !self.symbols.get(existing).declarations.is_empty()
-                {
-                    message = &messages::A_MODULE_CANNOT_HAVE_MULTIPLE_DEFAULT_EXPORTS;
-                    message_needs_name = false;
-                    multiple_default_exports = true;
-                }
-
-                let diagnostic_at = |binder: &mut Self, at: NodeId| {
-                    let span = binder.declaration_name_span(at);
-                    if message_needs_name {
-                        Diagnostic::with_args(message, span, [name.to_string()])
-                    } else {
-                        Diagnostic::new(message, span)
-                    }
-                };
-                // `binder.go:249-277`, in its order: the new declaration's
-                // diagnostic is built first and added last; each earlier
-                // declaration's is added in turn. For multiple default exports
-                // each earlier one relates "Another export default is here"
-                // (then "and here") at the new declaration, and the new one
-                // relates "The first export default is here" at each earlier one
-                // (r7-shared.md §35).
-                // Not ported: `binder.go:255`'s `Did you mean 'export type { T }'`
-                // related information on a type-less `export type T;`, which
-                // needs the declaration's node, not only its id.
-                let mut head = diagnostic_at(self, declaration);
-                let head_span = self.declaration_name_span(declaration);
-                let previous: Vec<NodeId> = self.symbols.get(existing).declarations.to_vec();
-                for (index, earlier) in previous.into_iter().enumerate() {
-                    let mut diagnostic = diagnostic_at(self, earlier);
-                    if multiple_default_exports {
-                        let message = if index == 0 {
-                            &messages::ANOTHER_EXPORT_DEFAULT_IS_HERE
-                        } else {
-                            &messages::AND_HERE
-                        };
-                        diagnostic.add_related_information(Some(self.related_diagnostic(
-                            message,
-                            head_span,
-                            Vec::new(),
-                        )));
-                        let earlier_span = diagnostic.span;
-                        head.add_related_information(Some(self.related_diagnostic(
-                            &messages::THE_FIRST_EXPORT_DEFAULT_IS_HERE,
-                            earlier_span,
-                            Vec::new(),
-                        )));
-                    }
-                    self.diagnostics.push(diagnostic);
-                }
-                self.diagnostics.push(head);
+                self.report_declaration_conflict(
+                    existing,
+                    existing_flags,
+                    flags,
+                    name,
+                    declaration,
+                );
                 // **Upstream does NOT merge, and the comment that stood here
                 // saying it does was wrong for two sessions.** `binder.go:286`,
                 // the last statement of the conflict branch, is
