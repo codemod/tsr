@@ -987,3 +987,59 @@ any }` where native prints `any & { p: any }`).
 return before reading it (printing, return aggregation, relation, predicate
 inference), and the printer stops parenthesising the cycle placeholder.
 Until both hold, the item stays open; it is 1 case and 12 lines.
+
+## 32. Two accessor reads: a merged plain property is ignored, and an accessor's `async`/`*` is no function flag
+
+- **ACCESSORS-MERGED-PROPERTY** (`propertyAndAccessorWithSameName`, 6
+  lines). `getTypeOfAccessors` (checker.go:18511) takes a
+  `PropertyDeclaration` only when `IsAutoAccessorPropertyDeclaration` holds.
+  A plain `x: number` merged with `get x() { return 1 }` (the TS2300 pair) is
+  ignored, and the type is the getter's. `get_type_of_accessors_worker`
+  treated every non-accessor declaration as the unported auto-accessor arm
+  and answered the gap. Now a plain property declaration is skipped; an
+  `accessor x` keeps the decline.
+- **ASYNC-ACCESSOR-FUNCTION-FLAGS** (`asyncGetter_es6`). `ast.GetFunctionFlags`
+  (ast/functionflags.go:13) reads `*` and `async` for function declarations
+  and expressions, methods and arrows only, so an invalid `async get foo() {}`
+  (reported by the grammar) has normal flags and infers `void`.
+  `get_return_type_from_body` passed the getter's own modifiers and asterisk,
+  which took the async arm and declined. It now passes neither for a getter.
+
+Tried and reverted: ACCESSOR-CIRCULAR-ANY (`recursiveGetterAccess`, `this.testProp`
+inside its own getter). Answering native's `errorType` from the re-entered
+`get_type_of_accessors` frame is right at that function (the lookup sees
+`native_error`), but the expression still prints the gap. A later step on
+the property-access road turns it back, and that road is not this file's.
+
+## 33. A function merged with an interface keeps its value type (MERGED-FUNCTION-INTERFACE)
+
+`interface Tag<Id> { id: Id }` + `declare function Tag<…>(id: Id): Id` is
+one symbol (`FUNCTION | INTERFACE`). Native's `getTypeOfSymbol` takes the
+function arm for its value (`getTypeOfFuncClassEnumModule`, checker.go:16904),
+and `resolveAnonymousTypeMembers` builds the value type from the exports and
+the call signatures; it never reads `members`. This port's function worker
+declines when the symbol's `members` table holds a value member. That guard
+is the unported JavaScript constructor-function instance side (tsr-6.27):
+`this.x = …` and `F.prototype.x = …` declare into it. The interface half of
+the merge also puts its property and method signatures there, so every
+merged function+interface value read the gap. The guard now ignores members
+whose every declaration sits directly in an `InterfaceDeclaration`; a JS
+constructor's members still decline. Witness: `Tag` in
+`contextualParamTypeVsNestedReturnTypeInference2/3/4`. The `Tag<I, S>`
+reference side already resolved through `declared.rs`.
+
+## 34. An inferred unit `unique symbol` return widens to `symbol` (RETURN-WIDEN-UNIQUE-SYMBOL)
+
+`getReturnTypeFromBody` sends a unit return through
+`getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded`, and from there
+to `getWidenedLiteralLikeTypeForContextualType` (checker.go:25517). That
+function widens with `getWidenedUniqueESSymbolType(getWidenedLiteralType(t))`
+unless the contextual type keeps the literal. This port's
+`inferred_return_type` applied only the literal half, so `function x(p:
+ns.undefined) { return p }`, where `type undefined = typeof s` names a
+unique symbol, inferred `unique symbol`; native infers `symbol`
+(`typeNamedUndefined1/2`). The unique-symbol half now applies to a return
+that is itself a unique symbol, which is the only unit case it changes.
+`is_literal_of_contextual_type` already carries native's
+`UniqueESSymbol` arm, so a symbol-typed context still keeps it. A union
+return is not a unit type and keeps its unique symbols, as natively.
