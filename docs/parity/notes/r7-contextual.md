@@ -995,3 +995,24 @@ lines on the verdict dump. The last three wait on mapped.rs:
 (`contextual_mapped_key_base_constraint`). Native's `getBaseConstraintOrType`
 gives `string | symbol`, which admits the key, so during inference the
 `[A]` arrow gets no contextual signature and caches `error`.
+
+## 33. A conditional contextual type is apparent through its default constraint
+
+`getApparentTypeOfContextualType` maps the instantiated contextual type
+through `getApparentType`, which takes an instantiable type's base
+constraint. For a conditional, that is `computeBaseConstraint`'s
+conditional arm: the base of `getConstraintFromConditionalType`, i.e. the
+distributive constraint when the check type is a type parameter, and
+otherwise `getDefaultConstraintOfConditionalType`, the union of the two
+branches (`checker.go:17263`). `base_constraint_of_type` (constraints.rs)
+declines for such a conditional, and `apparent_contextual_type` answered
+`unknown`. `bad<P extends Props>(attrs: string extends keyof P ? { [K in keyof P]: P[K] } : …)`
+called with `{ when: value => false }` had no member context, so the arrow
+answered `error`. `apparent_contextual_type` now falls back to
+`default_constraint_of_conditional_type`, then the apparent type of that
+union, for a conditional whose check type is not a type parameter. A
+distributive conditional keeps `unknown`: its distributive constraint is not
+ported here. So does a default constraint that is itself conditional, so the
+fallback cannot recurse. conditionalTypeContextualTypeSimplificationsSuceeds
+8 → 0 and complicatedIndexesOfIntersectionsAreInferencable 7 → 0 non-RIGHT
+lines on the verdict dump.
