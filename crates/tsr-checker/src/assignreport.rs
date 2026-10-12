@@ -6249,7 +6249,13 @@ impl Checker<'_, '_> {
                 ([source_signature], [target_signature]) => {
                     let (source_signature, target_signature) =
                         (source_signature.clone(), target_signature.clone());
-                    self.explain_signature(stack, &source_signature, &target_signature, depth)
+                    self.explain_signature(
+                        stack,
+                        &source_signature,
+                        &target_signature,
+                        depth,
+                        (false, false),
+                    )
                 }
                 (sources, targets) => {
                     let (sources, targets) = (sources.to_vec(), targets.to_vec());
@@ -6422,7 +6428,13 @@ impl Checker<'_, '_> {
                 }
             }
             if !matched {
-                return self.explain_signature(stack, &first, &erased_target, depth);
+                return self.explain_signature(
+                    stack,
+                    &first,
+                    &erased_target,
+                    depth,
+                    (false, false),
+                );
             }
         }
         None
@@ -6475,6 +6487,7 @@ impl Checker<'_, '_> {
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
         depth: usize,
+        (callback, bivariant_callback): (bool, bool),
     ) -> Option<()> {
         use crate::relater::Ternary;
         if source.this_parameter.is_some()
@@ -6509,7 +6522,8 @@ impl Checker<'_, '_> {
             return None;
         }
         let kind = self.nodes.kind(target.declaration);
-        let strict_variance = self.strict_function_types
+        let strict_variance = !callback
+            && self.strict_function_types
             && !matches!(
                 kind,
                 SyntaxKind::MethodDeclaration
@@ -6527,15 +6541,62 @@ impl Checker<'_, '_> {
                 continue;
             }
             // Callback parameters (`getSingleCallSignature` of each
-            // non-nullable side) compare their signatures instead.
-            let source_non_nullable = self.get_non_nullable_type(source_type);
-            let target_non_nullable = self.get_non_nullable_type(target_type);
-            if self.single_call_signature(source_non_nullable).is_some()
-                && self.single_call_signature(target_non_nullable).is_some()
-            {
-                return None;
+            // non-nullable side, outside a callback check) compare their
+            // signatures in a callback mode, target against source
+            // (r7-reports §49).
+            if !callback {
+                let source_callback =
+                    if self.signature_has_instantiated_generic_parameter(source, index) {
+                        None
+                    } else {
+                        let non_nullable = self.get_non_nullable_type(source_type);
+                        self.single_call_signature(non_nullable)
+                    };
+                let target_callback =
+                    if self.signature_has_instantiated_generic_parameter(target, index) {
+                        None
+                    } else {
+                        let non_nullable = self.get_non_nullable_type(target_type);
+                        self.single_call_signature(non_nullable)
+                    };
+                let nullable =
+                    crate::flow::TypeFacts::IS_UNDEFINED | crate::flow::TypeFacts::IS_NULL;
+                if let (Some(source_callback), Some(target_callback)) =
+                    (source_callback, target_callback)
+                    && source_callback.predicate.is_none()
+                    && target_callback.predicate.is_none()
+                    && self.get_type_facts(source_type) & nullable
+                        == self.get_type_facts(target_type) & nullable
+                {
+                    let mode = (true, !strict_variance);
+                    match self.compare_signature_ternary_in_mode(
+                        &target_callback,
+                        &source_callback,
+                        mode.0,
+                        mode.1,
+                    )? {
+                        Ternary::Related => continue,
+                        Ternary::Unknown => return None,
+                        Ternary::NotRelated => {
+                            self.explain_signature(
+                                stack,
+                                &target_callback,
+                                &source_callback,
+                                depth + 1,
+                                mode,
+                            )?;
+                            let source_name = source.parameters.get(index)?.name.clone();
+                            let target_name = target.parameters.get(index)?.name.clone();
+                            stack.push(ChainEntry {
+                                message: &messages::TYPES_OF_PARAMETERS_0_AND_1_ARE_INCOMPATIBLE,
+                                args: vec![source_name, target_name],
+                            });
+                            return Some(());
+                        }
+                    }
+                }
             }
-            let related = if strict_variance {
+            let related = if callback || strict_variance {
                 self.chain_relate(stack, target_type, source_type)
             } else {
                 match self.chain_relate(stack, source_type, target_type) {
@@ -6564,6 +6625,13 @@ impl Checker<'_, '_> {
             return None;
         }
         let source_return = self.get_return_type_of_signature(source)?;
+        // A bivariant callback check accepts the reverse return relation
+        // first (`relater.go:1622`).
+        if bivariant_callback
+            && self.chain_relate(stack, target_return, source_return) != Ternary::NotRelated
+        {
+            return None;
+        }
         if self.chain_relate(stack, source_return, target_return) != Ternary::NotRelated {
             return None;
         }

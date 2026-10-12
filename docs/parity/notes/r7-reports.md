@@ -1739,3 +1739,20 @@ Nothing a seeded walk proves through an assumption is published. Its
 stacks are never empty, so a `Maybe` frame retains its keys, and the
 walk is dropped with them. A failure it publishes holds without the
 assumptions too, as in any walk.
+
+## 49. Callback parameters in the chain
+
+`compareSignaturesRelated` (`relater.go:1550`) relates two parameters
+that each have a single call signature (non-nullable, neither an
+instantiated generic parameter, neither a type predicate, the same
+nullability facts) as callbacks. It compares target against source in a
+callback mode: `StrictCallback` under strict variance, else
+`BivariantCallback`. In that mode parameters relate contravariantly
+only, and a bivariant callback's return type tries the reverse relation
+first. `explain_signature` declined every callback pair; it now takes
+the mode, reads the verdict from `compare_signature_ternary_in_mode`
+(the relater's own `one_signature_related_to` in that mode), and recurses
+with the swapped pair. `(f: (x: Dog) => Dog) => void` against
+`(f: (x: Animal) => Animal) => void` reads `Types of parameters 'f' and
+'f' are incompatible.` → `Property 'dog' is missing…`. The callback's
+return marker is elided, as upstream does.

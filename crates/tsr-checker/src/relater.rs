@@ -1432,9 +1432,23 @@ impl Checker<'_, '_> {
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
     ) -> Option<Ternary> {
+        self.compare_signature_ternary_in_mode(source, target, false, false)
+    }
+
+    /// [`Checker::compare_signature_ternary`] in a callback check mode
+    /// (`SignatureCheckModeStrictCallback` / `BivariantCallback`), as
+    /// `compareSignaturesRelated` relates two callback parameters
+    /// (`relater.go:1550`). For the report retrace (r7-reports §49).
+    pub(crate) fn compare_signature_ternary_in_mode(
+        &mut self,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+        callback: bool,
+        bivariant_callback: bool,
+    ) -> Option<Ternary> {
         let mut relater = Relater::new(self, Relation::Assignable, None);
         relater
-            .one_signature_related_to(source, target, false, false, false)
+            .one_signature_related_to(source, target, callback, bivariant_callback, false)
             .map(RelationResult::public_answer)
     }
 }
