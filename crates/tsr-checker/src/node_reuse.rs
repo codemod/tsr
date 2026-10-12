@@ -297,6 +297,19 @@ fn text_precedence(text: &str) -> Precedence {
     }
 }
 
+/// `emitPostfixTypeOperand` (`printer.go:1991`): the operand of an array,
+/// indexed-access or optional type is emitted at postfix precedence, except a
+/// type query under a parse-tree parent, which keeps its written spelling
+/// (`typeof a['a']`, `declarationEmitResolveTypesIfNotReusable`). A reused
+/// node is the parse tree's (r7-printer §48).
+fn postfix_operand(operand: TypeNode<'_>) -> Precedence {
+    if matches!(operand, TypeNode::TypeQueryNode(_)) {
+        Precedence::TypeOperator
+    } else {
+        Precedence::Postfix
+    }
+}
+
 /// `emitTypeNode(node, TypePrecedenceIntersection)` (`printer.go:2274`)
 /// parenthesises a constituent whose node binds below `Intersection`. A
 /// constituent's node kind is only available here as its printed text, so it
@@ -2515,20 +2528,21 @@ impl<'a> Checker<'a, '_> {
                 text
             }
             TypeNode::ArrayTypeNode(array) => {
+                let element = array.element_type?;
                 let mut element =
-                    self.emit_reused_type(array.element_type?, Precedence::Postfix, in_extends, cx);
+                    self.emit_reused_type(element, postfix_operand(element), in_extends, cx);
                 element.push_str("[]");
                 element
             }
             TypeNode::IndexedAccessTypeNode(access) => {
-                let object =
-                    self.emit_reused_type(access.object_type?, Precedence::Postfix, in_extends, cx);
+                let object = access.object_type?;
+                let object = self.emit_reused_type(object, postfix_operand(object), in_extends, cx);
                 let index = self.emit_reused_type(access.index_type?, LOWEST, false, cx);
                 format!("{object}[{index}]")
             }
             TypeNode::OptionalTypeNode(optional) => {
-                let inner =
-                    self.emit_reused_type(optional.r#type?, Precedence::Postfix, in_extends, cx);
+                let inner = optional.r#type?;
+                let inner = self.emit_reused_type(inner, postfix_operand(inner), in_extends, cx);
                 format!("{inner}?")
             }
             TypeNode::RestTypeNode(rest) => {

@@ -1753,3 +1753,33 @@ port keeps the written `[Op.equal]`. The certified member plan
 literal, so such an image keeps its baked print. Renaming the member there
 first needs the plan to admit late-bound keys. That was not done for three
 lines.
+
+## 48. A reused postfix type keeps a type query operand unparenthesized
+
+**Forcing constraint.** `declarationEmitResolveTypesIfNotReusable` (2 lines):
+`(o:  typeof a['a']) => {}` prints natively as `(o: typeof a['a']) => void`;
+the port printed `(typeof a)['a']`. The written `(typeof a)['a']` of the
+neighbouring `o2` keeps its parentheses on both sides.
+
+**Cause.** `emitPostfixTypeOperand` (`printer.go:1991`) emits the operand of
+an array, indexed-access or optional type at postfix precedence. The one
+exception is a type query under a parse-tree parent, which it emits at
+type-operator precedence, so the written spelling reprints as written. The
+reuse visitor's emitter (`emit_reused_type`) parenthesized every operand that
+binds below postfix.
+
+**The port.** `postfix_operand` (node_reuse.rs) answers type-operator
+precedence for a `TypeQueryNode` operand of those three emitters. A reused node
+is the parse tree's. A written `ParenthesizedType` still prints its own
+parentheses. No cache or table.
+
+**Found, not built: a written conditional predicate is serialized.**
+`controlFlowInstanceofWithSymbolHasInstance` and a native-read probe: native
+reuses `value is (T extends (abstract new (...args: any) => infer U) ? U : never)`,
+parentheses included. `pseudo_return_matches_predicate` compares the
+node's type with the predicate's. A conditional type node mints a fresh
+deferred type on every `get_type_from_type_node` (ids 56, 57 and 59 for one
+node in the probe), whereas native caches it on the node's links. The
+port's identity relation answers `Unknown` for two such conditionals, so
+the predicate is serialized without its parentheses. The cause is in the
+conditional type node's construction (declared.rs); routed.

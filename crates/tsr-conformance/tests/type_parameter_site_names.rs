@@ -117,3 +117,16 @@ function h<T>(cb: <T>(x: T) => T): T { return null as any; }
         ],
     );
 }
+
+/// r7-printer §48: a reused indexed access keeps a written type-query
+/// operand unparenthesized (`emitPostfixTypeOperand`; native-read lines).
+#[test]
+fn a_reused_type_query_operand_keeps_its_spelling() {
+    let lines = lines(
+        r"const a = { a: 1 } as const;
+export const o2 = (o: (typeof a)['a']) => {};
+export const o3 = (o:  typeof a['a']) => {};
+",
+    );
+    assert_has(&lines, &["o2 : (o: (typeof a)['a']) => void", "o3 : (o: typeof a['a']) => void"]);
+}
