@@ -92,6 +92,16 @@ impl Token<'_> {
     pub const fn new(kind: SyntaxKind) -> Self {
         Self { kind, node_id: None, _marker: std::marker::PhantomData }
     }
+
+    /// The id the parser registered this token under; `None` until it does.
+    ///
+    /// Read ids through this, not the field (ADR-0056), as for every
+    /// generated node.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl HasNodeId for Token<'_> {

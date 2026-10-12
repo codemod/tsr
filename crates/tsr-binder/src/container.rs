@@ -147,7 +147,6 @@ pub fn container_flags(node: Node<'_>, nodes: &NodeTable) -> ContainerFlags {
         // A function's body block is not its own scope — the parameters and the
         // body share one — so this depends on the parent.
         Node::Block(block) => {
-            use tsr_ast::HasNodeId as _;
             let parent_is_function_like = block
                 .node_id()
                 .and_then(|id| nodes.parent(id))

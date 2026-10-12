@@ -4609,7 +4609,7 @@ impl Checker<'_, '_> {
 
 #[cfg(test)]
 mod property_name_tests {
-    use tsr_ast::{HasNodeId, NodeId};
+    use tsr_ast::NodeId;
     use tsr_core::Arena;
 
     use crate::Checker;
@@ -5716,7 +5716,6 @@ impl Checker<'_, '_> {
 
 #[cfg(test)]
 mod this_argument_tests {
-    use tsr_ast::HasNodeId;
     use tsr_core::Arena;
 
     use crate::Checker;
