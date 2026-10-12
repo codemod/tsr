@@ -558,11 +558,12 @@ impl Checker<'_, '_> {
     /// `GetRangeOfTokenAtPosition(sourceFile, node.Pos())` (or the
     /// `AwaitModifier`) puts the `await` keyword.
     ///
-    /// `NodeFlagsAwaitContext` is set by upstream's parser in async bodies and
-    /// on top-level statements it **reparses** (`reparseTopLevelAwait`), which
-    /// is only ever the ambiguous `await (x)` / `await [x]` spellings that this
-    /// port's parser leaves as identifiers. An `AwaitExpression` this port
-    /// built at top level therefore never carries it upstream either.
+    /// The caller tests `NodeFlagsAwaitContext`, which the parser sets in
+    /// async bodies and on the top-level statements `reparseTopLevelAwait`
+    /// reparses in an external module (`parser.go:449`; r7-parser `1321f0aa`
+    /// and §2), so an `await` there never reaches this arm. Correction of the
+    /// record: this comment used to say the parser left those spellings as
+    /// identifiers.
     fn check_top_level_await(&mut self, node: NodeId, kind: TopLevelAwait, start: u32) {
         if self.file_has_parse_errors || !self.is_in_top_level_context(node) {
             return;

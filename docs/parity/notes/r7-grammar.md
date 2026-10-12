@@ -981,3 +981,28 @@ variable's own initializer is therefore not "immediately used"
 expression, so those uses were TS2448. It now reads either bit on any
 function-like (arrow: `async` only). Converted:
 `blockScopedVariablesUseBeforeDef`.
+
+## §53 TS1106 reads `NodeFlagsAwaitContext`; the stale "parser drops `await`" comments
+
+`checkGrammarForInOrForOfStatement`'s `async` arm (`grammarchecks.go:1251`)
+reports `for (async of xs)` on a statement without `NodeFlagsAwaitContext`.
+`check_grammar_for_of_async` (grammar.rs) dated from before the parser set
+the flag and read the enclosing function's `async` modifier instead. That
+stand-in disagrees with native in two places, both await contexts: a class
+static block (`parseClassStaticBlockBody` sets the await context, so native is
+silent; the stand-in reported TS1106) and a top-level statement that
+`reparseTopLevelAwait` reparses. The arm now reads the flag r7-parser
+`1321f0aa` stamps (§9). Test: `tests/for_of_async_await_context.rs`, checked
+against `target/tsgo-pinned`.
+
+The same commit corrects three doc comments that still described the parser
+before r7-parser `1321f0aa` and its `reparseTopLevelAwait` port:
+`check_top_level_await` (module_format.rs: "the ambiguous spellings this
+parser leaves as identifiers"), `check_contextual_identifier`
+(strict_mode.rs: "the arm that is not ported … declared and never set") and
+the grammar.rs arm above. A fourth one is outside this lane:
+`check_await_as_binding_name` (check.rs) still says the flag is unset and
+walks for an enclosing `async`. That was reported to the integration thread.
+
+*Falsifier.* A TS1106 in a static block, or a missing one in a non-async
+function, in a corpus case.

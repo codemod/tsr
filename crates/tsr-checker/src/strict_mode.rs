@@ -253,13 +253,15 @@ impl Checker<'_, '_> {
     /// with no prologue, no export and no class, and upstream reports TS1212 on
     /// it twice. See `checker-notes-diag2.md` §161.
     ///
-    /// # The arm that is not ported
+    /// # The `await` and `yield` arms
     ///
-    /// `originalKeywordKind == KindAwaitKeyword` (`binder.go:1312`) needs
-    /// `NodeFlags::AWAIT_CONTEXT`, which this port declares and never sets —
-    /// the same shape §104 hit with `YIELD_CONTEXT`. **Owner: `tsr_parser`'s
-    /// await-context tracking.** Upstream's *third* arm, `KindYieldKeyword`
-    /// under `YieldContext`, is dead code there: `KindYieldKeyword` **is**
+    /// `originalKeywordKind == KindAwaitKeyword` (`binder.go:1312`) reads
+    /// `NodeFlags::AWAIT_CONTEXT`, which the parser sets as of r7-parser
+    /// `1321f0aa` (`finishNode`'s `contextFlags`), including on the statements
+    /// `reparseTopLevelAwait` reparses (r7-grammar §9). Correction of the
+    /// record: this section used to say the flag was never set and the arm was
+    /// not ported. Upstream's *third* arm, `KindYieldKeyword` under
+    /// `YieldContext`, is dead code there: `KindYieldKeyword` **is**
     /// `LastFutureReservedWord`, so the first arm always claims it.
     pub(crate) fn check_contextual_identifier(&mut self, node: NodeId, ambient: bool) {
         // `len(b.file.Diagnostics()) == 0` — stated explicitly upstream, so
