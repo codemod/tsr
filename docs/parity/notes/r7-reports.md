@@ -2364,3 +2364,36 @@ TS2769's inner line).
   `tsxStatelessFunctionComponentOverload4` line now matches. The file's
   other differences are the `| undefined` printing of optional members,
   which belongs to another lane.
+
+## 81. Two indexed accesses; indexed-access targets explained by their object
+
+- **`S[K] → T[J]`** (`structuredTypeRelatedToWorker`'s indexed-access target
+  arm, `relater.go:3542`). Native relates the object types and then the
+  index types, both reporting. With a generic target index, the
+  write-constraint fallback that follows is skipped, so the failing
+  component is the whole chain: `T[K] → U[K]` explains as `Type 'T' is not
+  assignable to type 'U'.`, and `T[K] → T[J]` as `Type 'K' is not
+  assignable to type 'J'.` (`keyofAndIndexedAccessErrors`,
+  `mappedTypeRelationships`). The arm declines in two cases: a non-generic
+  target index, where the fallback relates the source to the write
+  constraint, and a mapped, alias or nested indexed-access object, which
+  `isRelatedTo` would normalize first.
+- **The relation error for an indexed-access target.** `reportRelationError`
+  (`relater.go:4760`) reads the flags of the target's object type when the
+  source is not an indexed access. `T[K]` with a type-parameter `T`
+  therefore gets the type-parameter explanation over
+  `getBaseConstraintOfType(T[K])`: *'number' is assignable to the constraint
+  of type 'T[K]', but 'T[K]' could be instantiated with a different subtype
+  of constraint 'any'.* (`test1<T extends Record<string, any>, K extends
+  keyof T>`). Both the head's `relation_diagnostic` and the chain's
+  `chain_report_relation_error` now do this. The chain previously declined
+  every indexed-access target. It still declines when the base constraint
+  is undecided, or the object is one native normalizes first
+  (`indexed_access_target_explained`).
+- **Measured.** Quick oracles over `keyof`, `ndexedAccess`, `appedType`,
+  `onstrain` and `eneric`: 0 lost. `keyofAndIndexedAccessErrors` fell from 41
+  differing rows to 23. Its remainder includes `keyof T | keyof U → keyof T &
+  keyof U`, whose native chain interleaves two reports of the same pair,
+  and the head's normalized source (`Partial<T>[keyof T]` prints as `T[keyof
+  T] | undefined` in `reportErrorResults` when the original has no alias),
+  which the port's head printer does not do yet.

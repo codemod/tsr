@@ -3156,9 +3156,14 @@ impl<'a> Checker<'a, '_> {
         source_text: String,
         target_text: String,
     ) -> Diagnostic {
-        if !self.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
-            || self.variance_marker_types.contains(&target)
-        {
+        let target_flags = self.type_of(target).flags;
+        let explains_type_parameter = if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
+            self.indexed_access_target_explained(source, target) == Some(true)
+                && self.base_constraint_of_type(target).is_some()
+        } else {
+            target_flags.contains(TypeFlags::TYPE_PARAMETER)
+        };
+        if !explains_type_parameter || self.variance_marker_types.contains(&target) {
             return Diagnostic::with_args(message, span, [source_text, target_text]);
         }
         let generalized = self.assignability_source_for_error_display(source, target);
@@ -3188,6 +3193,28 @@ impl<'a> Checker<'a, '_> {
         let mut diagnostic = Diagnostic::with_args(message, span, [source_text, target_text]);
         diagnostic.add_message_chain(Some(child));
         diagnostic
+    }
+
+    /// `reportRelationError`'s target-flag choice (`relater.go:4760`): an
+    /// indexed-access target against a source that is not one is explained
+    /// by its object type's flags, so `T[K]` with a type-parameter `T` gets
+    /// the type-parameter explanation over `getBaseConstraintOfType(T[K])`.
+    /// `Some(false)` where no explanation applies, `None` where the target is
+    /// one `isRelatedTo` would first normalize (a mapped, alias or nested
+    /// object), which this retrace does not (r7-reports §81).
+    fn indexed_access_target_explained(&mut self, source: TypeId, target: TypeId) -> Option<bool> {
+        let &(object, _, _) = self.deferred_indexed_access_types.get(&target)?;
+        self.ensure_mapped_type_info(object);
+        if self.mapped_types.contains_key(&object)
+            || self.type_reference_targets.contains_key(&object)
+            || self.deferred_indexed_access_types.contains_key(&object)
+        {
+            return None;
+        }
+        if self.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS) {
+            return Some(false);
+        }
+        Some(self.type_of(object).flags.contains(TypeFlags::TYPE_PARAMETER))
     }
 
     /// An object literal against a union target, up to the outer report:
@@ -5811,18 +5838,21 @@ impl Checker<'_, '_> {
         target: TypeId,
     ) -> Option<()> {
         let target_flags = self.type_of(target).flags;
-        if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
-            return None;
-        }
+        let explains_type_parameter = if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
+            self.indexed_access_target_explained(source, target)?
+        } else {
+            target_flags.contains(TypeFlags::TYPE_PARAMETER)
+        };
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let mut source_text = self.type_to_string(displayed_source);
         let mut target_text = self.type_to_string(target);
         // The type-parameter target's explanation, pushed before the
         // relation error (`relater.go:4768`).
-        if target_flags.contains(TypeFlags::TYPE_PARAMETER)
-            && !self.variance_marker_types.contains(&target)
-        {
+        if explains_type_parameter && !self.variance_marker_types.contains(&target) {
             let constraint = self.base_constraint_of_type(target);
+            if constraint.is_none() && target_flags.contains(TypeFlags::INDEXED_ACCESS) {
+                return None;
+            }
             let assignable = constraint.and_then(|constraint| {
                 if self.is_type_assignable_to(displayed_source, constraint) {
                     Some((displayed_source, constraint))
@@ -6259,6 +6289,42 @@ impl Checker<'_, '_> {
                 return None;
             }
             return self.explain_object_relation(stack, source, target, depth, false);
+        }
+        // Two indexed accesses (`structuredTypeRelatedToWorker`'s target arm,
+        // `relater.go:3542`): `S[K]` relates to `T[J]` when `S` relates to
+        // `T` and then `K` to `J`, each reporting. The write-constraint
+        // fallback that follows is skipped for a generic target index; any
+        // other target, or a mapped or alias object the pair would first
+        // normalize, declines (r7-reports §81).
+        if let Some(&(source_object, source_index, _)) =
+            self.deferred_indexed_access_types.get(&source)
+            && let Some(&(target_object, target_index, _)) =
+                self.deferred_indexed_access_types.get(&target)
+        {
+            for object in [source_object, target_object] {
+                self.ensure_mapped_type_info(object);
+            }
+            if !self.indexed_access_index_is_generic(target_index)
+                || [source_object, target_object].iter().any(|object| {
+                    self.mapped_types.contains_key(object)
+                        || self.type_reference_targets.contains_key(object)
+                        || self.deferred_indexed_access_types.contains_key(object)
+                })
+            {
+                return None;
+            }
+            return match self.chain_relate(stack, source_object, target_object) {
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, source_object, target_object, depth)
+                }
+                Ternary::Related => match self.chain_relate(stack, source_index, target_index) {
+                    Ternary::NotRelated => {
+                        self.explain_pair(stack, source_index, target_index, depth)
+                    }
+                    _ => None,
+                },
+                Ternary::Unknown => None,
+            };
         }
         // An indexed-access source (the same type-variable case,
         // `relater.go:3665`) relates `getConstraintOfType`, reporting when
