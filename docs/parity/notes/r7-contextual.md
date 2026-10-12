@@ -1415,3 +1415,19 @@ merged per parameter (`merge_info`, as the context merges them after the
 loop). The flattened list let an earlier argument's empty entry shadow a
 later candidate. genericRestParameters1 23 → 21 non-RIGHT lines; no loss
 across 51,566 related verdict lines.
+
+## 54. An object literal accessor's `this` takes the literal-self mint (expressions.rs hunk, default grant)
+
+`getContextualThisParameterType` treats an object literal getter or setter
+as it treats a method: with `noImplicitThis` and no contextual type, `this`
+is the literal's own type. When the literal is not yet checked (a member's
+return type is resolving), `contextual_object_this_type` declines. A method
+then takes expressions.rs's §142 literal-self mint, but an accessor fell to
+`tryGetThisTypeAtEx`'s bare stop at an object member and answered `any`.
+So `get a() { return this.prop; }` returned `any`, and the literal printed
+`a: any` (commentsOnObjectLiteral3 11 → 1, thisTypeInObjectLiterals2 14 → 3
+non-RIGHT lines; no loss across 20,871 `this`/accessor/object-literal verdict
+lines). The §142 arm now covers `GetAccessor` and `SetAccessor` under the
+same four gates. **Cross-lane hunk:** one match arm in expressions.rs, default
+grant. The mint still prints `this` for the bare `this` line (§36's
+routing).

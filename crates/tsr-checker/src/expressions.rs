@@ -1646,8 +1646,12 @@ impl Checker<'_, '_> {
                     return self.intrinsics.any;
                 }
                 // §142 (parked state rebuilt for the looseThis probe):
-                // literal-self this, methods only, all four gates.
+                // literal-self this, all four gates. An accessor is an object
+                // literal method for `getContextualThisParameterType` too
+                // (r7-contextual §54).
                 SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
                     if self.nodes.parent(id).is_some_and(|parent| {
                         self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
                             && self.no_implicit_this
