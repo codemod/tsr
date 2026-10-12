@@ -2158,3 +2158,22 @@ symbols cannot both print bare, so only a message print can collide.
 `print_without_enclosing`. It reprints such parts with
 `type_name_for_error_display` (`getTypeNameForErrorDisplay`'s fully qualified
 chain). Type-argument lists are not asked. No cache or table.
+
+## 65. A message names a static method alone and elides with `...`
+
+**Forcing constraint.** `recursiveFunctionTypes`: native writes
+`'(t: typeof g) => void'` and `'() => ...'` in messages; the port wrote
+`'(t: typeof C.g) => void'` and `'() => any'`.
+
+**Cause.** With no enclosing declaration the chain is the symbol alone
+(`lookupSymbolChainWorker`), so a static method's `typeof` names only the
+method. `createElidedInformationPlaceholder` writes `...` unless the print
+sets `NoTruncation`. The `.types` writer sets it; `TypeToString` sets it only
+under `noErrorTruncation`.
+
+**The port.** `recursive_callable_text_at` writes `typeof <method>` under
+`print_without_enclosing`. The recursion placeholders (the worker's
+callable re-entry, the certified and deferred object roads) ask
+`elided_information_placeholder`, which answers `...` for a message unless
+`noErrorTruncation` is set. The checker now reads that option
+(`no_error_truncation`). No cache or table.

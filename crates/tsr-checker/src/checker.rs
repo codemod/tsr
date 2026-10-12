@@ -952,6 +952,9 @@ pub struct Checker<'a, 'n> {
     /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
     /// optionality is `missingType`, removed at write positions.
     pub(crate) exact_optional_property_types: bool,
+    /// `noErrorTruncation`: a message print's elided information is `any`
+    /// rather than `...` (`createElidedInformationPlaceholder`; r7-printer §65).
+    pub(crate) no_error_truncation: bool,
     /// `c.languageVersion` (`checker.go:948`, `GetEmitScriptTarget`), read by
     /// the operators lane's TS2791 (`docs/parity/notes/operators.md` §8).
     pub(crate) language_version: tsr_core::ScriptTarget,
@@ -1703,6 +1706,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             jsx_fragment_factory_missing: None,
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
+            no_error_truncation: false,
             language_version: tsr_core::ScriptTarget::ESNext,
             alias_inline_level: 0,
             non_null_refinement_bases: FxHashMap::default(),
@@ -1966,6 +1970,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();
         self.exact_optional_property_types = options.exact_optional_property_types.is_true();
+        self.no_error_truncation = options.no_error_truncation.is_true();
         self.language_version = options.emit_script_target();
 
         // `unusedIsError` (`checker.go:7104`), both `IsTrue()`. An unset option
@@ -2357,7 +2362,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             && !self.alias_named_signature_types.contains(&id)
         {
             return Some(
-                self.recursive_callable_text_at(id, reference).unwrap_or_else(|| "any".to_string()),
+                self.recursive_callable_text_at(id, reference)
+                    .unwrap_or_else(|| self.elided_information_placeholder()),
             );
         }
         if let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(id).data
@@ -2948,7 +2954,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             symbol = self.binder.merged_symbol(self.binder.symbol_of(variable)?);
         }
         let own = self.binder.symbols().get(symbol).name;
-        let name = if static_method {
+        // r7-printer §65: with no enclosing declaration the chain is the
+        // symbol alone (`lookupSymbolChainWorker`), so a static method is
+        // `typeof g`, not `typeof C.g`.
+        let name = if static_method && self.print_without_enclosing {
+            own.to_string()
+        } else if static_method {
             let class = self.binder.symbols().get(symbol).parent?;
             let class_name = self.value_symbol_name_at(class, reference);
             format!("{class_name}.{own}")
@@ -4221,6 +4232,18 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         None
+    }
+
+    /// `createElidedInformationPlaceholder` (`nodebuilderimpl.go`): `...`
+    /// unless the print sets `NoTruncation`. The `.types` writer always sets
+    /// it; `TypeToString` (a message) sets it only under `noErrorTruncation`
+    /// (r7-printer §65).
+    pub(crate) fn elided_information_placeholder(&self) -> String {
+        if self.print_without_enclosing && !self.no_error_truncation {
+            "...".to_string()
+        } else {
+            "any".to_string()
+        }
     }
 
     /// r7-printer §40: the type of a type literal that is a type alias's body
