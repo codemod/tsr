@@ -719,6 +719,14 @@ impl<'a> Checker<'a, '_> {
                 let b = self.context_free_return_expression_type(node.when_false?)?;
                 self.union_with_subtype_reduction(&[a, b])
             }
+            // checkObjectLiteral under SkipContextSensitive: the literal's
+            // context-sensitive members are anyFunctionType, its data members
+            // checked (r7-contextual §48).
+            Expression::ObjectLiteralExpression(_)
+                if self.is_context_sensitive_argument(&expression) =>
+            {
+                self.context_free_object_inference_type(expression)
+            }
             _ if !self.is_context_sensitive_argument(&expression) => {
                 let ty = self.check_expression(expression);
                 (ty != self.intrinsics.error).then_some(ty)
@@ -4418,13 +4426,15 @@ impl<'a> Checker<'a, '_> {
                     || self.is_literal_of_contextual_type(candidate, constraint) == Some(true),
             );
         }
+        // The legacy deferred `keyof` keeps its `TypeFlagsIndex` identity in
+        // `deferred_keyof_types` (as `maybe_type_of_kind` reads it): a nested
+        // `keyof T` context is a literal context (r7-contextual §47).
+        let index = flags.intersects(TF::INDEX) || self.deferred_keyof_types.contains(&contextual);
         Some(
-            flags.intersects(
-                TF::STRING_LITERAL
-                    .union(TF::INDEX)
-                    .union(TF::TEMPLATE_LITERAL)
-                    .union(TF::STRING_MAPPING),
-            ) && self.maybe_type_of_kind(candidate, TF::STRING_LITERAL)
+            (flags.intersects(
+                TF::STRING_LITERAL.union(TF::TEMPLATE_LITERAL).union(TF::STRING_MAPPING),
+            ) || index)
+                && self.maybe_type_of_kind(candidate, TF::STRING_LITERAL)
                 || flags.intersects(TF::NUMBER_LITERAL)
                     && self.maybe_type_of_kind(candidate, TF::NUMBER_LITERAL)
                 || flags.intersects(TF::BIG_INT_LITERAL)
