@@ -239,7 +239,10 @@ pub struct Checker<'a, 'n> {
     /// list (`controlFlowArrays` f10, `want=(string | number)[] got=any[]`).
     /// A hit replays the slice into the querying state; empty off the array
     /// track.
-    pub(crate) flow_loop_cache: FxHashMap<(usize, u64, TypeId), (TypeId, Vec<TypeId>)>,
+    pub(crate) flow_loop_cache: crate::flow::FlowLoopCache,
+    /// References whose flow walk met a step that may have answered wider
+    /// than native (`flow.rs`' `FlowState::declines`, `r7-flow.md` §49).
+    pub(crate) flow_uncertain_references: rustc_hash::FxHashSet<NodeId>,
     /// `isReachableFlowNode`'s cache over SHARED flow nodes — upstream's
     /// `flowNodeReachable` (`checker.go`, keyed by `*ast.FlowNode`). §743.
     pub(crate) flow_node_reachable: FxHashMap<usize, bool>,
@@ -1551,6 +1554,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             assignments_marked: rustc_hash::FxHashSet::default(),
             definitely_assigned: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
+            flow_uncertain_references: rustc_hash::FxHashSet::default(),
             flow_node_reachable: FxHashMap::default(),
             flow_loop_stack: Vec::new(),
             declared_types: FxHashMap::default(),

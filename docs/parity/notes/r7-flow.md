@@ -1340,3 +1340,99 @@ four TS2542 and two TS2536, `mappedTypeErrors2` ×4, `keyofAndIndexedAccessError
 ×2, `constraintWithIndexedAccess`, `intersectionsOfLargeUnions(2)`,
 `unknownControlFlow`), 0 lost; exact oracle 10635 → 10636, 0 lost; jsTyping
 gap 28 → 28, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0013.
+
+## §49 NONEXISTENT-PROPERTY-CERTIFICATION-GATE: an exact certificate for a narrowed union receiver
+
+§20's gate refused every union receiver a narrowing could reach, because a
+narrowing arm that cannot decide returns its input, and from the result a
+declined narrowing is indistinguishable from none. The certificate is now
+exact about that: the walk counts (`FlowState::declines`, and the deferred
+`FlowState::unchanged` list) every step that may have answered wider than
+native, and a union receiver is certified only when no walk of it met one
+(`flow_type_is_certified`, reading the `flow_uncertain_references` set the
+walk roads fill).
+
+Counted:
+- a condition narrowing (`narrow_type`, so every nested operand too), a
+  switch clause, or an assertion/predicate call that left its input
+  unchanged at a node that mentions the reference's root (an identifier with
+  the root's text, or `this`/`super` for a `this` root; text only, no name
+  resolution). This over-counts native's legitimate no-op narrowings, which
+  only keeps those receivers uncertified as before;
+- a CALL flow node with no effects signature whose call mentions the root:
+  this port's `None` is also its answer for an uncomputed one;
+- an assignment whose assigned type this port cannot reach, on the auto and
+  the declared-union roads (the declared type where native reduces);
+- a loop or branch join whose subtype reduction the relation could not decide
+  (`union_with_subtype_reduction` → `None`);
+- a `flow_loop_cache` hit whose converging walk counted one (the cache value
+  carries the bit; a replay skips the walk);
+- a condition that made `silentNeverType` (§21): its consumers are still the
+  routed `r7-flow-silent-never-callers.diff`, and without them
+  `controlFlowWithIncompleteTypes`' loop converges to `string | boolean`
+  where native has `string` (the one loss the certificate alone measured,
+  +3/−1). Drop this count when the diff lands.
+
+A step that narrows partially (keeps an undecidable constituent and drops
+others) would not be counted by the unchanged rule. The constituent-wise
+filters read for this (`narrow_type_by_equality`'s comparable filter, the
+discriminant and `typeof` arms) decline whole on an undecidable pair
+(Kleene), so the unchanged rule sees them; an arm found to keep a partial
+answer needs its own count.
+
+The walk roads that record (`flow_uncertain_references`):
+`get_flow_type_of_reference_ex`, `narrow_destructured_parent`,
+`get_flow_type_of_property` and `narrow_reference_by_condition`, keyed by the
+reference. A reference no road recorded reads as certified, so
+`union_receiver_flow_is_uncertified` still requires a narrowable kind and
+keeps `flow_cannot_narrow_identifier` as the walk-free proof. Grant: the two
+`checker.rs` lines (the set, and the cache value's `bool`), requested of the
+integration thread.
+
+Cost. Scanning each unchanged narrowing's condition for the root as it
+happened measured domain-model Ir **1.024** (the scan ran for every
+unrelated condition of every walk). The unchanged nodes are now only
+recorded, and the scan runs when a walk publishes an answer that could be
+asked about (the answer or the walk's declared type is a union), and for a
+loop label's cache bit: Ir gi 0.9999, dm 1.0018, with identical legacy
+verdicts.
+
+Rejected: instrumenting each arm's internal decline points. There are dozens
+(`grep -n declin flow.rs`), an arm missed is a false TS2339, and the
+result-unchanged test covers every arm by construction, including ones added
+later. It would win if the over-count (native no-op narrowings) turned out to
+hide many reports; the falsifier is a corpus case where native reports a
+TS2339 on a union receiver after a no-op narrowing.
+
+Measured (§49 with §50) on `fbb108f7`: types unchanged; diagnostics **+3**
+cases (`isArray`, `unionPropertyExistence`, `unionTypeReadonly`) and 33 more
+right TS2339 across eight still-wrong cases (`controlFlowAliasing` ×8,
+`typeGuardsWithInstanceOfByConstructorSignature` ×4,
+`typeGuardsWithInstanceOfBySymbolHasInstance` ×4, `inKeywordTypeguard` ×2 per
+variant, `typeGuardRedundancy` ×2, `unionTypeWithIndexSignature`), 0 lost;
+exact oracle 10812 → 10812, 0 lost; jsTyping gap 28 → 28, new_false 0,
+lost_true 0 (before §50, two false TS2339); Ir gi 0.9999, dm 1.0018.
+
+§20 update: the blanket gate is replaced by this certificate; §20's three
+remaining losses are certified-uncertain here (`typeGuardNarrowByUntypedField`
+×2 and `discriminatedUnionTypes3` decline in the narrowing, and
+`controlFlowWithIncompleteTypes` makes `silentNeverType`).
+
+## §50 An array mutation evolves only the array it mutates
+
+`getTypeAtFlowArrayMutation` (`flow.go:1393`) acts only when the mutated
+expression (`x` of `x.push(…)`/`x.unshift(…)`, or of `x[i] = …`) is the
+reference, through `getReferenceCandidate`, and adds an element assignment's
+right-hand side only when the index's context-free type is number-like. The
+port's arm added every `ARRAY_MUTATION` node's arguments to whichever
+evolving array was being walked, so two auto arrays in one function shared
+their elements: `const a = []; const b = []; a.push(1); b.push("s")` typed
+both `(string | number)[]`. In jsTyping's `checker.ts`
+`runWithoutResolvedSignatureCaching` this made `cachedResolvedSignatures`
+yield `NodeLinks | SymbolLinks`; §49's certificate exposed it as two false
+TS2339 (`checker.ts(2004,27)`, `(2007,29)`), which is how it was found.
+`array_mutation_target` reads the mutated expression; the depth step (§14)
+now follows native's recursion, which happens only on a matching mutation.
+The index check reads `check_expression` (this port has no context-free
+expression type); a contextually typed index expression is the one place
+the two could differ.

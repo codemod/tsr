@@ -1026,13 +1026,21 @@ impl Checker<'_, '_> {
         Some(missing)
     }
 
-    /// A union receiver that is a narrowable reference is the one shape whose
-    /// flow type this port cannot certify: the narrowing arms decline to the
-    /// declared union silently, and a declined narrowing reads exactly like
-    /// no narrowing (`receiver_type_is_the_declared_one`'s flowed == declared
-    /// test), unless no narrowing can reach the reference. `boolean` is a
-    /// union only by representation.
+    /// A union receiver that is a narrowable reference is certified only
+    /// when its flow walk met no step that may have answered wider than
+    /// native (`Checker::flow_type_is_certified`, `r7-flow.md` §49): the
+    /// narrowing arms decline to their input silently, and a declined
+    /// narrowing reads exactly like no narrowing, so the walk counts every
+    /// unchanged narrowing at a node that mentions the reference, and every
+    /// assignment or join it could not decide. A reference no narrowing can
+    /// reach needs no walk. `boolean` is a union only by representation.
     fn union_receiver_flow_is_uncertified(&self, receiver: NodeId, receiver_type: TypeId) -> bool {
+        let mut reference = receiver;
+        while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(reference)
+            && let Some(expression) = inner.expression.and_then(|e| e.node_id())
+        {
+            reference = expression;
+        }
         matches!(self.store.get(receiver_type).data, crate::types::TypeData::Union { .. })
             && !self.store.get(receiver_type).flags.contains(crate::flags::TypeFlags::BOOLEAN)
             && matches!(
@@ -1044,6 +1052,7 @@ impl Checker<'_, '_> {
                     | SyntaxKind::ParenthesizedExpression
             )
             && !self.flow_cannot_narrow_identifier(receiver)
+            && !self.flow_type_is_certified(reference)
     }
 
     /// The literal-name miss of an indexed access whose access node is a
