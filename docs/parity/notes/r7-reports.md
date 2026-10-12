@@ -1530,3 +1530,22 @@ measured with the gate.
   relation's verdict as a TS2345 head (`lastPropertyInLiteralWins`, WRONG
   → WRONG, 3 lines fixed and 1 new). The member type the relater reads
   comes from `objects.rs` / `members.rs`, so it is proposed as an issue.
+
+## 40. Overloaded signature sets in the chain
+
+`signaturesRelatedTo`' N×M arm (`relater.go:4495`) handles every pair that
+is not 1:1 and not two instantiations of one anonymous type or reference
+target. It walks the target signatures in order. For the first target
+signature that no source signature matches (both erased), only the first
+source signature's failure is elaborated (`shouldElaborateErrors` is then
+cleared). So with any source signature present, no `provides no match`
+follows. `explain_signature_sets` does the same: verdicts come from
+`compare_signature_ternary` on erased signatures, and the explanation from
+`explain_signature`. The pairwise arm declines rather than guess its erased
+pairing. `getErasedSignature` is re-implemented here
+(`chain_erased_signature`) rather than exposed from `check.rs`, which this
+lane does not own.
+
+A function declaration's own overload set (`typeof f`) still declines.
+`get_property_names_of_type` has no answer for it, and the unmatched-
+property step needs one.

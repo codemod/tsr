@@ -5887,7 +5887,10 @@ impl Checker<'_, '_> {
                         (source_signature.clone(), target_signature.clone());
                     self.explain_signature(stack, &source_signature, &target_signature, depth)
                 }
-                _ => None,
+                (sources, targets) => {
+                    let (sources, targets) = (sources.to_vec(), targets.to_vec());
+                    self.explain_signature_sets(stack, source, target, &sources, &targets, depth)
+                }
             };
         }
         // `indexSignaturesRelatedTo`: a target index signature the source
@@ -5909,6 +5912,78 @@ impl Checker<'_, '_> {
             return Some(());
         }
         None
+    }
+
+    /// `signaturesRelatedTo`' N×M arm (`relater.go:4495`): the first target
+    /// signature no source signature matches, both erased. Only the first
+    /// source's failure elaborates, and with other sources present no
+    /// `provides no match` follows. Pairwise instantiations of one
+    /// anonymous type or reference target (the arm before it) decline.
+    fn explain_signature_sets(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        sources: &[crate::signatures::Signature],
+        targets: &[crate::signatures::Signature],
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        let same_anonymous = matches!(
+            (&self.type_of(source).data, &self.type_of(target).data),
+            (TypeData::Anonymous { symbol: a, .. }, TypeData::Anonymous { symbol: b, .. }) if a == b
+        );
+        let same_reference = match (
+            self.type_reference_targets.get(&source),
+            self.type_reference_targets.get(&target),
+        ) {
+            (Some((a, _)), Some((b, _))) => a == b,
+            _ => false,
+        };
+        if same_anonymous || same_reference {
+            return None;
+        }
+        let first = self.chain_erased_signature(sources.first()?)?;
+        for target_signature in targets {
+            let erased_target = self.chain_erased_signature(target_signature)?;
+            let mut matched = false;
+            for source_signature in sources {
+                let erased_source = self.chain_erased_signature(source_signature)?;
+                match self.compare_signature_ternary(&erased_source, &erased_target)? {
+                    Ternary::Related => {
+                        matched = true;
+                        break;
+                    }
+                    Ternary::NotRelated => {}
+                    Ternary::Unknown => return None,
+                }
+            }
+            if !matched {
+                return self.explain_signature(stack, &first, &erased_target, depth);
+            }
+        }
+        None
+    }
+
+    /// `getErasedSignature`: the signature's own type parameters as `any`.
+    fn chain_erased_signature(
+        &mut self,
+        signature: &crate::signatures::Signature,
+    ) -> Option<crate::signatures::Signature> {
+        if signature.type_parameters.is_empty() {
+            return Some(signature.clone());
+        }
+        let parameters = self.type_parameter_types(signature)?;
+        let any = self.intrinsics.any;
+        let map: Vec<(TypeId, TypeId)> =
+            parameters.iter().map(|&parameter| (parameter, any)).collect();
+        let names: Vec<String> =
+            signature.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut erased =
+            self.instantiate_signature(signature.clone(), &map, &parameters, &names)?;
+        erased.type_parameters.clear();
+        Some(erased)
     }
 
     /// `isObjectTypeWithInferableIndex` is false: a class or interface
