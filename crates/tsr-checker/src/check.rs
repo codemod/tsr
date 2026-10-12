@@ -4981,7 +4981,10 @@ impl Checker<'_, '_> {
             // already reports it, so the not-found rung must not run.
             return;
         }
-        if is_specially_diagnosed_name(text) || (self.in_js_file(node) && self.names_in_jsdoc(node))
+        if is_specially_diagnosed_name(text)
+            || (self.in_js_file(node)
+                && self.names_in_jsdoc(node)
+                && self.is_intended_jsdoc_type_reference_name(node, text))
         {
             return;
         }

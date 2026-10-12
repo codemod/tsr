@@ -125,14 +125,40 @@ impl Checker<'_, '_> {
     /// `getTypeFromTypeReference` resolves it as in TypeScript — the baselines
     /// of `fillInMissingTypeArgsOnJSConstructCalls` and
     /// `parserArrowFunctionExpression10`/`17` carry TS2304 beside TS8010.
-    /// JSDoc type names keep the decline: their resolution
-    /// (`resolveTypeReferenceName`'s JSDoc arms, typedef scopes) is the jsdoc
-    /// lane's, and lifting it measured 6 cases lost
-    /// (`docs/parity/notes/r6-names.md` §6).
+    /// JSDoc type names kept the decline until r7-grammar §72: lifting it then
+    /// measured 6 cases lost (`docs/parity/notes/r6-names.md` §6). Re-measured
+    /// on main batch 72 it is +24 exact, 0 lost, once the names
+    /// `getIntendedTypeFromJSDocTypeReference` answers without resolving are
+    /// excluded ([`Checker::is_intended_jsdoc_type_reference_name`]). The only
+    /// reader left is that exclusion.
     ///
     /// A reparsed JSDoc root has no parent edge here (the parser's
     /// `attach_jsdoc`), so a walk that ends anywhere but a source file is in
     /// a comment.
+    /// `getIntendedTypeFromJSDocTypeReference` (`checker.go:23020`): a JSDoc
+    /// type reference named `String`, `Number`, `BigInt`, `Boolean`, `Void`,
+    /// `Undefined`, `Null`, `Function`/`function` (any arguments), `array`
+    /// or `promise` with no type arguments and `noImplicitAny` off, or
+    /// `Object` with two type arguments or `noImplicitAny` off, is answered
+    /// without resolving the name, so no name error is reported there.
+    pub(crate) fn is_intended_jsdoc_type_reference_name(&self, node: NodeId, text: &str) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(parent) else {
+            return false;
+        };
+        if reference.type_name.and_then(|name| name.node_id()) != Some(node) {
+            return false;
+        }
+        let arguments = reference.type_arguments.len();
+        match text {
+            "String" | "Number" | "BigInt" | "Boolean" | "Void" | "Undefined" | "Null"
+            | "Function" | "function" => true,
+            "array" | "promise" => arguments == 0 && !self.no_implicit_any,
+            "Object" => arguments == 2 || !self.no_implicit_any,
+            _ => false,
+        }
+    }
+
     pub(crate) fn names_in_jsdoc(&self, node: NodeId) -> bool {
         let mut current = node;
         loop {

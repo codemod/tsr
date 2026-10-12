@@ -1661,3 +1661,27 @@ nothing keeps only its TS2503. Checked with the CLI against
 `target/tsgo-pinned`: `importDeclWithClassModifiers` and the
 `declare export import` control `importDeclWithDeclareModifier` (silent,
 ambient).
+
+## §72 JSDoc type names are checked; the intended JSDoc names are not
+
+check.rs's `check_type_reference_name` declined every name inside a JSDoc
+comment (`names_in_jsdoc`, r6-names §6). Lifting the decline then measured
++4 and 6 lost. Re-measured on main batch 72 with the native exclusion that
+was missing: `getTypeFromTypeReference` asks
+`getIntendedTypeFromJSDocTypeReference` (`checker.go:23020`) first. For a
+JSDoc reference named `String`, `Number`, `BigInt`, `Boolean`, `Void`,
+`Undefined`, `Null` or `Function`/`function`, for `array`/`promise` with no
+type arguments and `noImplicitAny` off, and for `Object` with two type
+arguments or `noImplicitAny` off, it answers without resolving the name. So
+no TS2304/TS2583/TS2552 is reported there (`checkJsdocTypeTag8`'s `BigInt`,
+`jsdocFunctionType`'s `function`). `is_intended_jsdoc_type_reference_name`
+(name_slots.rs, the integration owner's file, a small hunk) is that
+exclusion. The decline is otherwise gone (check.rs, one condition). Exact
+oracle against a freeze of `8da3d42d`: +24, 0 lost. The new cases are
+JSDoc TS2749/TS2304 reports (`jsdocTypeReferenceToValue`, `enumTag`,
+`jsEnumTagOnObjectFrozen`, `jsdocTypeReferenceExports`,
+`exportedEnumTypeAndValue`, `jsdocTypeReferenceToImport`,
+`jsdocResolveNameFailureInTypedef`, …).
+*Falsifier.* A TS2304/TS2749 inside a JSDoc comment that native does not
+report, from a JSDoc-specific resolution this port lacks (typedef scopes,
+`import()` types).
