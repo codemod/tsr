@@ -1475,6 +1475,15 @@ Checked with the CLI against `target/tsgo-pinned`:
 a TS2749 gap). `strictModeReservedWordInClassDeclaration`'s
 `implements public.private.B` is a property-access heritage name, which
 check.rs does not resolve through this reporter.
+
+*One decline.* `@callback NS.Nested.Inner` (or `@typedef`) declares
+namespace `NS` upstream (`parseJSDocTypeNameWithNamespace`, then
+`bindJSDocTypeAlias`). This parser keeps only `NS` as the tag's name, and
+the alias is filed under it as a type. So the arm would report TS2702 on a
+later `NS.Nested.Inner` that native resolves (`callbackTagNamespace`, a
+legacy-suite loss in the first gate). An alias whose written name continues
+with `.` stops the cascade unreported, as before the arm existed. Routed to
+r7-parser (the namespaced JSDoc name).
 ## §64 TS2417 with the relater's elaboration (needs check.rs grant)
 
 `checkClassLikeDeclaration` reports the static side (`checker.go:4337`) with
