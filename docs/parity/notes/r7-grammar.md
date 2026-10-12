@@ -1006,3 +1006,70 @@ walks for an enclosing `async`. That was reported to the integration thread.
 
 *Falsifier.* A TS1106 in a static block, or a missing one in a non-async
 function, in a corpus case.
+
+## §54 TS2373's parameter as written; TS18033 through the relater
+
+*TS2373/TS2372.* `checkResolvedBlockScopedVariable`'s parameter arm reports
+`Parameter '{0}' cannot reference identifier '{1}' declared after it.` with
+`DeclarationNameToString(associatedDeclaration.Name())`. That is the name's
+source text, so a binding pattern prints as written, computed keys and
+defaults included (`{ [a() ?? "d"]: c = "" }`). class_fields.rs's
+`binding_name_text` rebuilt the pattern from its element names (`{ c }`).
+It now takes `declaration_name_source_text` (§35) and keeps the rebuild only
+as the no-source fallback. Converted (CLI vs `target/tsgo-pinned`):
+`nullishCoalescingOperatorInParameterBindingPattern.2`,
+`classWithStaticFieldInParameterBindingPattern.2` (4 oracle rows, the
+`TS2373 message-text-only` buckets).
+
+*TS18033.* `computeConstantEnumMemberValue`'s default arm is
+`checkTypeAssignableTo(checkExpression(initializer), numberType, initializer,
+Type_0_is_not_assignable_to_type_1_as_required_for_computed_enum_member_values)`.
+That is the relater's `reportRelationError` under the head, so a literal
+source is generalized against `number` (`typeCouldHaveTopLevelSingletonTypes`
+is false), and the elaboration chain follows. enum_initializer.rs printed
+`type_to_string(source)`. That gave `'"bar"'` for `` `${BAR}`! ``, where
+native prints `'string'`, and it dropped the chain (`TS2322 in TS18033`,
+`TS2692 in TS18033`). The check now goes through `report_relation_failure`
+with the head, as heritage_conformance.rs's TS2415/TS2430 do (§41). A
+declined report keeps the bare head.
+
+*Falsifier.* A TS18033 whose type text or chain differs from the relater's
+TS2322 for the same pair. That would be the relater's divergence, not this
+call's.
+
+## §55 TS18027, TS2398, TS2500, and TS2416's member name as written
+
+Four small arms of declaration checks. Each had no emitter or printed the
+wrong text. All were checked against `target/tsgo-pinned`
+(`tests/declaration_collisions_grammar.rs`).
+
+- **TS18027** (`recordPotentialCollisionWithWeakMapSetInGeneratedCode` /
+  `checkWeakMapSetCollision`, `checker.go:10539`): at ES2021 or below, a
+  declaration named `WeakMap`/`WeakSet` whose enclosing block-scope container
+  holds a class element named with a private identifier. Native marks every
+  enclosing container from `checkPropertyDeclaration`/method/accessor
+  (`setNodeLinksForPrivateIdentifierScope`) and defers the test. As with
+  TS2818's `Reflect` (`check_reflect_collision`), the deferred mark is read
+  off the tree. The container is marked exactly when such an element lies
+  strictly inside it. `checkCollisionsForDeclarationName` records this
+  collision just before the `Reflect` one, so `check_reflect_collision` calls
+  it first. `errorSkippedOnNoEmit`, so a `--noEmit` run is silent. Converted:
+  `privateNameWeakMapCollision`.
+- **TS2398** (`checkParameter`, `checker.go:2674`): a parameter property
+  named `constructor` in a constructor, a `c.error` at the name. It runs from
+  grammar.rs's per-node `check_parser_lane_statement` hook. Its TS2369
+  sibling stays in check.rs. Converted: `parameterPropertyInConstructor3`.
+- **TS2500** (`checkClassLikeDeclaration`'s implements loop,
+  `checker.go:4369`): an implements entry that is not an entity name
+  expression, or is an optional chain (`implements A?.B`). It is reported
+  before any of heritage_conformance.rs's declines, as native reports it
+  before the relation. Converted: `classExtendingOptionalChain`.
+- **TS2416's `{0}`** is `symbolToString(declaredProp)`, whose
+  `getNameOfSymbolAsWritten` is `DeclarationNameToString(name)`
+  (`nodebuilderimpl.go:1002`). A string-literal or numeric-literal member
+  name prints as written (`'2.0'` with its quotes). `issue_member_specific_error`
+  printed the cooked text. Converted: `subtypingWithObjectMembers`.
+
+*Falsifier.* A TS18027 where native's marks differ from the subtree read,
+i.e. a private-named element that native never checks (an unchecked
+region). That would show as an extra TS18027.

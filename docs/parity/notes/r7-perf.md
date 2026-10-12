@@ -1016,6 +1016,105 @@ Hand reductions of the aliased-condition, closure and equality clusters
 were silent on both compilers, so those triggers need more of the
 program.
 
+## §34 Refused: lib.dom.d.ts parsed in place on the walk thread
+
+This section is placed before §21, after §32, for the same reason as §32.
+
+**Question.** Since §25, `lib.dom.d.ts` is parsed privately on a worker
+and then copied into the shared tables at its visit. That copy is about
+0.31 of the parse (r5-loader §6.2). On domain-model, the loader is 33 ms
+of a 42–47 ms `Program time`. Would the walk thread do better parsing
+`lib.dom.d.ts` in place, with no copy?
+
+**Variants** (scratch builds of `FileLoader::prepare_root_parses` on main
+`bacf0918`, not committed; dist; interleaved fresh processes, 25 pairs
+each; ratio new/§25):
+
+| variant | domain-model wall | domain-model-large wall | `Program time` |
+|---|---:|---:|---|
+| not prepared; parsed in place at its visit (last) | 1.015 | 1.027 | dm 42 → 44 ms, dml 70 → 81 ms |
+| parsed in place **before** the walk, while workers prepare the roots | 0.996 | 1.019 | dm 42 → 41 ms, dml 77 → 86 ms |
+
+Neither wins. In the first variant the walk thread publishes every root
+before it starts a 15 ms serial parse that §25's worker had already
+finished. In the second the walk thread spends that 15 ms before
+publishing the first root, and the roots' copies then queue behind it.
+dml has 202 roots, so it loses most. The second variant also changes
+the node-id order (lib.dom before the roots), which would have needed
+its own output audit. §25's arrangement stays. Without ADR-0056's
+zero-copy publication, there is no faster arrangement of these jobs on
+domain-model or domain-model-large.
+
+## §35 A call whose callee declares no const type parameter is not resolved again for a literal's const context
+
+This section is placed before §21, after §34, for the same reason as §32.
+The change is in this lane's `perf_links.rs` and lands on `box/r7-perf`.
+
+**Forcing measurement.** A single-threaded perf profile of jsTyping, on
+the chain of §31 and §33 (profiling build, frame pointers), puts 4.7% of
+all samples under `call_resolves_const_type_parameter`. That function is
+reached from `literal_in_const_type_variable_context` through
+`check_object_literal_members`, inside `choose_construct_overload`'s
+argument walk. The pattern is `getScriptTargetFeatures`'
+`new Map(Object.entries({ … }))`. For every member of the inner literal,
+the port asked whether `Object.entries(…)`'s resolved signature
+declares a const type parameter. Inside the outer overload walk an
+inference context is active, so the per-call answer
+(`perf_links.call_const_type_parameters`) is not published, and the
+call was resolved again for each member.
+
+**Native.** `isConstContext`'s type-variable arm
+(`checker.go:13618`) reads the literal's contextual type, which comes
+from the call's resolved signature. That signature is one of the
+callee's call signatures, possibly instantiated, and instantiation keeps
+each type parameter's `const` modifier. When no candidate declares one,
+the answer cannot be true.
+
+**Change.** `call_resolves_const_type_parameter` reads the callee's
+call signatures (`signatures_of_type_kind`, which applies the apparent
+type as resolution does). When there is at least one and none declares
+a const type parameter, it answers `false` without resolving the call.
+An empty or undecided signature list keeps the old road. This is not a
+new cache: the existing per-call answer keeps its publication rules.
+
+**Measured** (base: main `cac2f4c8`, batch 56):
+
+- Both unfiltered dumps are byte-identical to a freeze of `cac2f4c8`
+  once the `ms=`/`mib=` columns are cut. `compare` reports 0 gained,
+  0 lost and 0 missing.
+- jsTyping leg against tsgo-pinned (86 lines). Default mode: base 111,
+  candidate 111, identical. `--singleThreaded`: 109 and 109, identical.
+  new_false 0, lost_true 0. CLI output is `cmp`-identical on dm, dml
+  and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,609 → 10,609
+  exact, 0 lost, 0 missing.
+- Callgrind Ir, `--singleThreaded`: generic-imports 191,608,893 →
+  191,610,958; domain-model 858,068,852 → 858,138,769 (+0.008%). The
+  bench projects have no such call.
+- jsTyping `--singleThreaded`, interleaved, 3 runs each, on a box shared
+  with a gate run: user CPU 33.4–33.8 s → 30.4–31.2 s (**−7%**). On the
+  §31 chain, which already removes §24's re-check loops, single-threaded
+  wall went 8.97 → 7.80 s (−13%).
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,848 passed, 0 failed.
+
+**Side finding: jsTyping's output depends on the checker mode.** On main,
+`--singleThreaded` reports 120 unique lines and the default
+4-checker mode reports 122. The two extra lines are the `BindableStatic*`
+cluster of §32: `utilities.ts(4187,92)` TS2769 and
+`utilities.ts(4258,13)` TS2322. tsgo prints neither. The two modes
+differ only in what the checker has resolved before it reaches
+`utilities.ts`. So the cluster's answer depends on evaluation order:
+it is an order bug in the overload or alias road, not a missing rule
+(r7-calls). This change leaves both modes' outputs
+unchanged.
+
+**How we would know it was wrong.** A call whose resolved signature
+declares a const type parameter that none of `signatures_of_type_kind`'s
+answers declares, for example a signature synthesised for a union callee.
+A literal in that call would lose its const context and widen, which a
+types row would show.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):

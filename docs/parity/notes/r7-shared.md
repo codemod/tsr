@@ -1089,3 +1089,14 @@ not proof of absence. Two shapes are now decided:
 
 An alias target, and any value other than a variable that is not
 declaration-shaped, still decline.
+
+## 37. TS2305's module name is the module symbol's, not the specifier's
+
+`errorNoModuleMemberSymbol` prints `getFullyQualifiedName(moduleSymbol,
+node)`. For an ambient module that is the name it was declared with, so
+`import { onlyInA } from "b.foo"`, resolved by `declare module "*.foo"`,
+reports `Module '"*.foo"' has no exported member 'onlyInA'`
+(`ambientDeclarationsPatterns_merging1/2`). `report_missing_module_export`
+printed the specifier (`"b.foo"`). It now prints an ambient module's own
+declared name and keeps the specifier for a file module; the two agree for
+a non-pattern ambient module.

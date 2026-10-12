@@ -204,10 +204,20 @@ impl Checker<'_, '_> {
         self.immediately_invoked_call(location).is_none()
     }
 
-    /// `DeclarationNameToString` for a parameter or binding element name.
-    /// Upstream prints the pattern's source text, which the checker cannot
-    /// reach; a pattern is rebuilt from its element names (§2).
+    /// `DeclarationNameToString` for a parameter or binding element name: the
+    /// name's source text (`declaration_name_source_text`, r7-grammar §35), so
+    /// a pattern prints as written, computed keys and defaults included.
+    /// Without source text a pattern is rebuilt from its element names (§2).
+    /// Correction of the record: this used to say the checker cannot reach
+    /// the source text, and always rebuilt the pattern (r7-grammar §54).
     fn binding_name_text(&self, name: NodeId) -> String {
+        if let Some(text) = self.declaration_name_source_text(name) {
+            return text;
+        }
+        self.rebuilt_binding_name_text(name)
+    }
+
+    fn rebuilt_binding_name_text(&self, name: NodeId) -> String {
         match self.node_map.get(name) {
             Some(Node::Identifier(identifier)) => identifier.text.to_string(),
             Some(Node::BindingPattern(pattern)) => {
@@ -234,7 +244,7 @@ impl Checker<'_, '_> {
         let name = element
             .name
             .and_then(|name| Node::from(name).node_id())
-            .map(|name| self.binding_name_text(name))
+            .map(|name| self.rebuilt_binding_name_text(name))
             .unwrap_or_default();
         let rest = if element.dot_dot_dot_token.is_some() { "..." } else { "" };
         format!("{rest}{name}")
@@ -270,7 +280,13 @@ impl Checker<'_, '_> {
     /// mark made later in the file would be missed; the mark is instead read
     /// off the tree — a container is marked exactly when such a `super` lies
     /// inside it (§3). `name` is the declaration name identifier being checked.
+    ///
+    /// `checkCollisionsForDeclarationName` records the WeakMap/WeakSet
+    /// collision just before this one (`checker.go:10451`), for the same
+    /// declaration and name, so [`Self::check_weak_map_set_collision`] runs
+    /// first from here.
     pub(crate) fn check_reflect_collision(&mut self, name: NodeId, text: &str) {
+        self.check_weak_map_set_collision(name, text);
         if text != "Reflect" || self.language_version > tsr_core::ScriptTarget::ES2021 {
             return;
         }
@@ -306,6 +322,74 @@ impl Checker<'_, '_> {
                 [text.to_string(), "Reflect".to_string()],
             ),
         );
+    }
+
+    /// TS18027 — `Compiler reserves name '{0}' when emitting private
+    /// identifier downlevel.`
+    ///
+    /// `recordPotentialCollisionWithWeakMapSetInGeneratedCode` and
+    /// `checkWeakMapSetCollision` (`checker.go:10539`, `:10548`): at a target
+    /// of ES2021 or below, a declaration named `WeakMap` or `WeakSet` whose
+    /// enclosing block-scope container is marked
+    /// `NodeCheckFlagsContainsClassWithPrivateIdentifiers`.
+    /// `setNodeLinksForPrivateIdentifierScope` (`:10527`) marks every
+    /// block-scope container enclosing a property, method or accessor named
+    /// with a private identifier (its first condition always holds at these
+    /// targets). The deferred check sees every mark, so, as for `Reflect`,
+    /// the mark is read off the tree: the container is marked exactly when
+    /// such an element lies inside it, other than the container itself
+    /// (r7-grammar §55).
+    fn check_weak_map_set_collision(&mut self, name: NodeId, text: &str) {
+        if !matches!(text, "WeakMap" | "WeakSet")
+            || self.language_version > tsr_core::ScriptTarget::ES2021
+        {
+            return;
+        }
+        let Some(declaration) = self.nodes.parent(name) else { return };
+        if !self.declares_collision_checked_name(declaration, name)
+            || !self.need_collision_check_for_identifier(declaration)
+        {
+            return;
+        }
+        let Some(container) = self.enclosing_block_scope(declaration) else { return };
+        if !self.contains_private_named_class_element(container) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let span = self.error_span(declaration);
+        self.report_skipped_on_no_emit(
+            file,
+            Diagnostic::with_args(
+                &messages::COMPILER_RESERVES_NAME_0_WHEN_EMITTING_PRIVATE_IDENTIFIER_DOWNLEVEL,
+                span,
+                [text.to_string()],
+            ),
+        );
+    }
+
+    /// `NodeCheckFlagsContainsClassWithPrivateIdentifiers` on `container`:
+    /// a property, method or accessor named with a private identifier lies
+    /// strictly inside it.
+    fn contains_private_named_class_element(&self, container: NodeId) -> bool {
+        let mut stack = Vec::new();
+        if let Some(typed) = self.node_map.get(container) {
+            tsr_ast::for_each_child_id(typed, |child| stack.push(child));
+        }
+        while let Some(node) = stack.pop() {
+            let Some(typed) = self.node_map.get(node) else { continue };
+            let name = match typed {
+                Node::PropertyDeclaration(n) => Some(n.name),
+                Node::MethodDeclaration(n) => Some(n.name),
+                Node::GetAccessorDeclaration(n) => Some(n.name),
+                Node::SetAccessorDeclaration(n) => Some(n.name),
+                _ => None,
+            };
+            if matches!(name, Some(tsr_ast::PropertyName::PrivateIdentifier(_))) {
+                return true;
+            }
+            tsr_ast::for_each_child_id(typed, |child| stack.push(child));
+        }
+        false
     }
 
     /// Whether `name` is the name `checkCollisionsForDeclarationName` is
@@ -497,6 +581,53 @@ impl Checker<'_, '_> {
         clauses.iter().any(|clause| {
             clause.token.kind == SyntaxKind::ExtendsKeyword && !clause.types.is_empty()
         })
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `checkParameter`'s parameter-property arm (`checker.go:2666`): a
+    /// parameter with `ModifierFlagsParameterPropertyModifier` (an
+    /// accessibility modifier, `readonly` or `override`) whose containing
+    /// function is a constructor and whose name is the identifier
+    /// `constructor` is TS2398 at the name, a `c.error`. The arm's TS2369
+    /// sibling is check.rs's; the two read the same modifiers and report
+    /// at different nodes (r7-grammar §55).
+    pub(crate) fn check_constructor_parameter_property_name(
+        &mut self,
+        parameter: &tsr_ast::ParameterDeclaration<'_>,
+    ) {
+        let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { return };
+        if name.text != "constructor" {
+            return;
+        }
+        let is_property = parameter.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token) if matches!(
+                token.kind,
+                SyntaxKind::PublicKeyword
+                    | SyntaxKind::PrivateKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::ReadonlyKeyword
+                    | SyntaxKind::OverrideKeyword
+            ))
+        });
+        let Some(id) = parameter.node_id else { return };
+        let in_constructor = self
+            .nodes
+            .parent(id)
+            .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::Constructor);
+        let Some(name_id) = name.node_id else { return };
+        if !is_property || !in_constructor {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        let span = self.error_span(name_id);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::CONSTRUCTOR_CANNOT_BE_USED_AS_A_PARAMETER_PROPERTY_NAME,
+                span,
+            ),
+        );
     }
 }
 

@@ -104,6 +104,78 @@ impl<'a> Checker<'a, '_> {
         self.get_return_type_of_signature(&signature)
     }
 
+    /// TS8030 for `function`'s `@type` full signature
+    /// (`checkFunctionOrMethodDeclaration`, `checker.go:3441`):
+    /// `getContextualCallSignature(type, node)` is nil. The call signatures
+    /// not smaller in arity than the function's leading required parameters
+    /// (`isAritySmaller`) must leave exactly one, or several that
+    /// `getIntersectedSignatures` combines (only under `noImplicitAny`, and
+    /// only with identical type parameter lists). An error type, an
+    /// undecided signature list, or a combination that would need the
+    /// type parameters compared further, declines (r7-reports §57).
+    pub(crate) fn check_jsdoc_full_signature_arity(&mut self, function: NodeId) {
+        let Some(annotation) = self.jsdoc_full_signature_node(function) else { return };
+        let ty = self.get_type_from_type_node(annotation);
+        if self.is_error(ty) || self.jsdoc_full_signature_undecided(function) {
+            return;
+        }
+        let parameters = match self.node_map.get(function) {
+            Some(Node::FunctionDeclaration(node)) => node.parameters,
+            Some(Node::MethodDeclaration(node)) => node.parameters,
+            _ => return,
+        };
+        let required = parameters
+            .iter()
+            .filter(|parameter| {
+                !matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+            })
+            .take_while(|parameter| {
+                parameter.initializer.is_none()
+                    && parameter.question_token.is_none()
+                    && parameter.dot_dot_dot_token.is_none()
+            })
+            .count();
+        let Some(signatures) = self.signatures_of_type_kind(ty, SignatureKind::Call) else {
+            return;
+        };
+        let applicable: Vec<&Signature> = signatures
+            .iter()
+            .filter(|signature| {
+                signature.parameters.iter().any(|parameter| parameter.rest)
+                    || signature.parameters.len() >= required
+            })
+            .collect();
+        let missing = match applicable.as_slice() {
+            [] => true,
+            [_] => false,
+            [first, rest @ ..] => {
+                if self.no_implicit_any {
+                    if rest.iter().all(|signature| {
+                        signature.type_parameters.len() == first.type_parameters.len()
+                    }) {
+                        return;
+                    }
+                    true
+                } else {
+                    true
+                }
+            }
+        };
+        if !missing {
+            return;
+        }
+        let Some(annotation_id) = tsr_ast::Node::from(annotation).node_id() else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(function) else { return };
+        let span = self.error_span(annotation_id);
+        self.report(
+            file,
+            tsr_diagnostics::Diagnostic::new(
+                &tsr_diagnostics::messages::A_JSDOC_TYPE_TAG_ON_A_FUNCTION_MUST_HAVE_A_SIGNATURE_WITH_THE_CORRECT_NUMBER_OF_ARGUMENTS,
+                span,
+            ),
+        );
+    }
+
     /// `getSingleCallSignature` → `getSingleSignature(t, SignatureKindCall,
     /// false)` (`checker/checker.go:19353`): exactly one call signature, no
     /// construct signature, and no property or index signature. Unlike the

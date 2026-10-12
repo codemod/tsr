@@ -1214,3 +1214,43 @@ Measured on `ead5eb83` unfiltered: types and diagnostics verdicts unchanged
 (`genericDefaults` stays WRONG on a TS2415 of the heritage check), 0 lost;
 exact oracle 9681 → 9681, 0 lost; jsTyping 111 → 111, new_false 0, lost_true 0;
 Ir gi 0.9999, dm 1.0001.
+
+## §46 `elaborateNeverIntersection` on TS2339
+
+`reportNonexistentProperty` chains the TS2339 for a never-reduced
+intersection receiver to `elaborateNeverIntersection` (`checker.go:21868`):
+"The intersection 'A & B' was reduced to 'never' because property 'kind' has
+conflicting types in some constituents." (TS18031), or the private-conflict
+form (TS18032), naming the first discriminant property with a `never` type,
+else the first conflicting private one, and printing the intersection without
+reduction. The port reported the head alone (the chain was "message text this
+diagnostic model does not carry", before chains). `never_reduced_property`
+(flow.rs, the scan of `intersection_has_never_discriminant` refactored to
+also say which property and which kind) supplies it, on the property-access
+road only, as native (`getPropertyTypeForIndexType` does not elaborate).
+The flattened head now matches native (`intersectionReduction`,
+`intersectionReductionStrict`); the chain row is file-less until §19's
+infrastructure lands.
+
+Measured on `c1a10e20` unfiltered: types and diagnostics verdicts unchanged,
+0 lost; exact oracle 9681 → 9681, 0 lost; jsTyping 111 → 111, new_false 0,
+lost_true 0; Ir gi 0.9999, dm
+0.9999.
+
+§31 update: `nullish.rs`' `getSyntacticNullishnessSemantics` identifier arm
+made the same stale test (an `undefined` that "resolves to nothing"), so
+`(opt ? undefined : null) ?? x` missed TS2871 (`predicateSemantics`, two
+rows); `truthiness.rs` had already been corrected. The routed diff now covers
+both files. Re-measured on `954817a5` unfiltered: types **+6**, diagnostics
+unchanged, 0 lost; exact oracle 9681 → 9683, 0 lost; jsTyping 111 → 111,
+new_false 0, lost_true 0; Ir gi 0.9999, dm 1.0000. `predicateSemantics`
+keeps a TS2872 span difference: `GetErrorRangeForNode`'s `SatisfiesExpression`
+arm (the `satisfies` keyword) is missing from the shared `error_span`, which
+§38's routed diff could take too.
+
+§38 update: the routed `error_span` diff now also has `GetErrorRangeForNode`'s
+`SatisfiesExpression` arm (`scanner.go:2626`: the token after the expression,
+the `satisfies` keyword). Re-measured on `bae795fe` unfiltered: legacy verdicts
+unchanged; exact oracle 9681 → 9686 (the same five; `predicateSemantics`
+gains with §31's diff as well), 0 lost; jsTyping 111 → 111, new_false 0,
+lost_true 0; Ir gi 1.0001, dm 1.0002.
