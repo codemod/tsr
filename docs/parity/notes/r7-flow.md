@@ -1112,3 +1112,18 @@ unique lines, new_false 0, lost_true 0 (five false TS2322/TS2365 lines in
 `program.ts`, `semver.ts` and `esDecorators.ts` gone); exact oracle 9677 → 9679, 0
 lost; Ir gi 1.0000, dm
 1.0000.
+
+## §40 `GetRootDeclaration` in `isParameterOrMutableLocalVariable`
+
+`GetRootDeclaration` climbs a binding element to its pattern's owner (`for
+IsBindingElement(node) { node = node.Parent.Parent }`), so `let { oldProgram
+} = options` is a mutable local whose closure reads past its last assignment
+narrow (`isPastLastAssignment`). The port's loop climbed through parents of
+the listed kinds and stopped on the pattern for a `VariableDeclaration`
+owner (only a `Parameter` owner was in its list), so every destructured `let`
+was "not a mutable local". It now climbs as native does.
+
+Measured on `5aed9899` unfiltered: types and diagnostics verdicts unchanged,
+0 lost; exact oracle 9679 → 9679, 0 lost; jsTyping 117 → **114** unique
+lines, new_false 0, lost_true 0 (`program.ts`' three false TS18048 on the
+destructured `oldProgram` read in callbacks gone); Ir gi 0.9999, dm 1.0000.
