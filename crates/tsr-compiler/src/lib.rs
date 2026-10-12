@@ -1402,6 +1402,17 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         self.files[index].diagnostics()
     }
 
+    fn written_lists(
+        &self,
+        file: NodeId,
+        nodes: &NodeTable,
+    ) -> &[tsr_checker::resolution::WrittenList] {
+        if !std::ptr::eq(nodes, self.nodes()) {
+            return &[];
+        }
+        self.files_by_source_file.get(&file).map_or(&[], |&index| self.files[index].written_lists())
+    }
+
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }

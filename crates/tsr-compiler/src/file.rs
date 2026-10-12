@@ -59,6 +59,9 @@ pub struct ProgramFile<'a> {
     node_range: Range<u32>,
     diagnostics: Vec<Diagnostic>,
     file_references: FileReferences,
+    /// The parser's empty and comma-terminated lists ([`tsr_parser::ListFact`]),
+    /// sorted by owner, in the checker's vocabulary.
+    written_lists: Vec<tsr_checker::resolution::WrittenList>,
 }
 
 impl<'a> ProgramFile<'a> {
@@ -85,6 +88,7 @@ impl<'a> ProgramFile<'a> {
             node_range: parsed.node_range,
             diagnostics,
             file_references: parsed.file_references,
+            written_lists: parsed.list_facts.iter().map(written_list).collect(),
         }
     }
 
@@ -149,9 +153,35 @@ impl<'a> ProgramFile<'a> {
         &self.file_references
     }
 
+    /// The written lists that are empty or end in a comma, sorted by owner,
+    /// as the parser recorded them ([`tsr_parser::ListFact`]).
+    #[must_use]
+    pub fn written_lists(&self) -> &[tsr_checker::resolution::WrittenList] {
+        &self.written_lists
+    }
+
     /// What the scanner and parser objected to, in source order.
     #[must_use]
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+}
+
+/// The parser's list fact in the checker's vocabulary.
+fn written_list(
+    &(owner, fact): &(NodeId, tsr_parser::ListFact),
+) -> tsr_checker::resolution::WrittenList {
+    use tsr_checker::resolution::WrittenListKind;
+    tsr_checker::resolution::WrittenList {
+        owner,
+        kind: match fact.kind {
+            tsr_parser::ListKind::TypeParameters => WrittenListKind::TypeParameters,
+            tsr_parser::ListKind::TypeArguments => WrittenListKind::TypeArguments,
+            tsr_parser::ListKind::Parameters => WrittenListKind::Parameters,
+        },
+        open: fact.open,
+        close: fact.close,
+        empty: fact.empty,
+        trailing_comma: fact.trailing_comma,
     }
 }

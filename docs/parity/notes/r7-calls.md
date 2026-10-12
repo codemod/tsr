@@ -1109,6 +1109,24 @@ when the resolved signature's `this` type is `void`
 `new` head reports it for the candidate it can tell
 (`new_head_candidate`): thisTypeInFunctionsNegative's `new VoidThis()`.
 
+## 33. A JSX overload failure chains like a call's
+
+`reportCallResolutionErrors` (`checker.go:9649`) is shared by calls and JSX
+elements: with several `candidatesForArgumentError` the last candidate's
+report is chained under `The_last_overload_gave_the_following_error` and
+`No_overload_matches_this_call`, `The_last_overload_is_declared_here` is
+related, and `addImplementationSuccessElaboration` runs. `jsx_component.rs`
+rewrote each report's head message to TS2769 in place, which lost the chain
+level and the related line. The change (granted for jsx_component.rs) makes `chain_overload_failure`
+`pub(crate)` and calls it there.
+
+Per-case oracle against `cand21` (main `f666bbf2` plus §32): the 212 EXACT
+`.tsx` cases stay exact; tsxElementResolution9 becomes exact. Diff lines drop
+in tsxStatelessFunctionComponentOverload5 (52 → 6) and
+tsxStatelessFunctionComponentsWithTypeArguments4 (34 → 20). What remains
+there is the relation reporter's elaboration and a JSX TS2793 (the
+implementation check through JSX applicability is not ported).
+
 ## 34. A literal argument whose nested calls cannot follow its context is re-checked per candidate
 
 The non-generic overload walk (`check_overload_candidates_arguments`, §8)
@@ -1152,6 +1170,20 @@ same type. Two type roads answered `error` (a GAP) when inference declined:
 parameter mapped to `unknown` and compares identities. If they match, it is
 the answer. It is consulted only after the inference road answered `error`,
 so every answer that road gives today stands.
+
+## 36. Every reported chain child carries the file
+
+§30 gave the call chain builders' children the reported file. This
+change (granted for check.rs and checker.rs) does the same once, in `Checker::report`: any chain child without a
+file (at any depth) takes the reported file's image. The image is built
+once per file and kept in `chain_file_images`. Key: the source file node.
+Owner: `report`. It is built on the first chained report in that file, and
+nothing reads it before then. `set_chain_file` becomes `pub(crate)` for it.
+
+Per-case oracle against `cand22`: of the 664 WRONG cases whose native
+output has chain rows, 16 become exact, and no file-less chain row remains
+in any of them. The 435 EXACT cases with chain rows stay exact. What
+remains in the others is the chains' content (the relation reporter).
 
 ## Proposed issues (for the integrator to file)
 

@@ -149,6 +149,8 @@ impl Checker<'_, '_> {
         // each diagnostic carries its own declaration's file. §159.
         self.report_merge_conflicts();
         self.file_has_parse_errors = context.has_parse_errors;
+        self.file_written_lists =
+            self.module_host.map_or(&[], |host| host.written_lists(file, self.nodes));
         self.file_is_ambient = context.ambient;
         self.file_is_js = self.in_js_file(file);
         self.reset_unused_state();
@@ -977,6 +979,7 @@ impl Checker<'_, '_> {
         self.check_dynamic_import_specifier(typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
+        self.check_grammar_type_arguments(node, typed);
         self.check_grammar_parameter_list(node);
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {
@@ -4909,6 +4912,22 @@ impl Checker<'_, '_> {
         &mut self,
         symbol: tsr_binder::SymbolId,
     ) -> Option<bool> {
+        // Native reads `links.typeOnlyDeclaration`, set once per alias
+        // (`getTypeOnlyAliasDeclarationEx`, `checker.go:2144`); the walk below
+        // runs per value identifier. Published only outside alias resolution,
+        // whose in-progress chain answers `None` early (`r7-perf.md` §24).
+        if let Some(&answer) = self.perf_links.type_only_alias_declarations.get(&symbol) {
+            return answer;
+        }
+        let publish = self.alias_resolving == 0;
+        let answer = self.type_only_alias_declaration_walk(symbol);
+        if publish {
+            self.perf_links.type_only_alias_declarations.insert(symbol, answer);
+        }
+        answer
+    }
+
+    fn type_only_alias_declaration_walk(&mut self, symbol: tsr_binder::SymbolId) -> Option<bool> {
         let mut current = self.binder.merged_symbol(symbol);
         for _ in 0..16 {
             let entry = self.binder.symbols().get(current);
@@ -6281,6 +6300,25 @@ impl Checker<'_, '_> {
     }
 
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
+        // Both arms below report only a value reference or an `extends`
+        // operand (the class arm's `is_value_reference`, and
+        // `use_is_not_deferred`'s). Native runs `checkResolvedBlockScopedVariable`
+        // inside `resolveName`, which a declaration name or a type reference
+        // never reaches with a value meaning, so such an identifier is
+        // answered before its resolution. A property access's name keeps the
+        // walk: its namespace fallback resolves aliases (`r7-perf.md` §23).
+        if !self.is_value_reference(node)
+            && !self.is_in_extends_clause(node)
+            && !self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.node_map.get(parent),
+                    Some(Node::PropertyAccessExpression(access))
+                        if access.name.and_then(|name| name.node_id()) == Some(node)
+                )
+            })
+        {
+            return;
+        }
         let Some(symbol) = self
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
             .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
@@ -7420,6 +7458,23 @@ impl Checker<'_, '_> {
     fn check_constructor_type_parameters(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
         let (Some(first), Some(last)) = (node.type_parameters.first(), node.type_parameters.last())
         else {
+            // An empty `<>`: the list's `Pos() == End()`, right after the
+            // `<`, so the report is zero-width there.
+            let Some(id) = node.node_id else { return };
+            let Some(list) = self
+                .written_list(id, crate::resolution::WrittenListKind::TypeParameters)
+                .filter(|list| list.empty)
+            else {
+                return;
+            };
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::TYPE_PARAMETERS_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                    tsr_core::Span::at(list.open + 1),
+                ),
+            );
             return;
         };
         let (Some(start), Some(end)) = (first.node_id, last.node_id) else { return };
@@ -8932,6 +8987,12 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
+        // `checkGrammarFunctionLikeDeclaration`'s `||` chain (`:762`) and
+        // `checkGrammarClassLikeDeclaration`'s (`:769`): an empty type
+        // parameter list (TS1098) comes before the parameter list.
+        if self.check_grammar_type_parameter_list(owner) {
+            return;
+        }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
         // A JS function's `@param [x]` / `{T=}` is a reparsed `?` upstream
@@ -8950,6 +9011,16 @@ impl Checker<'_, '_> {
                 Some(slot.tag?.node_id)
             });
             if let Some(rest) = declaration.dot_dot_dot_token {
+                // `checkGrammarForDisallowedTrailingComma(parameters, …)`
+                // (`grammarchecks.go:697`) for a last rest parameter outside
+                // an ambient context, reported without returning.
+                if index == count - 1 && !self.has_ambient_flag(parameter) {
+                    self.report_written_list_trailing_comma(
+                        owner,
+                        crate::resolution::WrittenListKind::Parameters,
+                        &messages::A_REST_PARAMETER_OR_BINDING_PATTERN_MAY_NOT_HAVE_A_TRAILING_COMMA,
+                    );
+                }
                 let (at, message) = if index != count - 1 {
                     (rest.node_id, &messages::A_REST_PARAMETER_MUST_BE_LAST_IN_A_PARAMETER_LIST)
                 } else if let Some(question) = question {
@@ -13571,7 +13642,25 @@ impl Checker<'_, '_> {
 
     /// Append to the collection upstream keeps as `c.diagnostics`
     /// (`checker.go:661`), drained by `GetDiagnostics` (`checker.go:13951`).
-    pub(crate) fn report(&mut self, file: NodeId, diagnostic: Diagnostic) {
+    pub(crate) fn report(&mut self, file: NodeId, mut diagnostic: Diagnostic) {
+        // `NewDiagnosticChain` (`ast/diagnostic.go:152`) builds every chain
+        // level from its child's file, so each level of a reported chain
+        // carries the reported file. Children built before the report have
+        // none; they take the file's image here.
+        if chain_lacks_file(&diagnostic) {
+            let image = if let Some(image) = self.chain_file_images.get(&file) {
+                Some(std::sync::Arc::clone(image))
+            } else {
+                let image = self.diagnostic_file_image(file);
+                if let Some(image) = &image {
+                    self.chain_file_images.insert(file, std::sync::Arc::clone(image));
+                }
+                image
+            };
+            if let Some(image) = image {
+                crate::calls::set_chain_file(&mut diagnostic, &image);
+            }
+        }
         self.diagnostics.push((file, diagnostic));
     }
 
@@ -14345,4 +14434,9 @@ fn is_trivia_only(text: &str) -> bool {
 pub(crate) enum DuplicateMemberKey {
     Early(tsr_binder::SymbolId),
     Late(String, Option<TypeId>),
+}
+
+/// Whether some chain child of `diagnostic`, at any depth, has no file.
+fn chain_lacks_file(diagnostic: &Diagnostic) -> bool {
+    diagnostic.message_chain().iter().any(|child| child.file().is_none() || chain_lacks_file(child))
 }

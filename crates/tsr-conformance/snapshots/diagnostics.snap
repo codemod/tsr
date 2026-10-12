@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 5085/5502 (92.42%)
-Failed         : 417
+Passed         : 5096/5502 (92.62%)
+Failed         : 406
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 417 failures:
+First 100 of 406 failures:
 compiler/abstractPropertyInConstructor
   10 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
@@ -94,8 +94,6 @@ compiler/classExtendsNull2
   1 missing (first TS2417 at classExtendsNull2.ts(5,7))
 compiler/classFieldSuperAccessibleJs1
   1 missing (first TS2565 at index.js(9,23))
-compiler/classWithEmptyTypeParameter
-  1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
 compiler/complicatedGenericRecursiveBaseClassReference
@@ -111,7 +109,7 @@ compiler/conflictingDeclarationsImportFromNamespace1
 compiler/conflictingDeclarationsImportFromNamespace2
   1 missing (first TS7023 at index.ts(2,14))
 compiler/constraintWithIndexedAccess
-  9 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
+  8 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
 compiler/contextualPropertyOfGenericFilteringMappedType
   3 missing (first TS2353 at contextualPropertyOfGenericFilteringMappedType.ts(38,5))
 compiler/contextualTypeFunctionObjectPropertyIntersection
@@ -152,16 +150,10 @@ compiler/dynamicNames
   11 unexpected (first TS2720 at main.ts(55,15)), 0 missing
 compiler/dynamicNamesErrors
   1 missing (first TS2717 at dynamicNamesErrors.ts(19,5))
-compiler/emptyGenericParamList
-  1 missing (first TS1099 at emptyGenericParamList.ts(2,9))
 compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject1
   1 missing (first TS2322 at emptyObjectNotSubtypeOfIndexSignatureContainingObject1.ts(41,3))
 compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject2
   1 missing (first TS2322 at emptyObjectNotSubtypeOfIndexSignatureContainingObject2.ts(42,3))
-compiler/emptyTypeArgumentList
-  2 missing (first TS1099 at emptyTypeArgumentList.ts(2,4))
-compiler/emptyTypeArgumentListWithNew
-  2 missing (first TS1099 at emptyTypeArgumentListWithNew.ts(2,8))
 compiler/errorForUsingPropertyOfTypeAsType01
   11 missing (first TS2713 at errorForUsingPropertyOfTypeAsType01.ts(6,12))
 compiler/errorForUsingPropertyOfTypeAsType02
@@ -212,3 +204,11 @@ compiler/genericDefaults
   1 unexpected (first TS2415 at genericDefaults.ts(464,15)), 0 missing
 compiler/genericDefaultsErrors
   2 missing (first TS2344 at genericDefaultsErrors.ts(6,39))
+compiler/genericFunctionInference1
+  3 unexpected (first TS2322 at genericFunctionInference1.ts(25,7)), 0 missing
+compiler/genericMappedTypeAsClause
+  1 unexpected (first TS2322 at genericMappedTypeAsClause.ts(18,11)), 4 missing
+compiler/gettersAndSettersAccessibility
+  2 missing (first TS2808 at gettersAndSettersAccessibility.ts(2,14))
+compiler/gettersAndSettersErrors
+  2 missing (first TS2808 at gettersAndSettersErrors.ts(11,17))

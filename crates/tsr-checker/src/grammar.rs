@@ -13,6 +13,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::check::has_modifier;
 use crate::checker::Checker;
+use crate::resolution::{WrittenList, WrittenListKind};
 use crate::types::TypeId;
 
 impl Checker<'_, '_> {
@@ -452,7 +453,13 @@ impl Checker<'_, '_> {
                         .parent(parent)
                         .is_some_and(|outer| self.nodes.kind(outer) == SyntaxKind::LiteralType))
         });
-        if literal_type || self.has_ambient_flag(node) {
+        // Only `checkExpression` reaches the check, and a declaration's
+        // literal name (`enum E { 0n = 0 }`) is never checked as an
+        // expression.
+        let is_name =
+            parent.and_then(|parent| self.node_map.get(parent)).and_then(|typed| typed.name_id())
+                == Some(node);
+        if literal_type || is_name || self.has_ambient_flag(node) {
             return;
         }
         self.grammar_error_on_node(
@@ -1831,11 +1838,24 @@ impl Checker<'_, '_> {
     /// answers `false`, which makes the whole function `false` there; the
     /// one `c.error` arm (TS8038) has the same guard.
     pub(crate) fn check_grammar_modifiers(&mut self, node: NodeId) -> bool {
+        let Some(typed) = self.node_map.get(node) else { return false };
+        let Some(written) = grammar_modifier_nodes(typed) else { return false };
+        // A node without modifiers answers `false` on every call; only a
+        // modifier chain is memoized (`r7-perf.md` §22).
+        let reparsed_host_kind = matches!(
+            typed,
+            Node::MethodDeclaration(_)
+                | Node::GetAccessorDeclaration(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::PropertyDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+        );
+        if written.is_empty() && !(self.file_is_js && reparsed_host_kind) {
+            return false;
+        }
         if !self.modifier_chain_checked.insert(node) {
             return self.modifier_chain_reported.contains(&node);
         }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        let Some(written) = grammar_modifier_nodes(typed) else { return false };
         let entries: Vec<ModifierEntry> = written
             .iter()
             .filter_map(|modifier| match modifier {
@@ -3369,9 +3389,8 @@ impl Checker<'_, '_> {
     /// annotation TS1021. A type this port cannot build answers nothing for
     /// the two type arms (`is_gap`).
     ///
-    /// Not ported: `checkGrammarForDisallowedTrailingComma` on the parameter
-    /// list (TS1025), which needs the parser to record a parameter list's
-    /// trailing comma.
+    /// `checkGrammarForDisallowedTrailingComma` on the parameter list
+    /// (TS1025) reads the parser's list facts ([`WrittenList`]).
     pub(crate) fn check_grammar_index_signature_parameters(&mut self, node: NodeId) -> bool {
         let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
             return false;
@@ -3395,6 +3414,13 @@ impl Checker<'_, '_> {
                 &messages::AN_INDEX_SIGNATURE_MUST_HAVE_EXACTLY_ONE_PARAMETER,
             );
         }
+        // `checkGrammarForDisallowedTrailingComma(node.Parameters, …)`
+        // (`:808`) reports without returning.
+        self.report_written_list_trailing_comma(
+            node,
+            WrittenListKind::Parameters,
+            &messages::AN_INDEX_SIGNATURE_CANNOT_HAVE_A_TRAILING_COMMA,
+        );
         if let Some(dots) = parameter.dot_dot_dot_token.and_then(|token| token.node_id) {
             return report(self, dots, &messages::AN_INDEX_SIGNATURE_CANNOT_HAVE_A_REST_PARAMETER);
         }
@@ -3473,7 +3499,8 @@ impl Checker<'_, '_> {
     /// from `checkTaggedTemplateExpression` (`checker.go:10035`): a tagged
     /// template written after `?.`, or inside an optional chain, is TS1358 on
     /// the template. The parser builds that shape as of r7-parser
-    /// `6b560647`. Its `checkGrammarTypeArguments` sibling is not ported.
+    /// `6b560647`. Its `checkGrammarTypeArguments` sibling runs when this
+    /// reports nothing ([`Checker::check_grammar_type_arguments`]).
     pub(crate) fn check_grammar_tagged_template_chain(&mut self, node: NodeId) -> bool {
         if self.file_has_parse_errors {
             return false;
@@ -3559,5 +3586,134 @@ impl Checker<'_, '_> {
             }
         }
         false
+    }
+}
+
+/// The grammar checks that read a written list's shape, which this AST's
+/// slices cannot carry: an empty `<>` and a trailing comma
+/// ([`WrittenList`], the parser's list facts, r7-parser §10).
+impl Checker<'_, '_> {
+    /// The written list of kind `kind` of `owner`, when it is empty or ends in
+    /// a comma.
+    /// Read from the file being checked, whose lists `check_source_file`
+    /// fetched: every reader runs inside that file's walk. Most files have
+    /// none, so the common answer is one emptiness test.
+    pub(crate) fn written_list(&self, owner: NodeId, kind: WrittenListKind) -> Option<WrittenList> {
+        let lists = self.file_written_lists;
+        if lists.is_empty() {
+            return None;
+        }
+        let start = lists.partition_point(|list| list.owner < owner);
+        lists[start..]
+            .iter()
+            .take_while(|list| list.owner == owner)
+            .find(|list| list.kind == kind)
+            .copied()
+    }
+
+    /// `checkGrammarForDisallowedTrailingComma` (`grammarchecks.go:671`) over
+    /// `owner`'s written list: `grammarErrorAtPos(list.Nodes[0],
+    /// list.End() - 1, 1, …)`, behind the file's parse errors.
+    pub(crate) fn report_written_list_trailing_comma(
+        &mut self,
+        owner: NodeId,
+        kind: WrittenListKind,
+        message: &'static tsr_diagnostics::Message,
+    ) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(comma) = self.written_list(owner, kind).and_then(|list| list.trailing_comma)
+        else {
+            return false;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(owner) else { return false };
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(comma, comma + 1)));
+        true
+    }
+
+    /// The span native's `checkGrammarForAtLeastOneTypeArgument` and
+    /// `checkGrammarTypeParameterList` give an empty `<>`: from
+    /// `list.Pos() - len("<")` to `SkipTrivia(list.End()) + len(">")`.
+    fn report_empty_written_list(
+        &mut self,
+        owner: NodeId,
+        kind: WrittenListKind,
+        message: &'static tsr_diagnostics::Message,
+    ) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(list) = self.written_list(owner, kind).filter(|list| list.empty) else {
+            return false;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(owner) else { return false };
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(list.open, list.close + 1)));
+        true
+    }
+
+    /// `Checker.checkGrammarTypeArguments` (`grammarchecks.go:855`): a
+    /// trailing comma is TS1009, else an empty list TS1099. Native calls it
+    /// from `checkCallExpression` (a call or `new`), `checkTaggedTemplateExpression`
+    /// behind TS1358, `checkTypeReferenceNode`, `checkGrammarJsxElement` and
+    /// `checkGrammarExpressionWithTypeArguments` (an expression with type
+    /// arguments or a type query, whose `import<T>` arm is TS1326, unported).
+    pub(crate) fn check_grammar_type_arguments(&mut self, node: NodeId, typed: Node<'_>) {
+        match typed {
+            Node::CallExpression(_)
+            | Node::NewExpression(_)
+            | Node::TypeReferenceNode(_)
+            | Node::TypeQueryNode(_)
+            | Node::JsxOpeningElement(_)
+            | Node::JsxSelfClosingElement(_) => {}
+            Node::TaggedTemplateExpression(tagged) => {
+                if tagged.question_dot_token.is_some()
+                    || self.nodes.flags(node).contains(NodeFlags::OPTIONAL_CHAIN)
+                {
+                    return;
+                }
+            }
+            Node::ExpressionWithTypeArguments(expression) => {
+                if expression
+                    .expression
+                    .and_then(|expression| expression.node_id())
+                    .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ImportKeyword)
+                {
+                    return;
+                }
+            }
+            _ => return,
+        }
+        if self.report_written_list_trailing_comma(
+            node,
+            WrittenListKind::TypeArguments,
+            &messages::TRAILING_COMMA_NOT_ALLOWED,
+        ) {
+            return;
+        }
+        self.report_empty_written_list(
+            node,
+            WrittenListKind::TypeArguments,
+            &messages::TYPE_ARGUMENT_LIST_CANNOT_BE_EMPTY,
+        );
+    }
+
+    /// `Checker.checkGrammarTypeParameterList` (`grammarchecks.go:678`): an
+    /// empty `<>` is TS1098. Native asks it of a function-like declaration or
+    /// signature (`checkGrammarFunctionLikeDeclaration`, behind
+    /// `checkGrammarModifiers`) and of a class (`checkGrammarClassLikeDeclaration`,
+    /// behind the heritage clauses); never of an interface or a type alias.
+    pub(crate) fn check_grammar_type_parameter_list(&mut self, owner: NodeId) -> bool {
+        if matches!(
+            self.nodes.kind(owner),
+            SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeAliasDeclaration
+        ) {
+            return false;
+        }
+        self.report_empty_written_list(
+            owner,
+            WrittenListKind::TypeParameters,
+            &messages::TYPE_PARAMETER_LIST_CANNOT_BE_EMPTY,
+        )
     }
 }

@@ -5764,10 +5764,16 @@ impl<'a> Checker<'a, '_> {
             };
         if !target_names.is_empty() {
             for name in &target_names {
-                let (Some(mut target_member), Some(mut source_member)) = (
-                    self.get_type_of_property_of_type(target, name),
-                    self.get_type_of_property_of_type(source, name),
-                ) else {
+                // inferFromProperties (inference.go:831) reads the source's
+                // property first and the target member's type only when the
+                // source has one: an interface meeting `Array<U>` resolves none
+                // of Array's methods (`r7-perf.md` §33).
+                let Some(mut source_member) = self.get_type_of_property_of_type(source, name)
+                else {
+                    continue;
+                };
+                let Some(mut target_member) = self.get_type_of_property_of_type(target, name)
+                else {
                     continue;
                 };
                 // inferFromProperties (inference.go:829) removes only the

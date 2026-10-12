@@ -391,10 +391,7 @@ impl Checker<'_, '_> {
                 Some(())
             });
             if count > 1 {
-                for (_, diagnostic) in &mut self.diagnostics[before..] {
-                    diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
-                    diagnostic.args.clear();
-                }
+                self.chain_overload_failure(before, last.declaration);
             }
             return;
         }

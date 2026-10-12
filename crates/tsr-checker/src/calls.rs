@@ -1700,7 +1700,7 @@ impl Checker<'_, '_> {
     /// its file). `addImplementationSuccessElaboration`'s TS2793 (a
     /// `chooseOverload` against the implementation signature) is not
     /// attached.
-    fn chain_overload_failure(&mut self, before: usize, last: tsr_ast::NodeId) {
+    pub(crate) fn chain_overload_failure(&mut self, before: usize, last: tsr_ast::NodeId) {
         // `last.declaration != nil`: a signature declaration. This port's
         // synthetic signatures borrow another node as their declaration
         // (a decorated declaration, a function whose arguments they model),
@@ -6411,7 +6411,7 @@ enum OverloadPass {
 /// from the child's file and location, so every level of a reported chain
 /// carries the reported file; this port's children are built before the
 /// report gives the head its file.
-fn set_chain_file(
+pub(crate) fn set_chain_file(
     diagnostic: &mut Diagnostic,
     image: &std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>,
 ) {

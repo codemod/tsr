@@ -124,6 +124,11 @@ pub struct Checker<'a, 'n> {
     /// which is every call site the `checker_types` gradient runs through: the
     /// traversal is a second entry point, never a side effect of a query.
     pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
+    /// The file image a reported diagnostic's chain children take
+    /// (`Checker::report`), per file: built once on the first chained
+    /// report in that file. Key: the source file node; owner: `report`.
+    pub(crate) chain_file_images:
+        rustc_hash::FxHashMap<NodeId, std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
     /// Native `InitializerIsUndefinedComputed` / `InitializerIsUndefined`:
@@ -728,6 +733,9 @@ pub struct Checker<'a, 'n> {
     /// §2, and the sites lifted since are listed there and in
     /// `docs/parity/notes/r7-flow.md` §2.
     pub(crate) file_has_parse_errors: bool,
+    /// The written lists of the file being checked ([`crate::resolution::WrittenList`]),
+    /// fetched once per file by `check_source_file`.
+    pub(crate) file_written_lists: &'n [crate::resolution::WrittenList],
     /// Whether [`Checker::report_merge_conflicts`] has already run.
     ///
     /// The binder's cross-file merge conflicts belong to the *program*, not to
@@ -978,6 +986,10 @@ pub struct Checker<'a, 'n> {
     /// type arguments, result alias, inside a mapped template) → the
     /// evaluated type. Completed evaluations only; see `declared.rs`'
     /// `evaluate_conditional_alias`.
+    /// Conditional type nodes whose deferred mint inside a mapped template is
+    /// evaluating its branches now (`declared.rs`, `r7-perf.md` §30): a
+    /// re-entered mint of the same node keeps its root without branches.
+    pub(crate) eager_branch_conditionals: rustc_hash::FxHashSet<NodeId>,
     pub(crate) conditional_alias_instantiations:
         FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>, Option<tsr_binder::SymbolId>, bool), TypeId>,
     /// §107: while true, `instantiate_type` answers an UNMAPPED type
@@ -1515,6 +1527,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             regular_types: FxHashMap::default(),
             enum_member_owners: FxHashMap::default(),
             diagnostics: Vec::new(),
+            chain_file_images: rustc_hash::FxHashMap::default(),
             symbol_types,
             parameter_initializer_contains_undefined: FxHashMap::default(),
             this_expando_kinds: FxHashMap::default(),
@@ -1639,6 +1652,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_override: false,
             no_implicit_returns: false,
             file_has_parse_errors: false,
+            file_written_lists: &[],
             merge_conflicts_reported: false,
             assignability_probe: Vec::new(),
             allow_unreachable_code: false,
@@ -1701,6 +1715,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             key_names_in_progress: rustc_hash::FxHashSet::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
             conditional_alias_instantiations: FxHashMap::default(),
+            eager_branch_conditionals: rustc_hash::FxHashSet::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,
