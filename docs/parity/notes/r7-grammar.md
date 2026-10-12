@@ -1730,3 +1730,17 @@ isolated_alias.rs's `type_only_alias_declaration_node` answers. That is
 (a one-word hunk in that file). Checked with `--pretty true` against
 `target/tsgo-pinned`: `chained`, `enums`. These are the `TS1376 in TS1361` and
 `TS1377 in TS1362` buckets (about 23 cases).
+
+## §75 A method signature's error span is the whole member
+
+`GetErrorRangeForNode` (`scanner.go:2588`) names a function declaration or
+method declaration by its name (`:2598`), and a fixed list of declaration
+kinds by theirs (`:2604`). A method signature is in neither, so a
+diagnostic at one spans the whole member. check.rs's `error_span` read every
+declaration's name through `declaration_name_of`, so TS2411 on an
+interface's `bar(): any;` underlined `bar`. §43 left this for the error_span
+grant; it now has its own arm (check.rs `error_span`, one match arm). Checked
+with `--pretty true` against `target/tsgo-pinned`:
+`interfaceMemberValidation`, `interfacedeclWithIndexerErrors`,
+`propertiesAndIndexers` (TS2411) and `reservedWords3`,
+`MemberFunctionDeclaration5_es6`, `parserEqualsGreaterThanAfterFunction1`.

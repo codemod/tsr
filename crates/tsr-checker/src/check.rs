@@ -13465,6 +13465,10 @@ impl Checker<'_, '_> {
                 let span = self.nodes.span(node);
                 return self.first_token_span(node, span.start).unwrap_or(span);
             }
+            // A method signature is not among `GetErrorRangeForNode`'s named
+            // kinds (`scanner.go:2598`, `:2604`): its whole node
+            // (r7-grammar §75).
+            Some(Node::MethodSignatureDeclaration(_)) => return self.nodes.span(node),
             // `KindClassExpression`: `node.Name()` only, else the first token.
             Some(Node::ClassExpression(class)) if class.name.is_none() => {
                 let span = self.nodes.span(node);
