@@ -2036,3 +2036,19 @@ every variant of the four EXACT.
 **The rule this costs:** the exact leg's base is rebuilt at current main
 whenever main moves, before the next candidate is gated. A base more
 than one batch old measures gains, not losses.
+
+## 68. Correction to §61: a union target's member must be in every constituent
+
+§61 took the first constituent that has the member. Natively,
+`getPropertyOfType(union, name)` answers none when any constituent lacks
+the member: `createUnionOrIntersectionProperty` marks it partial, and
+`undefined` in `T | undefined` lacks every member. The union has no
+symbol for the fallback either. Gated against main (base17 = 81e030785),
+§61 lost 8 EXACT cases on an extra TS6500 (`optionalBindingParameters2`,
+`unionErrorMessageOnMatchingDiscriminant`, `nestedFreshLiteral`,
+`coAndContraVariantInferences6`, `errorsOnUnionsOfOverlappingObjects01`,
+`objectLiteralsAgainstUnionsOfArrays01`, `typeArgInference2`,
+`optionalBindingParametersInOverloads2`). The origin is now taken only
+when every constituent has the member. A filtered oracle reads all eight
+EXACT, and `indirectDiscriminantAndExcessProperty` (§61's case) stays
+EXACT.

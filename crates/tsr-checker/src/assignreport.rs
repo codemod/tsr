@@ -3892,12 +3892,23 @@ impl<'a> Checker<'a, '_> {
         // A union target's property is the synthesized union property,
         // whose declarations are its constituents' in union order
         // (`createUnionOrIntersectionProperty`).
-        let property = self.get_property_of_type(target, name).or_else(|| {
+        // A member missing from any constituent (`undefined` included) makes
+        // that property partial, and `getPropertyOfType` answers none for a
+        // partial union property; the union itself has no symbol either.
+        let union = matches!(self.type_of(target).data, TypeData::Union { .. });
+        let property = if union {
             let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
-                return None;
+                return;
             };
-            types.into_iter().find_map(|part| self.get_property_of_type(part, name))
-        });
+            let mut first = None;
+            for part in types {
+                let Some(found) = self.get_property_of_type(part, name) else { return };
+                first.get_or_insert(found);
+            }
+            first
+        } else {
+            self.get_property_of_type(target, name)
+        };
         // No target member: the applicable index signature's declaration
         // (TS6501). Otherwise, or when that has none, the member's first
         // declaration, else the target's own (`target.symbol`): a mapped
