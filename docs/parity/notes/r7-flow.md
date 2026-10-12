@@ -1719,3 +1719,39 @@ routed diffs are applied in this commit, each with its test:
 Measured (§65 with §66) on `74f08416`: types **+10**, diagnostics **+3**
 cases, 0 lost; exact oracle +6, 0 lost; jsTyping gap 22 → 22, new_false 0,
 lost_true 0; Ir gi 1.0000, dm 1.0003.
+
+## §67 A generic mapped receiver's miss is not certified
+
+`Record<keyof Shape | "knownLiteralKey", number>` resolves `knownLiteralKey`
+through `getResolvedApparentTypeOfMappedType` whatever its generic keys are;
+this port's member image does not, and reported a false TS2339 on
+`obj.knownLiteralKey` (`mappedTypeGenericWithKnownKeys`, already wrong).
+`property_is_known_absent` now declines a generic mapped receiver
+(`is_generic_mapped_type`); native's TS2551/TS2862 there stay missing.
+
+## §68 `isMatchingReference`'s source-side comma
+
+`flow.go:1645`: a comma expression on the source side matches by its right
+operand, as on the target side (`:1603`). `references_match`'s
+`strip_source` lacked it, so a reference written `(f(), value).inner` never
+matched the same expression in a guard (`narrowCommaOperatorNestedWithinLHS`'
+two false TS2322).
+
+## §69 The branch label's declared-type early answer on the query road
+
+`getTypeAtFlowBranchLabel` (`flow.go:1270`) returns the declared type as soon
+as one antecedent answers it, when the declared type is also the initial
+type. §8 restricted this to the auto query because the query road's initial
+is the declared type in places where native's is not (`assumeInitialized`
+false, `getOptionalType(declared)`), which lost 8 lines in
+`typeGuardsWithInstanceOf`. `native_initial_is_declared` now admits the
+shapes whose native initial is certainly the declared type: a non-identifier
+reference (access, `this`, synthetic: `getFlowTypeOfReference`'s default), a
+parameter, a declared `any`/`unknown`/`void`, and any reference outside
+`strictNullChecks`. `instanceofWithStructurallyIdenticalTypes`' `goo(x: A)`
+joins `A2 | A` to `A` after `if (x instanceof A2)`; `typeGuardsWithInstanceOf`
+is unchanged.
+
+Measured (§67–§69) on `98781152`: types **+6**, diagnostics **+1** case, 0
+lost; exact oracle +2, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true
+0; Ir gi 0.9999, dm 1.0004.

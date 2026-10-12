@@ -2044,3 +2044,46 @@ integrator's grant. Files and functions outside this lane:
     without the written-equivalence exemption.
 
 The measurement is in the commit's gate record (see the integration report).
+
+## 60. Landed (integrator-granted): every JSDoc `@param` annotation is reused
+
+§47's diff landed in this lane under the integrator's grant. The file and
+function outside this lane: `signatures.rs`, the `@param` arm of the
+signature build (`param_types` loop), which now carries every JSDoc
+parameter annotation's inner type as `written_text`. The reuse visitor ports
+the JSDoc-only kinds (§31). The measurement is in the commit's gate record.
+
+## 61. The error-chain levels and the remaining head sites print for a message (default consumer grant)
+
+**Forcing constraint.** After §59, 34 `diag:chain` / `diag:message-text-only`
+cases still differed only by naming, `_N` renames or an optional slot's
+`| undefined`: chain levels (`Type '(x?: string | undefined) => void' is not
+assignable to …` under TS2322), TS2741, TS2353, TS2559, TS2367 and TS2507.
+
+**Cause.** Each native report prints with `TypeToString` (nil enclosing) or
+`getTypeNamesForErrorDisplay`. These sites still printed site-free.
+
+**The change** (the same root cause as §59, so these are consumer hunks under
+the integrator's default grant). Files and functions outside this lane:
+- `assignreport.rs`:
+  - `ChainStack` carries `site` (the diagnostic's node,
+    set by `relation_failure_chain`);
+  - new helpers `chain_type_text`, `chain_type_names` and
+    `chain_signature_text` print each chain level for a message;
+  - `chain_report_relation_error` takes `getTypeNamesForErrorDisplay`'s pair
+    first, then the generalized source and the type-parameter explanation,
+    as `reportRelationError` (`relater.go:4751`) orders them;
+  - every retraced-chain print (`chain_error_results`,
+    `explain_object_relation`, `explain_index_signatures`,
+    `explain_index_info`, `explain_signature`, `chain_property_privacy`)
+    goes through the helpers;
+  - `missing_properties_diagnostic` (TS2741 family) takes the node and
+    names its pair by `getTypeNamesForErrorDisplay`;
+  - `weak_type_message` (TS2559) prints each side for a message;
+  - the TS2353 heads of the binding-pattern, object-literal and
+    `report_excess_property` sites print for a message.
+- `satisfies.rs`: the TS2353 head prints for a message.
+- `comparison_overlap.rs`: TS2367 names its pair by `getTypeNamesForErrorDisplay`.
+- `check.rs`: TS2507 prints its base type for a message.
+
+The measurement is in the commit's gate record.

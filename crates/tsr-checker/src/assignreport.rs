@@ -920,7 +920,7 @@ impl<'a> Checker<'a, '_> {
         }
         let Some(implied) = self.binding_pattern_implied_type(pattern) else { return };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let printed_type = self.type_to_string(implied);
+        let printed_type = self.type_to_string_for_message(implied, node);
         for (at, printed) in excess {
             let span = self.error_span(at);
             self.report(
@@ -995,7 +995,7 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let printed_type = self.type_to_string(pattern_type);
+        let printed_type = self.type_to_string_for_message(pattern_type, node);
         for (at, printed) in excess {
             let span = self.error_span(at);
             self.report(
@@ -1780,7 +1780,7 @@ impl<'a> Checker<'a, '_> {
             let Some(at) = self.excess_property_name_node(literal, name) else { return };
             let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
             let span = self.error_span(at);
-            let printed = self.type_to_string(target);
+            let printed = self.type_to_string_for_message(target, at);
             // hasExcessProperties (relater.go:2714): an identifier name with a
             // spelling suggestion among the target's properties
             // (getSuggestionForNonexistentProperty) is TS2561; a string-literal
@@ -2049,26 +2049,33 @@ impl<'a> Checker<'a, '_> {
     /// missing property, else TS2739, or TS2740 past five names.
     fn report_missing_properties(
         &mut self,
+        at: NodeId,
         file: NodeId,
         span: tsr_core::Span,
         source: TypeId,
         target: TypeId,
         properties: &[String],
     ) {
-        let diagnostic = self.missing_properties_diagnostic(span, source, target, properties);
+        let diagnostic =
+            self.missing_properties_diagnostic(Some(at), span, source, target, properties);
         self.report(file, diagnostic);
     }
 
     /// The message [`Checker::report_missing_properties`] reports, unreported.
     fn missing_properties_diagnostic(
         &mut self,
+        at: Option<NodeId>,
         span: tsr_core::Span,
         source: TypeId,
         target: TypeId,
         properties: &[String],
     ) -> Diagnostic {
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
+        // `reportUnmatchedProperty` names the pair by
+        // `getTypeNamesForErrorDisplay` (`relater.go:4345`; r7-printer §61).
+        let (source_text, target_text) = match at {
+            Some(at) => self.type_names_for_error_display(source, target, at),
+            None => (self.type_to_string(source), self.type_to_string(target)),
+        };
         let (message, args) = if properties.len() == 1 {
             (
                 &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
@@ -2127,8 +2134,10 @@ impl<'a> Checker<'a, '_> {
     /// or a single base. `chainArgsMatch` compares the printed strings, so
     /// this does too. A type-parameter source always keeps the head (`T` never
     /// prints as its constraint); an undecided constraint leaves no child.
+    #[allow(clippy::too_many_arguments)]
     fn missing_property_chain(
         &mut self,
+        at: NodeId,
         span: tsr_core::Span,
         source: TypeId,
         display_target: TypeId,
@@ -2161,6 +2170,7 @@ impl<'a> Checker<'a, '_> {
             return MissingPropertyHead::Suppressed;
         }
         MissingPropertyHead::Kept(Some(self.missing_properties_diagnostic(
+            Some(at),
             span,
             chain_source,
             chain_target,
@@ -2422,6 +2432,7 @@ impl<'a> Checker<'a, '_> {
                 .or_else(|| self.unmatched_property_report(source, normalized))
         {
             let MissingPropertyHead::Kept(chain) = self.missing_property_chain(
+                at,
                 span,
                 source,
                 chain_target,
@@ -2429,7 +2440,7 @@ impl<'a> Checker<'a, '_> {
                 &properties,
                 None,
             ) else {
-                self.report_missing_properties(file, span, source, normalized, &properties);
+                self.report_missing_properties(at, file, span, source, normalized, &properties);
                 return true;
             };
             self.report_argument_head(at, file, span, source, display_target, None, chain);
@@ -2730,6 +2741,7 @@ impl<'a> Checker<'a, '_> {
         {
             probe!(PROBE_REPORTED);
             match self.missing_property_chain(
+                at,
                 span,
                 source,
                 chain_target,
@@ -2738,7 +2750,7 @@ impl<'a> Checker<'a, '_> {
                 head,
             ) {
                 MissingPropertyHead::Suppressed => {
-                    self.report_missing_properties(file, span, source, normalized, &properties);
+                    self.report_missing_properties(at, file, span, source, normalized, &properties);
                 }
                 MissingPropertyHead::Kept(chain) => {
                     self.report_relation_head(
@@ -2776,6 +2788,7 @@ impl<'a> Checker<'a, '_> {
             && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
             match self.missing_property_chain(
+                at,
                 span,
                 source,
                 chain_target,
@@ -2784,7 +2797,7 @@ impl<'a> Checker<'a, '_> {
                 head,
             ) {
                 MissingPropertyHead::Suppressed => {
-                    self.report_missing_properties(file, span, source, normalized, &properties);
+                    self.report_missing_properties(at, file, span, source, normalized, &properties);
                 }
                 MissingPropertyHead::Kept(chain) => {
                     self.report_relation_head(
@@ -4481,7 +4494,7 @@ impl<'a> Checker<'a, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         let span = self.error_span(at);
-        let printed = self.type_to_string(error_target);
+        let printed = self.type_to_string_for_message(error_target, at);
         let candidates: Vec<&str> = candidates.iter().map(String::as_str).collect();
         let diagnostic = match crate::check::spelling_suggestion(name, &candidates) {
             Some(suggestion) => Diagnostic::with_args(
@@ -4954,7 +4967,9 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
-        let Some((message, args)) = self.weak_type_message(source, target) else { return false };
+        let Some((message, args)) = self.weak_type_message(Some(at), source, target) else {
+            return false;
+        };
         self.report(file, Diagnostic::with_args(message, span, args));
         true
     }
@@ -4965,6 +4980,7 @@ impl<'a> Checker<'a, '_> {
     /// `None` where that return relation is undecided.
     fn weak_type_message(
         &mut self,
+        at: Option<NodeId>,
         source: TypeId,
         target: TypeId,
     ) -> Option<(&'static tsr_diagnostics::Message, Vec<String>)> {
@@ -4988,8 +5004,14 @@ impl<'a> Checker<'a, '_> {
                 crate::relater::Ternary::Unknown => return None,
             }
         }
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
+        // `typeToString` of each (`relater.go:2731`; r7-printer §61).
+        let (source_text, target_text) = match at {
+            Some(at) => (
+                self.type_to_string_for_message(source, at),
+                self.type_to_string_for_message(target, at),
+            ),
+            None => (self.type_to_string(source), self.type_to_string(target)),
+        };
         let message = if callable {
             &messages::VALUE_OF_TYPE_0_HAS_NO_PROPERTIES_IN_COMMON_WITH_TYPE_1_DID_YOU_MEAN_TO_CALL_IT
         } else {
@@ -5895,6 +5917,11 @@ struct ChainStack {
     assumed_source_only: Vec<bool>,
     /// The next pair `explain_pair` enters is a constraint descent.
     source_only_next: bool,
+    /// The diagnostic's node: every chain level prints its types as a
+    /// message prints them, with no enclosing declaration (`TypeToString`,
+    /// `getTypeNamesForErrorDisplay`; r7-printer §61). `None` keeps the
+    /// site-free print.
+    site: Option<NodeId>,
 }
 
 impl std::ops::Deref for ChainStack {
@@ -5975,7 +6002,7 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<Diagnostic> {
-        let mut stack = ChainStack::default();
+        let mut stack = ChainStack { site: Some(at), ..ChainStack::default() };
         stack.assumed.push((source, target, false));
         stack.assumed_source_only.push(false);
         self.explain_relation(&mut stack, source, target, 0)?;
@@ -6017,6 +6044,47 @@ impl Checker<'_, '_> {
     /// `reportRelationError` (`relater.go:4751`) for an inner pair, with the
     /// suppressions keyed on the message below it. `None` where its text is
     /// not this port's to choose (a type-parameter target's explanations).
+    /// A chain level's type as a message prints it (r7-printer §61).
+    fn chain_type_text(&mut self, stack: &ChainStack, id: TypeId) -> String {
+        match stack.site {
+            Some(at) => self.type_to_string_for_message(id, at),
+            None => self.type_to_string(id),
+        }
+    }
+
+    /// `getTypeNamesForErrorDisplay` for a chain level (r7-printer §61).
+    fn chain_type_names(
+        &mut self,
+        stack: &ChainStack,
+        source: TypeId,
+        target: TypeId,
+    ) -> (String, String) {
+        if let Some(at) = stack.site {
+            return self.type_names_for_error_display(source, target, at);
+        }
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        if source_text == target_text {
+            (self.type_name_for_error_display(source), self.type_name_for_error_display(target))
+        } else {
+            (source_text, target_text)
+        }
+    }
+
+    /// `signatureToString` (nil enclosing) for a chain level (r7-printer
+    /// §61).
+    fn chain_signature_text(
+        &mut self,
+        stack: &ChainStack,
+        signature: &crate::signatures::Signature,
+    ) -> String {
+        let Some(at) = stack.site else { return self.signature_to_string(signature) };
+        let saved = std::mem::replace(&mut self.print_without_enclosing, true);
+        let text = self.signature_to_string_at(signature, at);
+        self.print_without_enclosing = saved;
+        text
+    }
+
     fn chain_report_relation_error(
         &mut self,
         stack: &mut ChainStack,
@@ -6030,8 +6098,17 @@ impl Checker<'_, '_> {
             target_flags.contains(TypeFlags::TYPE_PARAMETER)
         };
         let displayed_source = self.assignability_source_for_error_display(source, target);
-        let mut source_text = self.type_to_string(displayed_source);
-        let mut target_text = self.type_to_string(target);
+        // `getTypeNamesForErrorDisplay` (`relater.go:4752`): both names as a
+        // message prints them, retried fully qualified when they print
+        // alike; TS2719 when even those collide. The generalized literal
+        // source is named fully qualified (`:4759`).
+        let (names_source, target_text) = self.chain_type_names(stack, source, target);
+        let same_name = names_source == target_text;
+        let source_text = if displayed_source == source {
+            names_source.clone()
+        } else {
+            self.type_name_for_error_display(displayed_source)
+        };
         // The type-parameter target's explanation, pushed before the
         // relation error (`relater.go:4768`).
         if explains_type_parameter && !self.variance_marker_types.contains(&target) {
@@ -6046,8 +6123,9 @@ impl Checker<'_, '_> {
                 }
             });
             if let Some((assignable_source, constraint)) = assignable {
-                let assignable_text = self.type_to_string(assignable_source);
-                let constraint_text = self.type_to_string(constraint);
+                let assignable_text =
+                    if assignable_source == source { names_source } else { source_text.clone() };
+                let constraint_text = self.chain_type_text(stack, constraint);
                 stack.push(ChainEntry {
                     message: &messages::_0_IS_ASSIGNABLE_TO_THE_CONSTRAINT_OF_TYPE_1_BUT_1_COULD_BE_INSTANTIATED_WITH_A_DIFFERENT_SUBTYPE_OF_CONSTRAINT_2,
                     args: vec![assignable_text, target_text.clone(), constraint_text],
@@ -6061,16 +6139,6 @@ impl Checker<'_, '_> {
                 });
             }
         }
-        let mut same_name = false;
-        if self.type_to_string(source) == target_text {
-            let qualified_source = self.type_name_for_error_display(source);
-            let qualified_target = self.type_name_for_error_display(target);
-            same_name = qualified_source == qualified_target;
-            if displayed_source == source {
-                source_text = qualified_source;
-            }
-            target_text = qualified_target;
-        }
         let message = if same_name {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_TWO_DIFFERENT_TYPES_WITH_THIS_NAME_EXIST_BUT_THEY_ARE_UNRELATED
         } else if self.exact_optional_object_mismatch(source, target) {
@@ -6079,7 +6147,7 @@ impl Checker<'_, '_> {
             if let Some(suggestion) =
                 self.suggested_type_for_nonexistent_string_literal_type(source, target)
             {
-                let suggestion = self.type_to_string(suggestion);
+                let suggestion = self.chain_type_text(stack, suggestion);
                 stack.push(ChainEntry {
                     message: &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_DID_YOU_MEAN_2,
                     args: vec![source_text, target_text, suggestion],
@@ -6134,7 +6202,7 @@ impl Checker<'_, '_> {
         // comparison, with its own message and no relation error
         // (`relater.go:2731`).
         if !stack.intersection_target && self.fails_common_property_check(source, target) {
-            let (message, args) = self.weak_type_message(source, target)?;
+            let (message, args) = self.weak_type_message(stack.site, source, target)?;
             stack.push(ChainEntry { message, args });
             return Some(());
         }
@@ -6199,8 +6267,8 @@ impl Checker<'_, '_> {
             ];
             for (name, primitive) in pairs {
                 if target == primitive && global(self, name) == Some(source) {
-                    let target_text = self.type_to_string(target);
-                    let source_text = self.type_to_string(source);
+                    let target_text = self.chain_type_text(stack, target);
+                    let source_text = self.chain_type_text(stack, source);
                     stack.push(ChainEntry {
                         message: &messages::_0_IS_A_PRIMITIVE_BUT_1_IS_A_WRAPPER_OBJECT_PREFER_USING_0_WHEN_POSSIBLE,
                         args: vec![target_text, source_text],
@@ -7396,6 +7464,7 @@ impl Checker<'_, '_> {
                     None => return None,
                 };
                 let diagnostic = self.missing_properties_diagnostic(
+                    stack.site,
                     tsr_core::Span::default(),
                     source,
                     target,
@@ -7464,8 +7533,8 @@ impl Checker<'_, '_> {
                 && self.chain_property_is_optional(source, name) == Some(true)
                 && self.chain_property_is_optional(target, name) == Some(false)
             {
-                let source_text = self.type_to_string(source);
-                let target_text = self.type_to_string(target);
+                let source_text = self.chain_type_text(stack, source);
+                let target_text = self.chain_type_text(stack, target);
                 stack.push(ChainEntry {
                     message: &messages::PROPERTY_0_IS_OPTIONAL_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
                     args: vec![
@@ -7535,8 +7604,9 @@ impl Checker<'_, '_> {
             }
             return match (source_signatures.as_slice(), target_signatures.as_slice()) {
                 ([], [first, ..]) => {
-                    let source_text = self.type_to_string(source);
-                    let signature_text = signature_colon_form(&self.signature_to_string(first));
+                    let source_text = self.chain_type_text(stack, source);
+                    let signature_text =
+                        signature_colon_form(&self.chain_signature_text(stack, first));
                     stack.push(ChainEntry {
                         message: &messages::TYPE_0_PROVIDES_NO_MATCH_FOR_THE_SIGNATURE_1,
                         args: vec![source_text, signature_text],
@@ -7616,8 +7686,8 @@ impl Checker<'_, '_> {
                 }
             }
             if self.chain_source_index_not_inferable(source) {
-                let key_text = self.type_to_string(info.key);
-                let source_text = self.type_to_string(source);
+                let key_text = self.chain_type_text(stack, info.key);
+                let source_text = self.chain_type_text(stack, source);
                 stack.push(ChainEntry {
                     message: &messages::INDEX_SIGNATURE_FOR_TYPE_0_IS_MISSING_IN_TYPE_1,
                     args: vec![key_text, source_text],
@@ -7699,14 +7769,14 @@ impl Checker<'_, '_> {
         depth: usize,
     ) -> Option<()> {
         self.explain_pair(stack, source_info.value, target_info.value, depth)?;
-        let source_key = self.type_to_string(source_info.key);
+        let source_key = self.chain_type_text(stack, source_info.key);
         let entry = if source_info.key == target_info.key {
             ChainEntry {
                 message: &messages::_0_INDEX_SIGNATURES_ARE_INCOMPATIBLE,
                 args: vec![source_key],
             }
         } else {
-            let target_key = self.type_to_string(target_info.key);
+            let target_key = self.chain_type_text(stack, target_info.key);
             ChainEntry {
                 message: &messages::_0_AND_1_INDEX_SIGNATURES_ARE_INCOMPATIBLE,
                 args: vec![source_key, target_key],
@@ -8036,7 +8106,7 @@ impl Checker<'_, '_> {
                 None if !target_predicate.asserts => {
                     // `signatureToString` without `WriteArrowStyleSignature`:
                     // `(): void`, not `() => void` (r7-reports §86).
-                    let signature = signature_colon_form(&self.signature_to_string(source));
+                    let signature = signature_colon_form(&self.chain_signature_text(stack, source));
                     stack.push(ChainEntry {
                         message: &messages::SIGNATURE_0_MUST_BE_A_TYPE_PREDICATE,
                         args: vec![signature],
@@ -8065,8 +8135,8 @@ impl Checker<'_, '_> {
             (false, false) => &messages::CALL_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE,
             (false, true) => &messages::CONSTRUCT_SIGNATURE_RETURN_TYPES_0_AND_1_ARE_INCOMPATIBLE,
         };
-        let source_text = self.type_to_string(source_return);
-        let target_text = self.type_to_string(target_return);
+        let source_text = self.chain_type_text(stack, source_return);
+        let target_text = self.chain_type_text(stack, target_return);
         stack.push(ChainEntry { message, args: vec![source_text, target_text] });
         Some(())
     }
@@ -8215,8 +8285,8 @@ impl Checker<'_, '_> {
             } else {
                 let (private_side, other) =
                     if source_private { (source, target) } else { (target, source) };
-                let private_text = self.type_to_string(private_side);
-                let other_text = self.type_to_string(other);
+                let private_text = self.chain_type_text(stack, private_side);
+                let other_text = self.chain_type_text(stack, other);
                 stack.push(ChainEntry {
                     message: &messages::PROPERTY_0_IS_PRIVATE_IN_TYPE_1_BUT_NOT_IN_TYPE_2,
                     args: vec![display, private_text, other_text],
@@ -8242,12 +8312,12 @@ impl Checker<'_, '_> {
             let source_text = match source_class {
                 Some(class) => {
                     let declared = self.get_declared_type_of_symbol(class);
-                    self.type_to_string(declared)
+                    self.chain_type_text(stack, declared)
                 }
-                None => self.type_to_string(source),
+                None => self.chain_type_text(stack, source),
             };
             let target_declared = self.get_declared_type_of_symbol(target_class);
-            let target_text = self.type_to_string(target_declared);
+            let target_text = self.chain_type_text(stack, target_declared);
             stack.push(ChainEntry {
                 message:
                     &messages::PROPERTY_0_IS_PROTECTED_BUT_TYPE_1_IS_NOT_A_CLASS_DERIVED_FROM_2,
@@ -8258,8 +8328,8 @@ impl Checker<'_, '_> {
         // `propertyRelatedTo`'s last modifier arm (`relater.go:4296`).
         if protected(self, source_property) {
             let display = self.chain_property_symbol_display(target, name);
-            let source_text = self.type_to_string(source);
-            let target_text = self.type_to_string(target);
+            let source_text = self.chain_type_text(stack, source);
+            let target_text = self.chain_type_text(stack, target);
             stack.push(ChainEntry {
                 message: &messages::PROPERTY_0_IS_PROTECTED_IN_TYPE_1_BUT_PUBLIC_IN_TYPE_2,
                 args: vec![display, source_text, target_text],
