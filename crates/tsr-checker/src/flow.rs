@@ -4516,15 +4516,7 @@ impl Checker<'_, '_> {
         if narrowed == incoming.t {
             return incoming;
         }
-        let result = self.new_flow_type(narrowed, incoming.incomplete);
-        // `silentNeverType`'s consumers (an any-like property access,
-        // `silentNeverSignature`) are not ported here yet
-        // (`r7-flow-silent-never-callers.diff`, §21), so a walk that made one
-        // may converge wider than native (§49).
-        if result.t != narrowed {
-            state.declines += 1;
-        }
-        result
+        self.new_flow_type(narrowed, incoming.incomplete)
     }
     /// The converging loop-label walk — `Checker.getTypeAtFlowLoopLabel`
     /// (`internal/checker/flow.go:1325`). On-stack re-entry answers with the
@@ -7084,7 +7076,14 @@ impl Checker<'_, '_> {
                             [single] => *single,
                             _ => self.get_union_type(&instances),
                         };
-                        if instance == self.intrinsics.error || instance == self.intrinsics.any {
+                        if instance == self.intrinsics.error {
+                            return t;
+                        }
+                        // `getNarrowedType(t, any, …)` keeps every
+                        // constituent, and the false branch keeps `t`
+                        // (`flow.go:840`): decided, not declined (§62).
+                        if instance == self.intrinsics.any {
+                            state.decided.push(condition);
                             return t;
                         }
                         let instance_is_global = ["Object", "Function"].iter().any(|name| {
@@ -7097,12 +7096,14 @@ impl Checker<'_, '_> {
                             })
                         });
                         if t == self.intrinsics.any && instance_is_global {
+                            state.decided.push(condition);
                             return t;
                         }
                         if !assume_true
                             && (!self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
                                 || self.is_empty_anonymous_object_type(instance))
                         {
+                            state.decided.push(condition);
                             return t;
                         }
                         if let Some(narrowed) =
@@ -7132,6 +7133,7 @@ impl Checker<'_, '_> {
                         || t == self.intrinsics.non_primitive
                     {
                         if !assume_true {
+                            state.decided.push(condition);
                             return t;
                         }
                         let keeps_any = t == self.intrinsics.any
@@ -7144,6 +7146,9 @@ impl Checker<'_, '_> {
                                     )
                                 })
                             });
+                        if keeps_any {
+                            state.decided.push(condition);
+                        }
                         return if keeps_any { t } else { instance };
                     }
                     // SS159: the checkDerived worker answers first over its

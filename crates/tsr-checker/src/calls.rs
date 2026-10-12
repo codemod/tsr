@@ -4229,6 +4229,12 @@ impl Checker<'_, '_> {
         if callee_type == error {
             return error;
         }
+        // `resolveCallExpression` (`checker.go:8512`): a `silentNeverType`
+        // callee resolves to `silentNeverSignature`, whose return type is
+        // `silentNeverType`.
+        if Some(callee_type) == self.silent_never_type {
+            return callee_type;
+        }
         let result = self.check_call_expression_worker(node, callee, callee_type);
         // checkCallExpression (native 5b1047d1): a CommonJS require in JS
         // returns the resolved module value, not the ambient call signature's
