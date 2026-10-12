@@ -1214,6 +1214,30 @@ published state: its subtree state is restored after the check
 a literal re-check, the argument types are re-read with the reference read
 under that candidate again rather than context-free.
 
+## 38. `GetErrorRangeForNode`'s unnamed-declaration, `satisfies` and arrow-function arms (check.rs, granted)
+
+The integrator granted this lane the check.rs half of r7-flow's routed
+error-span diff (`r7-flow-error-span-unnamed.diff`, r7-flow §38). Applied
+to the shared `error_span`, so every report at such a node moves, not only
+the call reports:
+
+- a function declaration, method, class or function or class expression
+  with no name (`errorNode == nil`, `scanner.go:2644`) reports at its first
+  token (`function`, `class`, a leading modifier);
+- a `satisfies` expression reports at its `satisfies` keyword
+  (`scanner.go:2626`);
+- an arrow function whose block body's full start (the end of `=>`) and
+  end lie on different lines reports from the arrow's start to the end of
+  that first line (`getErrorRangeForArrowFunction`, `scanner.go:2542`).
+
+The diff as routed differed from native in the arrow arm, and is corrected
+here. It ended the span one past the line break and searched for the line
+break from the body's `{`. `GetECMAEndLinePosition(startLine) + 1`
+(`scanner.go:2703`) is the line break's own position, and `startLine` is
+the line of `body.Pos()`, the end of `=>`, so `() =>\n{ … }` ends at the
+`=>` line's break. The ECMAScript line terminators (U+2028, U+2029) count as line breaks too. A probe file with all three shapes now prints
+byte for byte as tsgo does.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
