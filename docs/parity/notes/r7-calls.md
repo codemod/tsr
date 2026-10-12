@@ -1444,6 +1444,47 @@ canonical-any shape, so these two stay silent rather than guess.
 `exports.y` and no TS2309, or a TS2309 placed at a later
 `module.exports =` that is not alias-shaped.
 
+## 45. JSDoc `@param` types: one typedef per comment, reused when printed
+
+Bucket 5 of the JS rank: function type text where a `@param` type is
+involved. Two roots.
+
+**A `(`-led statement does not own its comment.** `parseExpressionOrLabeledStatement`
+(`parser.go:1516`) records `hasParen` and clears `jsdocScannerInfoHasJSDoc`
+before `withJSDoc` when the statement starts with `(`. The
+`ParenthesizedExpression` (`parser.go:5594`) is itself `withJSDoc`-wrapped and
+takes the comment. Without that clear, `reparseTags` would run twice and
+reparse every `@typedef` into two `JSTypeAliasDeclaration`s. This port's
+`parse_statement` attached the comment to both nodes, so the binder declared
+each `@typedef` twice. `type_alias_body` then declines a two-declaration JSDoc
+alias, which is correct for same-named aliases in different function
+scopes. So `@param a {NotADuplicateIdentifier}` read `any`
+(`jsdocTypedefBeforeParenthesizedExpression`). Only an expression statement
+starts with `(`, so `parse_statement` skips the comment there.
+
+**An unbracketed `@param` type is reused like a bracketed one.**
+`reparseHosted` puts every `@param` type on its parameter, and
+`serializeTypeForDeclaration` reuses that node when printing (`@param
+{Array<*>}` prints `Array<any>`, `nodecopy.go` rewriting `*`). The
+`signatures.rs` JS arm reused the node only for a bracketed `@param [x]`.
+This lane measured lifting the gate at 8 better and 0 worse on the JS
+subset. On rebase, main already carried the same change: r7-printer's
+`eb499d70b` (*every JSDoc @param annotation is reused*). That
+`signatures.rs` hunk is dropped from this commit and the parser half
+stands alone.
+
+Consumer hunk under the default grant (same root, JSDoc `@param` typing):
+`tsr-parser` `statement.rs::parse_statement`.
+
+**Left.** `jsdocTypedefBeforeParenthesizedExpression` still prints
+`(a: number, b: number) => void` where native prints the typedef names: the
+reused name-first `@param a {T}` reference is refused by the site visitor.
+Not traced.
+
+**Falsifier.** A `(`-led statement whose comment native reads from the
+statement, for example a `@type` on `(x) = …`. The reparser's hosted arms
+read the paren's comment, so none is expected.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

@@ -21,7 +21,13 @@ impl<'a> Parser<'a> {
     /// that starts nothing falls through to an expression statement over a
     /// missing identifier.
     pub(crate) fn parse_statement(&mut self) -> Statement<'a> {
-        let docs = self.parse_leading_jsdoc();
+        // `parseExpressionOrLabeledStatement` (`parser.go:1522`) clears
+        // `jsdocScannerInfoHasJSDoc` when the statement starts with `(`: the
+        // parenthesized expression is `withJSDoc`-wrapped and owns the
+        // comment, so a `@typedef` there is reparsed once, not twice. Only an
+        // expression statement starts with `(`. r7-calls §45.
+        let docs =
+            if self.at(SyntaxKind::OpenParenToken) { &[] } else { self.parse_leading_jsdoc() };
         let statement = self.parse_statement_worker();
         self.attach_jsdoc(statement.into(), docs);
         statement
