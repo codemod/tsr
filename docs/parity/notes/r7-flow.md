@@ -1009,3 +1009,54 @@ Measured (certified) on `57d327e6` unfiltered: diagnostics **+4**
 1.0000, dm 1.0005 (the receiver's cached type read on every access; the
 optional-chain type only for an `unknown` receiver). `useUnknownInCatchVariables01` keeps its
 `e++` TS18046 (the arithmetic operand's `checkNonNullType`, not this arm).
+
+## §36 One reporter for a non-literal key's TS7053/TS7015, with native's chain
+
+Two boxes ported `getPropertyTypeForIndexType`'s no-index-signature arm
+(`checker.go:27129-27184`) for a non-literal key on the same day:
+`report_implicit_any_element_access` (`index_access_reports.rs`, every valid
+non-literal key kind, no message chain) and `check_computed_index_implicit_any`
+(`nonexistent_property.rs`, plain `string`/`number` keys, chained). Where both
+certified the miss the access was reported twice, once without the chain
+(`noImplicitAnyForIn`'s `x[i][j]` and `k1[k]`). Native reports once:
+`Element implicitly has an 'any' type because expression of type '{full key}'
+can't be used to index type '{object}'`, chained to "No index signature with a
+parameter of type '{failing key}' was found on type '{object}'" for a plain
+`string`/`number` failing key and to nothing for the other kinds this arm
+admits.
+
+`report_implicit_any_element_access` is the one reporter now, with that chain
+(the failing key is the first constituent no index info applies to);
+`check_computed_index_implicit_any` and its two certificate helpers are
+removed. The legacy suites saw no position or code move (the removed
+reporter certified nothing the other did not).
+
+Also here, without a measurable gain: `class_static_side_lacks` reads a TS
+class expression's static side as a declaration's (`typeOfThisInStaticMembers12/13`'s
+`static [this.c]` now reports; their instance-side `[this.c]` stays declined,
+the class's own computed names leaving its member table uncertified).
+
+Measured (§36 with the class-expression change) on `08c242f7` unfiltered:
+types and diagnostics verdicts unchanged, 0 lost; exact oracle 9676 → 9676,
+0 lost (`noImplicitAnyForIn` now differs only in the chain row's file, §19);
+jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 0.9998, dm 0.9990 (one
+reporter instead of two).
+
+## §37 TS2454's block-scoped fast path requires a statement list
+
+`uninitialized_variable_reads_declared` (check.rs, the TS2454 condition of
+`checkIdentifier`'s flow arm) skips the walk for a read of an initialised
+block-scoped declaration after it "in its own block" (`flow.md` §13, a
+measured ~5% on `domain-model`). It tested only that the statement's parent
+was not a `case`/`default` clause, so a declaration that is an `if`'s bare
+body (`if (1 > 0) const e = 3; console.log(e);`, TS1156) was taken as assigned
+on every path. Native walks: the else path never runs the declaration, and
+reports TS2454 (`disallowedBlockScopedInPresenceOfParseErrors1`, four
+reads). The fast path now requires the statement's parent to be a statement
+list (`Block`, `ModuleBlock`, `SourceFile`), where statements run in order;
+everything else walks.
+
+Measured on `97cc68fc` unfiltered: diagnostics **+1**
+(`disallowedBlockScopedInPresenceOfParseErrors1`), types unchanged, 0 lost;
+exact oracle 9676 → 9677, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0;
+Ir gi 1.0001, dm 1.0001.
