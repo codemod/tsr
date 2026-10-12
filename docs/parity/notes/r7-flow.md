@@ -1794,3 +1794,25 @@ signature this port does not resolve there (`f1`, `f2` keep a false TS2683).
 Measured on `dba618bd`: legacy verdicts unchanged (`jsdocThisType` keeps
 `f1`/`f2`), exact oracle unchanged, 0 lost; jsTyping gap 18 → 18, new_false
 0, lost_true 0; Ir gi 0.9999, dm 1.0000.
+
+## §73 Protected/private access through an intersection or a mixin base is not certified
+
+`checkPropertyAccessibility` reads `getDeclarationModifierFlagsFromSymbol`
+of the property native's lookup answers. On an intersection that is
+`createUnionOrIntersectionProperty`'s synthetic symbol, public when any
+constituent's is (`Protected & Public` is accessible), and a class whose
+`extends` is a mixin call (`extends Mix(Protected, Public)`) inherits such
+synthetic members from its intersection base. This port's lookup answers
+one constituent's declared symbol, and its derivation walk cannot follow a
+call heritage, so `mixinAccessModifiers` drew five false TS2445.
+`property_accessibility_error` now declines an intersection receiver whose
+constituents name different value declarations (two instantiations of one
+class keep their shared declaration's flags), a
+receiver class whose chain has a non-entity-name `extends`, and (when no
+enclosing class derives from the declaring one) an enclosing class with such
+a chain. Native's reports there (`'Protected & Protected2'`, `'C4'`, `'typeof
+C4'` as the declaring class) stay missing.
+
+Measured on `4d769348`: legacy verdicts unchanged (the case keeps other
+differences; its five false TS2445 are gone), exact oracle unchanged, 0 lost;
+jsTyping gap 18 → 18, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0001.

@@ -1622,6 +1622,43 @@ impl Checker<'_, '_> {
         if !is_private && !self.member_declaration_has(declaration, SyntaxKind::ProtectedKeyword) {
             return None;
         }
+        // An intersection's property is `createUnionOrIntersectionProperty`'s
+        // synthetic symbol, public when any constituent's is
+        // (`getDeclarationModifierFlagsFromSymbol`) unless every constituent
+        // has the same value declaration; a class whose `extends` this port
+        // cannot follow (a mixin call, an intersection base) inherits such
+        // properties too. This port's lookup answers one constituent's
+        // symbol, so neither is certified (§73).
+        let apparent = self.apparent_type(containing);
+        let intersection =
+            [containing, apparent].into_iter().find_map(|ty| match &self.type_of(ty).data {
+                crate::types::TypeData::Intersection { types, .. } => Some(types.clone()),
+                _ => None,
+            });
+        if let Some(constituents) = intersection {
+            // A uniform value declaration (every constituent naming the same
+            // member, as two instantiations of one class do) keeps that
+            // declaration's flags; anything else is the synthetic symbol's.
+            let mut declarations = Vec::new();
+            for constituent in constituents {
+                if let Some(member) = self.get_property_of_type(constituent, name) {
+                    declarations.push(self.binder.symbols().get(member).value_declaration);
+                }
+            }
+            if declarations.is_empty()
+                || declarations.iter().any(|declaration| *declaration != declarations[0])
+                || declarations[0].is_none()
+            {
+                return None;
+            }
+        }
+        if let crate::types::TypeData::Named { members: Some(owner), .. } =
+            self.type_of(containing).data
+            && let Some(receiver_class) = self.class_declaration_of_symbol(owner)
+            && !self.class_chain_is_followable(receiver_class)
+        {
+            return None;
+        }
         // getClassLikeDeclarationOfSymbol(getParentOfSymbol(prop)): a parameter
         // property's parent symbol is its constructor's class.
         let declaring = self.containing_class_of(declaration)?;
@@ -1651,6 +1688,13 @@ impl Checker<'_, '_> {
                     }
                 }
                 ThisParameterClass::Unsupported => return None,
+            }
+            // An enclosing class whose chain cannot be followed may derive
+            // from the declaring one through it.
+            if enclosing_class.is_none()
+                && enclosing.iter().any(|&class| !self.class_chain_is_followable(class))
+            {
+                return None;
             }
             if is_static || enclosing_class.is_none() {
                 return Some((
@@ -1869,6 +1913,37 @@ impl Checker<'_, '_> {
     /// Does `class` reach `base` through its `extends` chain, or **is** it
     /// `base`? A link this port cannot follow answers `false`, which is the
     /// reporting direction — see §68's falsifier.
+    /// Whether no `extends` in `class`'s chain is an expression other than
+    /// an entity name (`extends Mix(A, B)`): such a base is a constructor
+    /// return type, an intersection of classes for a mixin, whose members
+    /// this port's derivation walk cannot see.
+    fn class_chain_is_followable(&self, class: NodeId) -> bool {
+        let mut current = class;
+        for _ in 0..16 {
+            let heritage = match self.node_map.get(current) {
+                Some(Node::ClassDeclaration(declaration)) => declaration.heritage_clauses,
+                Some(Node::ClassExpression(declaration)) => declaration.heritage_clauses,
+                _ => return true,
+            };
+            let Some(clause) =
+                heritage.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            else {
+                return true;
+            };
+            let Some(base) = clause.types.first() else { return true };
+            let mut expression = base.expression;
+            while let Some(tsr_ast::Expression::PropertyAccessExpression(access)) = expression {
+                expression = access.expression;
+            }
+            if !matches!(expression, Some(tsr_ast::Expression::Identifier(_))) {
+                return false;
+            }
+            let Some(next) = self.extends_class_declaration(current) else { return true };
+            current = next;
+        }
+        true
+    }
+
     fn class_derives_from(&self, class: NodeId, base: NodeId) -> bool {
         let mut current = class;
         for _ in 0..16 {
