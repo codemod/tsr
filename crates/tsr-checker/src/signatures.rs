@@ -5602,8 +5602,14 @@ impl<'a> Checker<'a, '_> {
                         // FALSIFIER: if `coAndContraVariantInferences3` loses
                         // lines, the predicate is not showing what it claims and
                         // this comes straight back out.
+                        // A computed nil contextual signature is the same
+                        // absence, shown semantically (r7-contextual §49).
                         SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression => {
                             self.has_no_contextual_type(f)
+                                || matches!(
+                                    self.contextual_signature_result(f),
+                                    Some(crate::contextual::ContextualSignature::Absent)
+                                )
                         }
                         _ => false,
                     }) {
@@ -7141,7 +7147,7 @@ impl<'a> Checker<'a, '_> {
                         // fixed callback-arity failure is currently ported.
                         // Keep that caller's existing decline until its error
                         // candidate can be instantiated without these arguments.
-                        crate::contextual::ContextualSignature::Absent => !self.single_generic_argument_context(node),
+                        crate::contextual::ContextualSignature::Absent => true,
                     }
                 });
                 let propagated = self.nodes.parent(node).is_some_and(|parent|
