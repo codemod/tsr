@@ -1004,6 +1004,14 @@ impl Checker<'_, '_> {
                 || receiver == self.intrinsics.unreachable_never;
             return (!silent).then_some(receiver);
         }
+        // A generic mapped type's properties are
+        // `getResolvedApparentTypeOfMappedType`'s (`checker.go`): its literal
+        // keys resolve whatever its generic ones are, which this port's
+        // member image does not reproduce, so a miss on one is not certified
+        // (`mappedTypeGenericWithKnownKeys`' `obj.knownLiteralKey`, §67).
+        if self.is_generic_mapped_type(receiver) {
+            return None;
+        }
         // getPropertyOfTypeEx (checker.go:18899) starts from
         // getReducedApparentType: an intersection getReducedType reduces to
         // `never` (a never-typed discriminant or a conflicting private
