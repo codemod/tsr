@@ -274,6 +274,7 @@ function whose recovery differed. Each landed as its own commit:
 | `scanner.TokenToString` (`scanner.go:124`) | `'{0}' expected` knew twenty token texts and printed any other kind's name (`'LessThanSlashToken' expected.`) | message text only (the exact oracle; the diagnostics suite compares codes) |
 | `scanString` (`scanner.go:1586`) | an unterminated string literal's value dropped its last character: the slow path ended the value one before the cursor, as if a closing quote had been consumed | scannerStringLiterals (types) |
 | `parseMethodDeclaration`'s `parseFunctionBlockOrSemicolon` (`:1950`, `:3481`) for an object-literal method, with `checkGrammarMethod`'s missing-body arm (`grammarchecks.go:1451`, in `grammar.rs`) and the walk's dispatch (`check.rs`), both integrator's grants | an object-literal method always parsed a block, so `async * x: 1;` reported `'{' expected` at `;` and checked an empty body against the return type `1` (TS2322). The parser's `'{' expected` stood in for the grammar arm, which reports only when the file has no parse errors. With no body, the walk also had to stop running `checkFunctionOrConstructorSymbol` (TS2391/TS2393) on object-literal methods: native reaches them through `checkObjectLiteralMethod` (`checker.go:13865`), never `checkFunctionOrMethodDeclaration` | parser.asyncGenerators.objectLiteralMethods.es2018; objectLiteralMemberWithoutBlock1 now parses cleanly (printer_round_trip +1) |
+| `parseEntityName` (`:2901`) under `parseTypeReference` (`:2858`), with `resolveEntityName`'s missing-name skip (`checker.go:15773`, in `check.rs::check_qualified_type_name_at`, integrator's grant) | native's missing type name is still the head of a dotted name, so as an import type's argument `import.defer("./a")` is the reference `<missing>.defer`, with `')' expected` at `(`; this port ended the type at the missing name and took `.defer` as the import type's qualifier. The parser half alone measured diagnostics +0 / −1 (held earlier): the checker reported TS2503 `Cannot find namespace ''` on the missing head, which native's `resolveEntityName` returns nil for. Without a `.` after it a missing type stays this port's `any` keyword stand-in, where native has a reference to the missing name; both check to `any` with no report | typeofImportDefer (exact oracle: TS1141 span) |
 
 The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
 parseType)`; its diagnostics stand when the list is accepted and the
@@ -297,15 +298,6 @@ Held, with the reason:
 - parserSuperExpression2: the tree matches native's; the extra TS2304 on
   `super<T>` is the checker resolving the type arguments of a super call
   outside a constructor, which native does not.
-
-- `parseEntityName` (`:2901`) under `parseTypeReference`: native's missing
-  type name is still the head of an entity name a `.` qualifies, so
-  `typeof import.defer("./a").Foo` has the argument `<missing>.defer` and
-  `')' expected` at `(`; this port ends the type at the missing name and takes
-  `.defer` as the import type's qualifier. Porting it measured diagnostics
-  +0 / −1: typeofImportDefer gains the TS1141 span but the checker then reports
-  TS2503 `Cannot find namespace ''` on the missing head, which native's
-  `resolveEntityName` skips for a missing name. Lands with that skip.
 
 Refused, with the number:
 
@@ -476,8 +468,8 @@ diagnostics (TS1xxx, TS17xxx), `parser.*`/`scanner.*` emitters and the
 Two parser ports need a checker partner. An object-literal method's
 `parseFunctionBlockOrSemicolon` landed with it, under the integrator's grant
 (§6's table; the parser half alone reports TS2391 on `var v = { foo(); }`).
-`parseEntityName` under `parseTypeReference` is still held (§6), waiting on
-`resolveEntityName`'s skip of a missing name.
+`parseEntityName` under `parseTypeReference` landed with `resolveEntityName`'s
+skip of a missing name, under a grant as well.
 
 Parse time is not a wall bottleneck: on domain-model TSR's parse phase is
 17–36 ms against tsgo's 53–66 ms (`--extendedDiagnostics`, noisy 4-core box),

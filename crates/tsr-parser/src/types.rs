@@ -627,7 +627,25 @@ impl<'a> Parser<'a> {
                     self.token.span
                 };
                 self.error_at(&messages::TYPE_EXPECTED, span);
-                self.missing_type()
+                // The missing name is still the head of `parseEntityName`'s
+                // dotted name: `import.defer("./a")` as an import type's
+                // argument is the reference `<missing>.defer`. Without a `.`
+                // this port keeps its stand-in for a missing type, an `any`
+                // keyword node, where native has a reference to the missing
+                // name; both check to `any` with no further report.
+                if !self.at(SyntaxKind::DotToken) {
+                    return self.missing_type();
+                }
+                let head = EntityName::Identifier(self.missing_identifier());
+                let name = self.parse_entity_name_rest(start, head);
+                let type_arguments = self.parse_type_arguments_of_type_reference();
+                let type_arguments = self.arena.alloc_slice(&type_arguments);
+                let node = self.finish_node(
+                    TypeReferenceNode::new(Some(name), type_arguments),
+                    SyntaxKind::TypeReference,
+                    start,
+                );
+                TypeNode::TypeReferenceNode(node)
             }
         }
     }
@@ -1398,7 +1416,13 @@ impl<'a> Parser<'a> {
         // `parseEntityNameOfTypeReference` passes `allowReservedWords: true`
         // (`parser.go:2897`): `typeof this` and a reserved-word head both
         // parse, and the checker owns any complaint.
-        let mut name = EntityName::Identifier(self.parse_identifier_name());
+        let head = EntityName::Identifier(self.parse_identifier_name());
+        self.parse_entity_name_rest(start, head)
+    }
+
+    /// `parseEntityName`'s `for p.parseOptional(ast.KindDotToken)` loop
+    /// (`parser.go:2909`), qualifying `name`, which starts at `start`.
+    fn parse_entity_name_rest(&mut self, start: u32, mut name: EntityName<'a>) -> EntityName<'a> {
         while self.at(SyntaxKind::DotToken) {
             self.next_token();
             // `Object.<K, V>`: the entity is part of a JSDoc-style generic
