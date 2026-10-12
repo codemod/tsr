@@ -870,7 +870,23 @@ impl<'a> Checker<'a, '_> {
                             && self.mapped_template_depth > 0
                             && let (Some(true_type), Some(false_type)) =
                                 (conditional.true_type, conditional.false_type)
+                            // Native keeps a deferred conditional's branches
+                            // lazy (`getTrueTypeFromConditionalType`); this mint
+                            // evaluates them now. Re-entering the same
+                            // declaration from inside its own branch evaluation
+                            // (`Expand__<O[…]>` in `recursiveConditionalCrash3`,
+                            // whose deferred check never decides) would regress
+                            // without bound, so a re-entered mint keeps its
+                            // root without branches, the state the comment
+                            // below already allows (`r7-perf.md` §30).
+                            && conditional
+                                .node_id
+                                .is_none_or(|declaration| !self.eager_branch_conditionals.contains(&declaration))
                         {
+                            let guard = conditional.node_id;
+                            if let Some(declaration) = guard {
+                                self.eager_branch_conditionals.insert(declaration);
+                            }
                             let true_type = self.get_type_from_type_node(true_type);
                             let false_type = self.get_type_from_type_node(false_type);
                             if true_type != self.intrinsics.error
@@ -899,6 +915,9 @@ impl<'a> Checker<'a, '_> {
                                         operands: [check, extends, true_type, false_type],
                                     },
                                 );
+                            }
+                            if let Some(declaration) = guard {
+                                self.eager_branch_conditionals.remove(&declaration);
                             }
                         } else if let TypeNode::ConditionalTypeNode(conditional) = node
                             && let Some(declaration) = conditional.node_id

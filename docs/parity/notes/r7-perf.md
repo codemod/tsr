@@ -1080,3 +1080,95 @@ parses on wall. The pool drains queued jobs when the walk ends. Another
 would be a dependency-heavy root set (≥128 KiB of roots plus many
 `node_modules` declarations) where the queued root jobs delay the first
 dependency visits by more than the barrier used to cost.
+
+## §30 `recursiveConditionalCrash3`: a deferred conditional's eager branches regress without bound
+
+**Symptom.** At main `d7346aa22` (batch 47) the oracle worker for
+`compiler/recursiveConditionalCrash3.ts` grows by about 220 MB/s. It
+reached 4.5 GB in 20 s, past the gate's cap. Native finishes the case in
+0.32 s, at 80 MB.
+
+**Attribution.** This is not a batch-47 change. With the same driver
+(`full_oracle_actual`, per-process, case 5834), the batch-46 head
+`57e45ae70` grows on the same curve: 2.26 GB at 10 s against 2.40 GB, and
+4.43 GB at 20 s against 4.52 GB. That is about 5% faster at batch 47 and
+otherwise the same. §19 recorded the case at 3.4 GB in 25 s at batch 19.
+The flip from TSR_TIMEOUT to an OOM is the growth rate crossing the
+worker's memory before the 60 s deadline. No commit introduced it.
+
+**Native's limits are not what stops native.** On this case the counting
+tsgo (§23) makes 237 `getConditionalType` calls and 43,531
+`instantiateType` calls, and reports no TS2589. Native never approaches
+`instantiationDepth` 100, `instantiationCount` 5,000,000 or the
+tail-recursion limit of 1000. This port already applies the depth-100 and
+5M checks in `evaluate_conditional_alias` and `instantiate_type`. Its
+TS2589 reporter is held, because it would add false reports
+(`current_node.rs`, r5-spans §2.3). Porting the reporter would add a
+TS2589 native does not print, and would not bound memory. At this case's
+rate the 5M budget is about 23 minutes and tens of GB away.
+
+**Cause.** A scratch trace showed `Expand__` re-entered 96 levels deep,
+always with the same `Depth` tuple and a growing `O`
+(`X[K][P extends Keys ? 'value' : 'default'][…]`). `O` is generic, so
+`O extends CanBeExpanded` is deferred (`is_deferred_type` is true). But
+the deferred conditional's mint inside a mapped template
+(`get_type_from_type_node_worker`, the `mapped_template_depth > 0` arm)
+evaluates both branch types immediately, for
+`mapped_conditional_branches`. Its true branch is
+`Expand__<O[…], Keys, P, N, Depth>`. Under the alias frame that binds
+`N = 4` and `Depth = [1, 1]`, that decides `N extends Depth['length']`
+false and reaches the same deferred conditional again, with a longer `O`.
+Native keeps a deferred conditional's branches lazy
+(`getTrueTypeFromConditionalType`) and stops at the first deferral.
+
+**Fix (`declared.rs`, with a field in `checker.rs`).** The mint records its
+conditional node in `eager_branch_conditionals` while it evaluates the
+branches. A mint of the same node re-entered from inside that evaluation
+keeps its root without branches, which the arm already handles ("the root
+and mapper remain useful when a branch is not yet computable"). The case
+now completes in 0.23 s at 3 MB. The types it prints are still not
+native's; native prints 1.25 MB of expanded types.
+
+**How we would know it was wrong.** A corpus row whose inner deferred
+conditional relied on branches computed by a re-entrant mint of the same
+node. It would show as a mapped conditional that no longer re-evaluates
+after substitution.
+
+**Re-measured on main `bacf0918` (batch 51).** The CLI reproduces it
+without the oracle: `tsr --target es2015 --noEmit` on the case file
+reaches 4.1 GB in 14.7 s and aborts on an allocation failure. tsgo-pinned
+finishes in 0.35 s at 89 MB and prints nothing. With the fix, TSR finishes
+in 0.23 s at 82 MB and prints nothing. Gates against a freeze of
+`bacf0918`:
+
+- Both unfiltered dumps are byte-identical once the `ms=`/`mib=` columns
+  are cut. `compare` reports 0 gained, 0 lost and 0 missing.
+- jsTyping leg: 122 against 122 lines, identical, so new_false 0 and
+  lost_true 0.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,458 → 10,458
+  exact, 0 lost, 0 missing. Case 5834 goes from TSR_FAILED (allocation
+  failure at 22.9 s) to WRONG `types:type-text` at 58 ms.
+- Callgrind Ir, `--singleThreaded`: generic-imports 191,627,273 →
+  191,621,985; domain-model 857,621,235 → 857,975,134 (+0.04%).
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,841 passed, 0 failed.
+
+**The other oracle timeout is the same family, and this guard does not
+cover it.** `conformance/types/keyof/keyofAndIndexedAccess2.ts` is
+TSR_TIMEOUT at 60 s (native 156 ms). Its trigger is four lines
+(#30920):
+
+```ts
+type StrictExtract<T, U> = T extends U ? U extends T ? T : never : never;
+type StrictExclude<T, U> = T extends StrictExtract<T, U> ? never : T;
+type A<T> = { [Q in { [P in keyof T]: P; }[keyof T]]: T[Q]; };
+type B<T, V> = A<{ [Q in keyof T]: StrictExclude<B<T[Q], V>, {}>; }>;
+```
+
+TSR does not finish in 10 s, and its memory grows slowly (430 MB). tsgo
+prints nothing. The profile is `evaluate_conditional_alias` →
+`evaluate_mapped_type_node` → `extends_instantiation` →
+`definite_conditional_outcome`, re-entering `B<T[Q], V>` with a longer
+`T`. That is the same eager evaluation of a deferred alias, reached
+through the conditional-alias road rather than the mint. It is not attempted in this commit; it is
+routed to the integrator for an issue and an owner.
