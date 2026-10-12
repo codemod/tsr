@@ -2664,3 +2664,14 @@ declines under strict null checks. In `strictOptionalProperties1`, the tuple
 lines (`Type at position 1 in source is not compatible …` / `Type 'undefined'
 is not assignable to type 'string'.`) now match. Quick oracles over `uple`,
 `ariadic`, `estParam`, `pread`, `estructuring` and `xactOptional`: 0 lost.
+
+## 94. `containsMissingType` reads the whole union
+
+`isExactOptionalPropertyMismatch` asks `containsMissingType(target)`, which
+looks for the missing type anywhere in a union. The TS2412 head test
+(`exact_optional_property_assignment_mismatch`) only accepted it as the
+union's first member, so its correctness depended on union order. It now
+checks membership. No quick-oracle movement (`xactOptional`: 0 gained, 0
+lost). The `Partial<{ a: string }>` write in `strictOptionalProperties1`
+still reports TS2322, because the mapped property's type does not carry the
+missing type in this port. That is the mapped-type lane's question.

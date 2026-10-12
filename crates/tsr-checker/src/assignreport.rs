@@ -3435,9 +3435,11 @@ impl<'a> Checker<'a, '_> {
         let Some(property_type) = self.get_type_of_property_of_type(receiver, name) else {
             return false;
         };
+        // `containsMissingType`: the missing type anywhere in the union
+        // (r7-reports §94).
         property_type == self.intrinsics.missing
             || matches!(&self.type_of(property_type).data, TypeData::Union { types, .. }
-                if types.first() == Some(&self.intrinsics.missing))
+                if types.contains(&self.intrinsics.missing))
     }
 
     /// `reportRelationError`: generalize literal source names only for targets
