@@ -1002,7 +1002,14 @@ impl Checker<'_, '_> {
                     n.r#type,
                     missing(n.body),
                     n.modifiers,
-                    n.name.map(|name| name.text.to_string()),
+                    // `DeclarationNameToString`: a missing name is `(Missing)`.
+                    n.name.map(|name| {
+                        if name.text.is_empty() {
+                            "(Missing)".to_string()
+                        } else {
+                            name.text.to_string()
+                        }
+                    }),
                     false,
                 ),
                 Some(Node::MethodDeclaration(n)) => (

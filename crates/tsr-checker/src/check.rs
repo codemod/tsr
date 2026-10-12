@@ -14551,6 +14551,10 @@ impl OverloadFlags {
 /// See `docs/architecture/checker-notes-diag2.md` §43.
 pub(crate) fn declaration_name_to_string(name: tsr_ast::PropertyName<'_>) -> Option<String> {
     match name {
+        // `DeclarationNameToString`: a missing name (no width) is `(Missing)`.
+        tsr_ast::PropertyName::Identifier(identifier) if identifier.text.is_empty() => {
+            Some("(Missing)".to_string())
+        }
         tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
         // The parser keeps the `#` in the text, as upstream's scanner does.
         tsr_ast::PropertyName::PrivateIdentifier(private) => Some(private.text.to_string()),
