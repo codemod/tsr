@@ -2515,3 +2515,39 @@ no match for the signature` already did. `typePredicateInherit` and
   `destructuringParameterDeclaration3*` cases are EXACT.
 - **Measured.** Quick oracles against base24 (`uple`,
   `estructuringParameterDeclaration`, `ariadic`, `estParameter`): 0 lost.
+
+## 88. Signature-bearing sources miss index signatures; constructor visibility; the global `Object`; single bases in the retrace
+
+- **`isObjectTypeWithInferableIndex` refuses a type with call or construct
+  signatures.** `() => void → { [n: number]: Bar }` therefore reports
+  TS2329, `Index signature for type 'number' is missing in type '() =>
+  void'.`. `chain_source_index_not_inferable` had only refused class and
+  interface symbols (`augmentedTypeAssignmentCompatIndexSignature`,
+  `functionAssignabilityWithArrayLike01`).
+- **`constructorVisibilitiesAreCompatible`'s report** (`relater.go:4520`):
+  `Cannot assign a 'protected' constructor type to a 'public' constructor
+  type.` The relater's check moves to a Checker helper,
+  `constructor_visibility_mismatch`, which returns both accessibilities.
+  The relater and the retrace now share it (`classConstructorAccessibility3`).
+- **The global `Object` source.** `unmatched_property_report` refuses it,
+  because its head-suppression callers must keep their head: native wraps
+  the missing-property message in `reportErrorResults`' *The 'Object' type
+  is assignable to very few other types.* The retrace computes the missing
+  names itself for that source, as it does for an intersection source (§71),
+  and `chain_error_results` adds the wrapper above them
+  (`assigningFromObjectToAnythingElse`).
+- **Single bases.** `getNormalizedType` reads a non-augmenting subtype
+  (`interface I extends Base {}`) as its single base before the structural
+  comparison. The pair's own relation error keeps the original
+  (`reportErrorResults`). `explain_relation` now normalizes both sides as
+  `missing_property_chain` already did, so `Property 'foo' is private in type
+  'Base'` names the base (`assignmentCompatWithObjectMembersAccessibility`).
+- **The late-bound member gate.** `getSingleBaseForNonAugmentingSubtype` asks
+  `getMembersOfSymbol`, which includes late-bound members. The binder's
+  table does not have `private [x]: 12`. Without that check, `D extends C`
+  read as `C`, and `declarationEmitPrivateSymbolCausesVarDeclarationEmit2`
+  went EXACT → WRONG in the first quick oracle. The gate now consults
+  `late_bound_members_of`, and the case is EXACT again.
+- **Measured.** Quick oracles against base24 (`ssignmentCompat`, `rivate`,
+  `ubtyping`, `ndexSignature`, `onstructor`, `nheritance`, `nterface`,
+  `xtends`, `erived`, `bject`): 0 lost after the gate fix.

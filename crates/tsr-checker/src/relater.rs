@@ -934,6 +934,43 @@ impl Checker<'_, '_> {
         relater.simplified_indexed_access(id, writing)
     }
 
+    /// `constructorVisibilitiesAreCompatible` (`relater.go:4520`): the
+    /// source and target constructor accessibilities (`private`,
+    /// `protected`, or `None` for public) when the source's is not
+    /// assignable to the target's, else `None`.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn constructor_visibility_mismatch(
+        &self,
+        source: &crate::signatures::Signature,
+        target: &crate::signatures::Signature,
+    ) -> Option<(Option<tsr_ast::SyntaxKind>, Option<tsr_ast::SyntaxKind>)> {
+        use tsr_ast::{ModifierLike, Node, SyntaxKind};
+        let visibility = |signature: &crate::signatures::Signature| {
+            let modifiers = match self.node_map.get(signature.declaration) {
+                Some(Node::ConstructorDeclaration(node)) => node.modifiers,
+                _ => return None,
+            };
+            modifiers.iter().find_map(|modifier| match modifier {
+                ModifierLike::Token(token)
+                    if matches!(
+                        token.kind,
+                        SyntaxKind::PrivateKeyword | SyntaxKind::ProtectedKeyword
+                    ) =>
+                {
+                    Some(token.kind)
+                }
+                _ => None,
+            })
+        };
+        let source = visibility(source);
+        let target = visibility(target);
+        let compatible = target == Some(SyntaxKind::PrivateKeyword)
+            || (target == Some(SyntaxKind::ProtectedKeyword)
+                && source != Some(SyntaxKind::PrivateKeyword))
+            || (target != Some(SyntaxKind::ProtectedKeyword) && source.is_none());
+        (!compatible).then_some((source, target))
+    }
+
     /// [`Checker::relate_ternary`] as `typeRelatedToEachType` relates each
     /// constituent of a target intersection: `isRelatedToEx(…,
     /// IntersectionStateTarget)`, which nested comparisons inherit
@@ -3845,30 +3882,7 @@ impl Relater<'_, '_, '_> {
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
     ) -> bool {
-        use tsr_ast::{ModifierLike, Node, SyntaxKind};
-        let visibility = |signature: &crate::signatures::Signature| {
-            let modifiers = match self.checker.node_map.get(signature.declaration) {
-                Some(Node::ConstructorDeclaration(node)) => node.modifiers,
-                _ => return None,
-            };
-            modifiers.iter().find_map(|modifier| match modifier {
-                ModifierLike::Token(token)
-                    if matches!(
-                        token.kind,
-                        SyntaxKind::PrivateKeyword | SyntaxKind::ProtectedKeyword
-                    ) =>
-                {
-                    Some(token.kind)
-                }
-                _ => None,
-            })
-        };
-        let source = visibility(source);
-        let target = visibility(target);
-        target == Some(SyntaxKind::PrivateKeyword)
-            || (target == Some(SyntaxKind::ProtectedKeyword)
-                && source != Some(SyntaxKind::PrivateKeyword))
-            || (target != Some(SyntaxKind::ProtectedKeyword) && source.is_none())
+        self.checker.constructor_visibility_mismatch(source, target).is_none()
     }
 
     /// hasExcessProperties' Object/empty-object exemption for assignability

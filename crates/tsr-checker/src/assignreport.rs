@@ -2206,7 +2206,11 @@ impl<'a> Checker<'a, '_> {
         if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
             return None;
         }
-        if !self.binder.symbols().get(symbol).members.is_empty() {
+        // `getMembersOfSymbol` includes the late-bound members, which the
+        // binder's table does not hold (`private [x]: number`; r7-reports §88).
+        if !self.binder.symbols().get(symbol).members.is_empty()
+            || !self.late_bound_members_of(symbol, false).is_empty()
+        {
             return None;
         }
         if flags.contains(SymbolFlags::CLASS) {
@@ -2827,6 +2831,13 @@ impl<'a> Checker<'a, '_> {
             chain,
         );
         true
+    }
+
+    /// The global `Object` interface's own declared type.
+    fn is_global_object_type(&mut self, ty: TypeId) -> bool {
+        matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
+            if self.global_type_symbol_with_arity("Object", 0) == Some(owner))
+            && !self.type_reference_targets.contains_key(&ty)
     }
 
     /// The enum symbol of a union-enum type (`getDeclaredTypeOfEnum`'s
@@ -6279,6 +6290,13 @@ impl Checker<'_, '_> {
             return None;
         }
         let target = self.chain_normalized_target(source, target);
+        // `getNormalizedType`'s reference arm: the structural comparison
+        // reads a non-augmenting subtype as its single base, while the pair's
+        // own relation error keeps the original (`reportErrorResults`), so
+        // `Property 'foo' is private in type 'Base'` names the base of an
+        // empty `interface I extends Base {}` (r7-reports §88).
+        let source = self.single_base_normalized(source);
+        let target = self.single_base_normalized(target);
         let source_flags = self.type_of(source).flags;
         let target_flags = self.type_of(target).flags;
         // `isSimpleTypeRelatedTo`'s union-enum arm (`relater.go:243`) runs
@@ -6988,8 +7006,12 @@ impl Checker<'_, '_> {
                     // `getUnmatchedProperties` over an intersection source of
                     // plain objects: the target's required members its
                     // combined members lack, in target order (§71).
+                    // The same for the global `Object` source, which
+                    // `unmatched_property_report` leaves to its caller's head
+                    // because `reportErrorResults` wraps the message (§88).
                     None if self.type_of(source).flags.contains(TypeFlags::INTERSECTION)
-                        && !self.intersection_has_instantiable(source) =>
+                        && !self.intersection_has_instantiable(source)
+                        || self.is_global_object_type(source) =>
                     {
                         let mut missing = Vec::new();
                         for candidate in &names {
@@ -7108,6 +7130,28 @@ impl Checker<'_, '_> {
                 stack.push(ChainEntry {
                     message: &messages::CANNOT_ASSIGN_AN_ABSTRACT_CONSTRUCTOR_TYPE_TO_A_NON_ABSTRACT_CONSTRUCTOR_TYPE,
                     args: Vec::new(),
+                });
+                return Some(());
+            }
+            // `constructorVisibilitiesAreCompatible` (`relater.go:4520`), with
+            // its report (r7-reports §88).
+            if kind == SignatureKind::Construct
+                && let (Some(first_source), Some(first_target)) =
+                    (source_signatures.first(), target_signatures.first())
+                && let Some((source_visibility, target_visibility)) =
+                    self.constructor_visibility_mismatch(first_source, first_target)
+            {
+                let text = |visibility: Option<SyntaxKind>| match visibility {
+                    Some(SyntaxKind::PrivateKeyword) => "private",
+                    Some(SyntaxKind::ProtectedKeyword) => "protected",
+                    _ => "public",
+                };
+                stack.push(ChainEntry {
+                    message: &messages::CANNOT_ASSIGN_A_0_CONSTRUCTOR_TYPE_TO_A_1_CONSTRUCTOR_TYPE,
+                    args: vec![
+                        text(source_visibility).to_string(),
+                        text(target_visibility).to_string(),
+                    ],
                 });
                 return Some(());
             }
@@ -7355,7 +7399,20 @@ impl Checker<'_, '_> {
 
     /// `isObjectTypeWithInferableIndex` is false: a class or interface
     /// instance (no type literal, object literal, enum or module symbol).
-    fn chain_source_index_not_inferable(&self, source: TypeId) -> bool {
+    fn chain_source_index_not_inferable(&mut self, source: TypeId) -> bool {
+        // `isObjectTypeWithInferableIndex` also refuses a type with call or
+        // construct signatures (`typeHasCallOrConstructSignatures`): a
+        // function type misses the signature (r7-reports §88).
+        if self.type_of(source).flags.contains(TypeFlags::OBJECT)
+            && [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+                .into_iter()
+                .any(|kind| {
+                    self.signatures_of_type_kind(source, kind)
+                        .is_some_and(|signatures| !signatures.is_empty())
+                })
+        {
+            return true;
+        }
         let symbol = match self.type_reference_targets.get(&source) {
             Some(&(symbol, _)) => symbol,
             None => match self.type_of(source).data {
