@@ -21,6 +21,9 @@ for b in "$@"; do
   fi
 done
 say "HEAD $(git rev-parse --short HEAD)"
+( while true; do echo "== $(date -u +%T) $(free -m | awk '/Mem/{print $3"MB used"}')"; ps -eo rss,args --sort=-rss | head -4 | cut -c1-150; sleep 10; done ) > $out/mem.log 2>&1 &
+memmon=$!
+trap 'kill $memmon 2>/dev/null' EXIT
 scripts/parity_gate.sh freeze $out/freeze >>$log 2>&1 || say "FREEZE_FAIL"
 scripts/parity_gate.sh compare $base $out/freeze > $out/compare.txt 2> $out/compare.err; say "COMPARE_EXIT $?"
 cat $out/compare.err | tee -a $log
@@ -45,7 +48,7 @@ done
 /tmp/integ/jstyping.sh $base/tsr target/release/tsr | tee -a $log
 /tmp/integ/ir.sh $base/tsr target/release/tsr | tee -a $log
 if [ -n "${ORACLE_BASE:-}" ]; then
-  rm -rf $out/oracle; scripts/parity_gate.sh exact-candidate /tmp/integ/oracle/native "$ORACLE_BASE" $out/oracle --workers 2 > $out/oracle.txt 2>&1; say "ORACLE_EXIT $?"
+  rm -rf $out/oracle; ( ulimit -v 4500000; scripts/parity_gate.sh exact-candidate /tmp/integ/oracle/native "$ORACLE_BASE" $out/oracle --workers 1 > $out/oracle.txt 2>&1 ); say "ORACLE_EXIT $?"
   head -5 $out/oracle.txt | tee -a $log
 fi
 say "GATE_DONE"
