@@ -2998,6 +2998,38 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// [`Self::chain_best_matching_type`] for a fixed tuple source and a
+    /// union whose every constituent is a fixed tuple.
+    fn tuple_union_best_match(&self, source: TypeId, types: &[TypeId]) -> Option<TypeId> {
+        let fixed_length = |checker: &Self, ty: TypeId| -> Option<usize> {
+            if checker.variadic_tuple_elements.contains_key(&ty)
+                || checker.tuple_rest_tails.contains_key(&ty)
+                || checker.tuple_optional_masks.get(&ty).is_some_and(|mask| mask.contains(&true))
+            {
+                return None;
+            }
+            checker.tuple_element_lists.get(&ty).map(|(elements, _)| elements.len())
+        };
+        let length = fixed_length(self, source)?;
+        let lengths: Option<Vec<usize>> = types.iter().map(|&ty| fixed_length(self, ty)).collect();
+        let lengths = lengths?;
+        let matches: Vec<usize> =
+            lengths.iter().enumerate().filter(|(_, l)| **l == length).map(|(i, _)| i).collect();
+        if let [only] = matches.as_slice() {
+            return Some(types[*only]);
+        }
+        let mut best = None;
+        let mut count = 0usize;
+        for (index, &part_length) in lengths.iter().enumerate() {
+            let shared = length.min(part_length);
+            if shared >= count {
+                best = Some(types[index]);
+                count = shared;
+            }
+        }
+        best
+    }
+
     /// The global `Object` interface's own declared type.
     fn is_global_object_type(&mut self, ty: TypeId) -> bool {
         matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
@@ -8438,6 +8470,14 @@ impl Checker<'_, '_> {
         let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
             return Some(None);
         };
+        // A fixed tuple against a union of tuples: `length` is the
+        // discriminant (a literal per fixed tuple), and failing a unique
+        // match `findMostOverlappyType` counts the shared element keys, the
+        // `Array` members being common to all (ties go to the later
+        // constituent; r7-reports §115).
+        if let Some(best) = self.tuple_union_best_match(source, &types) {
+            return Some(Some(best));
+        }
         // findMatchingDiscriminantType.
         let discriminated = self.find_matching_discriminant_type(source, target)?;
         if discriminated != target {
