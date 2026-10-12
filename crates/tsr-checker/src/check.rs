@@ -13862,7 +13862,8 @@ impl Checker<'_, '_> {
     /// `KindSourceFile`, `KindArrowFunction`, the case/default clauses, and
     /// `return`/`yield`/`constructor`. The `return`/`yield` arm scans the
     /// keyword through the module host's text (`docs/parity/notes/decls.md`
-    /// §18); the others keep the node's own span (§48).
+    /// §18), and the clause arm reads it to step back to the `:`
+    /// (r7-parser §13); the others keep the node's own span (§48).
     /// [`Checker::error_span`], exposed for probes.
     ///
     /// A diagnostic's position is `error_span(anchor)`, so joining a baseline
@@ -13940,6 +13941,19 @@ impl Checker<'_, '_> {
         ) && let Some(token) = self.first_token_span(node, span.start)
         {
             return token;
+        }
+        // The case/default-clause arm (`scanner.go:2614`): from the clause's
+        // start to its first statement's `Pos()`, the end of the `:` (the
+        // whitespace before the statement stepped back over), else the
+        // clause's end.
+        if let Some(Node::CaseOrDefaultClause(clause)) = self.node_map.get(node)
+            && let Some(first) = clause.statements.first().and_then(tsr_ast::Statement::node_id)
+        {
+            let first_start = self.nodes.span(first).start;
+            return tsr_core::Span::new(
+                span.start,
+                self.missing_node_full_start(first, first_start).max(span.start),
+            );
         }
         // `GetErrorRangeForNode` (`scanner.go:2649`) skips trivia only for a
         // node that is not missing: a missing node (a missing declaration
