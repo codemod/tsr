@@ -310,6 +310,10 @@ Refused, with the number:
   JSX end-of-file arm above applies the full start locally instead, where
   only the parser reads the span. Revisit when the checker's error spans
   skip trivia (`getErrorSpanForNode`'s `SkipTrivia`) for missing nodes.
+  Re-measured 2026-10-12 on batch 56 plus this lane's stack, with
+  `error_span` already stepping a zero-width node back to its full start:
+  exact oracle +0 / −2, the same two cases (their TS2554 spans), so it stays
+  refused.
 
 ## 7. Scanner reports go through the parser's sink
 
