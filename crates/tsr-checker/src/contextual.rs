@@ -3436,8 +3436,9 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(match index {
                 0 => self.intrinsics.string,
+                // getGlobalImportCallOptionsType reads the arity-0 global.
                 1 => self
-                    .global_type_symbol("ImportCallOptions")
+                    .global_type_symbol_with_arity("ImportCallOptions", 0)
                     .map_or(self.intrinsics.empty_object, |options| {
                         self.get_declared_type_of_symbol(options)
                     }),
