@@ -1127,3 +1127,57 @@ Measured on `5aed9899` unfiltered: types and diagnostics verdicts unchanged,
 0 lost; exact oracle 9679 → 9679, 0 lost; jsTyping 117 → **114** unique
 lines, new_false 0, lost_true 0 (`program.ts`' three false TS18048 on the
 destructured `oldProgram` read in callbacks gone); Ir gi 0.9999, dm 1.0000.
+
+## §41 A union receiver's readonly property in `isConstantReference`
+
+`isConstantReference` (`flow.go:1817`) admits a property access when its
+receiver is constant and `isReadonlySymbol` of the resolved property holds;
+for a union receiver that property is the synthetic union property, readonly
+when **any** constituent's property is (`createUnionOrIntersectionProperty`,
+`checker.go:21508`). This port's `is_readonly_property_of_type` assembles the
+synthetic property for intersections only (`composite_property_of_type`), so a
+union receiver's property read as writable, and the aliased-condition
+narrowing (`const node = declaration.attributes; if (node)`) declined for
+`declaration: ImportDeclaration | ExportDeclaration | JSDocImportTag`.
+`union_property_is_readonly` (flow.rs) answers for a union whose every
+constituent has the property, through each constituent's
+`constituent_property_is_readonly`; otherwise the shared function answers as
+before. The shared function's union gap is `members.rs`' (r7-shared).
+
+Measured on `4c94490e` unfiltered: types and diagnostics verdicts unchanged,
+0 lost; jsTyping 114 → **111**, new_false 0, lost_true 0 (`checker.ts`
+38800, 45144 and 48616 gone); exact oracle 9679 → 9679, 0 lost; Ir gi
+0.9999, dm 1.0001.
+
+## §42 A compound-like assignment reads the declared type at its literal's base
+
+`getTypeAtFlowAssignment` (`flow.go:243-246`) takes the declared type at its
+literal's base when the assignment is compound-like (`x = x + 1`, a binary
+right operand reading the target, `isInCompoundLikeAssignment`) before the
+union reduction or the declared-type answer: `let foo = empty` (`empty: ""`)
+is `string` after `foo = foo + "bar"`. The port answered the declared `""`
+(`literalWideningWithCompoundLikeAssignments`, eleven lines). The assignment
+arm now applies the same base read, through the existing
+`is_in_compound_like_assignment` (the identifier road's twin, expressions.rs).
+
+Measured on `f65819c4` unfiltered: types **+11**, diagnostics unchanged, 0
+lost; exact oracle 9679 → 9680, 0 lost; jsTyping 111 → 111, new_false 0, lost_true
+0; Ir gi 1.0000, dm 1.0001.
+
+## §43 The effects signature of an optional call drops the callee's nullable half
+
+`getEffectsSignature` (`flow.go`) types a call's callee by
+`checkNonNullExpression`, or for an optional chain
+`checkNonNullType(getOptionalExpressionType(…))`: either way the callee's
+`null`/`undefined` constituents are gone before its call signatures are read.
+The port read `check_expression(callee)` as it stood (its comment assumed a
+chain's callee already answered the non-optional type, which holds for
+`o?.f` but not for `f?.(x)` with `f: undefined | ((x: any) => x is number)`),
+so the union with `undefined` had no call signatures and `if (f?.(x))` did not
+narrow `x` (`controlFlowOptionalChain`: `x` four times, `o6` twice). The
+effects road now takes `getOptionalExpressionType` for an optional call and
+`GetNonNullableType` of a nullable callee (under `strictNullChecks`).
+
+Measured on `ef353bb9` unfiltered: types **+6** (`controlFlowOptionalChain`),
+diagnostics unchanged, 0 lost; exact oracle 9680 → 9681, 0 lost; jsTyping 111
+→ 111, new_false 0, lost_true 0; Ir gi 1.0001, dm 1.0000.

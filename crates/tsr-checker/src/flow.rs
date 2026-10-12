@@ -1721,16 +1721,23 @@ impl Checker<'_, '_> {
                 incomplete: false,
             });
         }
-        if self.store.get(state.declared_type).flags.contains(TypeFlags::UNION) {
-            let declared = state.declared_type;
-            if let Some(assigned) = self.get_initial_or_assigned_type(node) {
-                return Some(FlowType {
-                    t: self.get_assignment_reduced_type(declared, assigned),
-                    incomplete: false,
-                });
-            }
+        // `flow.go:243-246`: in a compound-like assignment (`x = x + 1`) the
+        // declared type reads at its literal's base, so `let x = c` with `c:
+        // ""` is `string` after `x = x + "b"`.
+        let declared = if self.is_in_compound_like_assignment(node) {
+            self.get_base_type_of_literal_type(state.declared_type)
+        } else {
+            state.declared_type
+        };
+        if self.store.get(declared).flags.contains(TypeFlags::UNION)
+            && let Some(assigned) = self.get_initial_or_assigned_type(node)
+        {
+            return Some(FlowType {
+                t: self.get_assignment_reduced_type(declared, assigned),
+                incomplete: false,
+            });
         }
-        Some(FlowType { t: state.declared_type, incomplete: false })
+        Some(FlowType { t: declared, incomplete: false })
     }
 
     /// Whether ANY assignment in the declaration's control-flow container
@@ -2257,6 +2264,22 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `isReadonlySymbol` of a union receiver's property
+    /// (`createUnionOrIntersectionProperty`, `checker.go:21508`): readonly
+    /// when any constituent's property is. `None` unless every constituent
+    /// (by its apparent type) has the property, a union property this port's
+    /// `is_readonly_property_of_type` does not assemble.
+    fn union_property_is_readonly(&mut self, receiver: TypeId, name: &str) -> Option<bool> {
+        let TypeData::Union { types, .. } = &self.store.get(receiver).data else { return None };
+        let mut readonly = false;
+        for part in types.clone() {
+            let apparent = self.apparent_type(part);
+            let property = self.get_property_of_type(apparent, name)?;
+            readonly |= self.constituent_property_is_readonly(apparent, name, property);
+        }
+        Some(readonly)
+    }
+
     pub(crate) fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
@@ -2314,7 +2337,9 @@ impl Checker<'_, '_> {
                 let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
                     return false;
                 };
-                let readonly = self.is_readonly_property_of_type(receiver_type, name.text);
+                let readonly = self
+                    .union_property_is_readonly(receiver_type, name.text)
+                    .unwrap_or_else(|| self.is_readonly_property_of_type(receiver_type, name.text));
                 readonly && self.is_constant_reference(receiver)
             }
             // §904: `case ast.KindElementAccessExpression` shares upstream's
@@ -3607,11 +3632,29 @@ impl Checker<'_, '_> {
         } else if self.nodes.kind(callee_id) == SyntaxKind::SuperKeyword {
             return None;
         } else {
-            // `checkNonNullExpression(node.Expression())`. The optional-chain
-            // arm (`getOptionalExpressionType`) is not split out: this
-            // port's `check_expression` of a chain already answers the
-            // non-optional type at the callee position.
-            self.check_expression(callee)
+            // `checkNonNullExpression(node.Expression())`, or for an optional
+            // call `checkNonNullType(getOptionalExpressionType(…))`: either
+            // way the callee's nullable constituents are gone
+            // (`GetNonNullableType`), so `f?.(x)` with `f: undefined | ((x:
+            // any) => x is number)` reads the predicate.
+            let callee_type = self.check_expression(callee);
+            let optional = call.question_dot_token.is_some()
+                || self.nodes.flags(call_node).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN);
+            let callee_type = if optional {
+                self.get_optional_expression_type(
+                    callee_type,
+                    Some(callee_id),
+                    call.question_dot_token.is_some(),
+                )
+            } else {
+                callee_type
+            };
+            if self.strict_null_checks && self.maybe_type_of_kind(callee_type, TypeFlags::NULLABLE)
+            {
+                self.get_non_nullable_type(callee_type)
+            } else {
+                callee_type
+            }
         };
         if func_type == self.intrinsics.error {
             return None;
