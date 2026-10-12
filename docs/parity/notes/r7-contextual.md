@@ -781,3 +781,30 @@ type-parameter arms (the union-constraint test included) and answers
 primitives still skips reduction, as before: primitives are no candidates
 without an empty object type. The contextual/literal gate in front of it
 (an uncontextual position or a literal-free union) is unchanged.
+
+## 25. The benign-return shortcut does not skip a literal argument's re-read
+
+`check_generic_call_worker` answers a call whose return mentions no
+type parameter (`f<T>(x: T): string`) without running inference, unless an
+argument is context-sensitive (SS135). Native always resolves the call, and
+checkApplicableSignature (`checker.go:9256`) re-checks every argument
+against the instantiated candidate. The writer then reads an array or
+object literal argument under the inferred parameter type
+(`getContextualTypeForArgumentAtIndex`, `:29772`). `all<T>(list: T[], …):
+boolean` called with `[true]` infers `T = boolean` (tsgo:
+`{ t: boolean }` for a `{ t: T }` return), and `[true]` reads as `true[]`
+under `boolean[]`. The shortcut left the uninstantiated `T[]` check's
+`boolean[]` in place (genericArgumentCallSigAssignmentCompat 0:15, 0:26).
+The shortcut now also declines when an argument passes
+`resolved_literal_argument_recheck`, the same certifier and work boundary
+§1's re-check uses. For a benign return every decline still answers
+`returned`, so the call's own type cannot change. The cost is running
+inference for such calls, which the native checker already pays.
+
+Routed, not ported: a self-mention inside a union-bodied alias body
+(`type A = "number" | "null" | A[]`) is §29's OBJECT-flagged NAME
+placeholder (`alias_placeholders`, declared.rs). `complete_alias_placeholder`
+completes it only for a type-literal body, so `A[]`'s element context is
+`string | <object A>`, which has no literal constituent, and
+`const g: A = ["number"]` widens to `string[]` (recursiveTupleTypeInference
+0:5–0:7). Owner: r7-declared.
