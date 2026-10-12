@@ -1542,13 +1542,26 @@ impl Checker<'_, '_> {
             );
         }
         self.resolve_mapped_type_members(id);
+        // checkObjectLiteral gives each member its own transient symbol and
+        // the last one wins `propertiesTable[name]` (`checker.go:13331`). A
+        // name the literal writes more than once merges into one binder
+        // symbol, whose `getTypeOfSymbol` answers the first declaration, so
+        // the symbol road below would relate the wrong member: the literal's
+        // own resolved entry is the last member's (r7-reports §75).
+        let duplicated_member = |checker: &Self, property: &crate::objects::AnonymousProperty| {
+            property.checked_declaration.is_some()
+                && checker.peek_property_type(property).is_some()
+                && property.origin.is_some_and(|symbol| {
+                    checker.binder.symbols().get(symbol).declarations.len() > 1
+                })
+        };
         if let Some(property) = self
             .anonymous_properties
             .get(&id)
             .and_then(|(properties, instantiated)| {
-                instantiated
-                    .then(|| properties.iter().find(|property| property.name == name))
-                    .flatten()
+                properties.iter().find(|property| {
+                    property.name == name && (*instantiated || duplicated_member(self, property))
+                })
             })
             .cloned()
         {
