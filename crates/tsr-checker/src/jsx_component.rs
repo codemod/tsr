@@ -822,7 +822,7 @@ impl Checker<'_, '_> {
                 Ternary::Related => Some(false),
                 Ternary::Unknown => None,
                 Ternary::NotRelated => {
-                    let text = self.type_to_string(children_target);
+                    let text = self.type_to_string_for_message(children_target, tag);
                     self.report_jsx_children_arity(
                         tag,
                         &messages::THIS_JSX_TAG_S_0_PROP_EXPECTS_A_SINGLE_CHILD_OF_TYPE_1_BUT_MULTIPLE_CHILDREN_WERE_PROVIDED,
@@ -839,7 +839,7 @@ impl Checker<'_, '_> {
                 Ternary::Related => Some(false),
                 Ternary::Unknown => None,
                 Ternary::NotRelated => {
-                    let text = self.type_to_string(children_target);
+                    let text = self.type_to_string_for_message(children_target, tag);
                     self.report_jsx_children_arity(
                         tag,
                         &messages::THIS_JSX_TAG_S_0_PROP_EXPECTS_TYPE_1_WHICH_REQUIRES_MULTIPLE_CHILDREN_BUT_ONLY_A_SINGLE_CHILD_WAS_PROVIDED,
@@ -1051,7 +1051,7 @@ impl Checker<'_, '_> {
         match child {
             tsr_ast::JsxChild::JsxText(_) => {
                 let tag_text = self.jsx_tag_text(tag);
-                let target_text = self.type_to_string(target);
+                let target_text = self.type_to_string_for_message(target, at);
                 self.report_jsx_children_arity(
                     at,
                     &messages::_0_COMPONENTS_DON_T_ACCEPT_TEXT_AS_CHILD_ELEMENTS_TEXT_IN_JSX_HAS_THE_TYPE_STRING_BUT_THE_EXPECTED_TYPE_OF_1_IS_2,
@@ -1410,7 +1410,7 @@ impl Checker<'_, '_> {
             .map(|suggestion| crate::jsx_intrinsic::jsx_printed_member_name(&suggestion));
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
-        let printed = self.type_to_string(error_target);
+        let printed = self.type_to_string_for_message(error_target, at);
         let detail = match suggestion {
             Some(suggestion) => Diagnostic::with_args(
                 &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
@@ -1423,10 +1423,12 @@ impl Checker<'_, '_> {
                 [name.to_string(), printed],
             ),
         };
+        // `getTypeNamesForErrorDisplay` (r7-printer §63).
+        let (source_text, target_text) = self.type_names_for_error_display(source, target, at);
         let mut diagnostic = Diagnostic::with_args(
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
             span,
-            [self.type_to_string(source), self.type_to_string(target)],
+            [source_text, target_text],
         );
         diagnostic.add_message_chain(Some(detail));
         self.report(file, diagnostic);
@@ -1513,7 +1515,7 @@ impl Checker<'_, '_> {
         let detail = Diagnostic::with_args(
             &messages::ITS_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT_TYPE,
             span,
-            [self.type_to_string(tag_type)],
+            [self.type_to_string_for_message(tag_type, tag_id)],
         );
         let text = self.jsx_tag_text(tag_id);
         self.report(
@@ -2192,7 +2194,10 @@ impl Checker<'_, '_> {
             let diagnostic = Diagnostic::with_args(
                 &messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1,
                 span,
-                [self.type_to_string(argument), self.type_to_string(constraint)],
+                [
+                    self.type_to_string_for_message(argument, at),
+                    self.type_to_string_for_message(constraint, at),
+                ],
             );
             self.report(file, diagnostic);
             return;

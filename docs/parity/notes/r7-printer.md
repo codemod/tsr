@@ -2107,3 +2107,35 @@ the site without asking.
 **The change** (mapped.rs `mapped_property_member`, a consumer hunk of §53's
 root cause): with a print site, `reused_property_type_text` over the
 member's origin is asked first. No cache or table.
+
+## 63. The TS2345 argument head and the JSX reports print for a message (default consumer grant)
+
+**Forcing constraint.** After §61, 11 message cases still differed only by
+naming or `| undefined`. Two families:
+- the TS2345 argument head: `functionCall7`'s `'m1.c1'`,
+  `signatureLengthMismatchWithOptionalParameters`' `(n?: number) => void`,
+  `typeArgumentInference`, `recursiveFunctionTypes`,
+  `visibilityOfCrossModuleTypeUsage`;
+- the JSX reports: TS2746/TS2745 children (`'JSX.Element'` for `'Element'`),
+  and TS2322 over attributes (`{ ref?: string }`).
+
+**Cause.** The same as §59: these are native `reportRelationError`
+(`getTypeNamesForErrorDisplay`) and `TypeToString` prints, and the port printed
+them site-free.
+
+**The change** (consumer hunks under the default grant):
+- `assignreport.rs` `report_argument_head`: names by
+  `type_names_for_error_display`, and a generalized literal source by
+  `type_name_for_error_display`.
+- `jsx_component.rs`, every type print for a message:
+  - the children arity reports (TS2746, TS2745) and the text-child report;
+  - the attribute miss (TS2322 with its TS2339 detail; the head names its pair
+    by `getTypeNamesForErrorDisplay`);
+  - TS2786's `Its type '…'`;
+  - the JSX TS2344 constraint report.
+
+Left: `namespaceDisambiguationInUnion` wants `'Foo.Yep | Bar.Yep'`. That is
+`mapToTypeNodes`' duplicate-name pass (`nodebuilderimpl.go`), which reprints
+identifier references that collide by name under `UseFullyQualifiedType`.
+It is not ported for unions in this printer. The measurement is in the
+commit's gate record.

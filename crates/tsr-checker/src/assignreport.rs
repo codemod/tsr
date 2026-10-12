@@ -2503,8 +2503,12 @@ impl<'a> Checker<'a, '_> {
         chain: Option<Diagnostic>,
     ) {
         let displayed_source = self.assignability_source_for_error_display(source, target);
-        let source_text = self.type_to_string(displayed_source);
-        let target_text = self.type_to_string(target);
+        // `getTypeNamesForErrorDisplay` (`relater.go:4752`), the generalized
+        // literal source fully qualified (`:4759`; r7-printer §63).
+        let (mut source_text, target_text) = self.type_names_for_error_display(source, target, at);
+        if displayed_source != source {
+            source_text = self.type_name_for_error_display(displayed_source);
+        }
         let mut diagnostic = self.relation_diagnostic(
             span,
             source,
