@@ -556,3 +556,14 @@ fn an_instantiated_missing_property_access_is_unknown() {
          const x = g;\n";
     assert_eq!(type_of_last_initializer(source), "unknown");
 }
+
+/// §60: a `?` identity mapping's index signature reads through the template
+/// with `undefined` added (tsgo: `number | undefined`).
+#[test]
+fn an_optional_identity_mapping_adds_undefined_to_its_index() {
+    let source = "type Foo = { prop: number, [x: string]: number };\n\
+         type Opt<T> = { [P in keyof T]?: T[P] };\n\
+         declare const x: Opt<Foo>;\n\
+         const v = x[\"other\"];\n";
+    assert_eq!(type_of_last_initializer(source), "number | undefined");
+}

@@ -1999,3 +1999,44 @@ known declines. No state.
 **Measured** (unfiltered, against §58 on `1e4a24d9`): types **+1, 0
 lost** (limitDeepInstantiations 0:3); diagnostics 0 / 0; jsTyping 0 / 0;
 Ir gi 0.9999, dm 1.0001; exact oracle: see the stack's tip verification.
+
+## 60. An identity alias image's index signatures read through the mapped template
+
+**Forcing constraint.** mappedTypeModifiers 0:100: over `type Foo = {
+prop: number, [x: string]: number }`, `x["other"]` with `x: Partial<Foo>`
+is `number | undefined`; TSR read `number` (the inline `{ [P in keyof
+Foo]?: Foo[P] }` already answered `number | undefined`). A homomorphic
+identity alias instance is this port's image over the source's member
+table (`instantiate_identity_mapped_alias`, with its modifiers in
+`mapped_identity_optionality`). Property reads applied the modifiers;
+index reads took the source's signatures unchanged. resolveMappedTypeMembers'
+index arm instantiates getTemplateTypeFromMappedType, which adds
+`undefined` under `?` (checker.go:22697), and the mapped type's `readonly`
+modifier sets the index's.
+
+**Port.** `get_index_infos_of_type` (index_signatures.rs, a consumer hunk
+of this image under the integrator's default grant for same-root-cause
+hunks) applies the image's modifiers to each index info:
+`instantiate_identity_mapped_element` (made `pub(crate)`) adds `undefined`
+for `?`, and an explicit `readonly`/`-readonly` replaces the source's flag.
+No state.
+
+**Measured** (unfiltered, against §55–§59 on `6923b9e8`): types **+1,
+0 lost** (mappedTypeModifiers 0:100); diagnostics 0 / 0; jsTyping 0 / 0;
+Ir gi 0.9999, dm 1.0001; exact oracle +4 (mappedTypeModifiers, with three
+cases the tip run had left unreported), 0 lost.
+
+## 61. One guarded declaration-reuse test per mapped member
+
+Batch 77 landed r7-printer §62 (`c4e634887`), which ported the same
+serializeTypeForDeclaration reuse arm into `mapped_property_member` that
+§57 had landed in batch 76, in the branch that prints a non-mapped-object
+member. With both, a member whose §57 test declined on re-entry (the
+`[Symbol.unscopables]` annotation built inside its own reuse test, §57)
+reached the second, unguarded test, which repeats the re-entry §57's guard
+exists to stop. The second test is removed; §57's test runs first for every
+member, at print sites only, under its guard. Prints are unchanged where
+the first test answered; the probes in §57 and §56 print as before. No
+state.
+
+**Measured**: with §60; see the tip verification in the report.
