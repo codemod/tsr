@@ -13942,6 +13942,35 @@ impl Checker<'_, '_> {
         {
             return token;
         }
+        match self.node_map.get(node) {
+            // The declaration arms whose `GetNameOfDeclaration` is nil (an
+            // anonymous function or class expression, `export default
+            // function () {}`): "set the error on the first token of
+            // construct".
+            Some(
+                Node::FunctionExpression(_)
+                | Node::ClassExpression(_)
+                | Node::FunctionDeclaration(_)
+                | Node::ClassDeclaration(_),
+            ) if !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED) => {
+                if let Some(token) = self.first_token_span(node, span.start) {
+                    return token;
+                }
+            }
+            // `getErrorRangeForArrowFunction` (`scanner.go:2542`): a block body
+            // spanning lines ends the range at the line break after the
+            // body's `Pos()`, the end of `=>`.
+            Some(Node::ArrowFunction(arrow)) => {
+                if let Some(tsr_ast::ConciseBody::Block(block)) = arrow.body
+                    && let Some(block) = block.node_id
+                    && let Some(end) = self.arrow_first_line_end(block)
+                {
+                    return tsr_core::Span::new(span.start, end.max(span.start));
+                }
+                return span;
+            }
+            _ => {}
+        }
         // The constructor arm (`scanner.go:2645`): from the first token to
         // the end of the `constructor` keyword (or its string-literal
         // spelling), so modifiers are included and the signature is not.
@@ -13989,6 +14018,19 @@ impl Checker<'_, '_> {
             .and_then(|text| text.get(start as usize..))?;
         let token = tsr_scanner::Scanner::new(rest).scan().span;
         Some(tsr_core::Span::new(start + token.start, start + token.end))
+    }
+
+    /// For an arrow's block body: when the block's full text (from its
+    /// `Pos()`, the end of `=>`) holds a line break, the position of the first
+    /// one (`GetECMAEndLinePosition(startLine) + 1`).
+    fn arrow_first_line_end(&self, block: NodeId) -> Option<u32> {
+        let file = self.source_file_of_for_diagnostics(block)?;
+        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
+        let span = self.nodes.span(block);
+        let pos = self.missing_node_full_start(block, span.start);
+        let body = text.get(pos as usize..span.end as usize)?;
+        let offset = body.find(['\n', '\r', '\u{2028}', '\u{2029}'])?;
+        Some(pos + u32::try_from(offset).ok()?)
     }
 
     /// `GetErrorRangeForNode`'s `KindConstructor` arm: scan from the node's
