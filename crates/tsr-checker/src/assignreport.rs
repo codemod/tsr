@@ -6307,6 +6307,43 @@ impl Checker<'_, '_> {
         None
     }
 
+    /// `getDeclaringClass`: the class whose member declaration `property`
+    /// has as its value declaration.
+    fn chain_declaring_class(&self, property: SymbolId) -> Option<SymbolId> {
+        let declaration = self.binder.symbols().get(property).value_declaration?;
+        let class = self.nodes.parent(declaration)?;
+        if !matches!(
+            self.nodes.kind(class),
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+        ) {
+            return None;
+        }
+        self.binder.symbol_of(class).map(|symbol| self.binder.merged_symbol(symbol))
+    }
+
+    /// `hasBaseType` over class symbols: `class` is `base` or extends it,
+    /// directly or through its bases. `None` where a base list is unreadable.
+    fn chain_class_derives_from(
+        &mut self,
+        class: SymbolId,
+        base: SymbolId,
+        depth: usize,
+    ) -> Option<bool> {
+        if class == base {
+            return Some(true);
+        }
+        if depth > 32 {
+            return None;
+        }
+        for parent in self.base_symbols_of_ex(class, false)? {
+            let parent = self.binder.merged_symbol(parent);
+            if self.chain_class_derives_from(parent, base, depth + 1)? {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
     /// `symbolToString` of `owner`'s property `name`: a name written as a
     /// string literal keeps its quotes as written (`'ry'`, `"e"`); any
     /// other is [`chain_property_display`] (r7-reports §55).
@@ -7304,10 +7341,36 @@ impl Checker<'_, '_> {
             }
             return Some(true);
         }
-        // A protected target needs `isValidOverrideOf`'s class derivation,
-        // which this retrace does not make.
+        // A protected target (`relater.go:4285`): `isValidOverrideOf` asks
+        // whether the source member's declaring class derives from the
+        // target member's; when not, TS2446-family `…is protected but type
+        // 'S' is not a class derived from 'T'` (r7-reports §73).
         if protected(self, target_property) {
-            return None;
+            let source_class = self.chain_declaring_class(source_property);
+            let target_class = self.chain_declaring_class(target_property)?;
+            let derived = match source_class {
+                Some(class) => self.chain_class_derives_from(class, target_class, 0)?,
+                None => false,
+            };
+            if derived {
+                return Some(false);
+            }
+            let display = self.chain_property_symbol_display(target, name);
+            let source_text = match source_class {
+                Some(class) => {
+                    let declared = self.get_declared_type_of_symbol(class);
+                    self.type_to_string(declared)
+                }
+                None => self.type_to_string(source),
+            };
+            let target_declared = self.get_declared_type_of_symbol(target_class);
+            let target_text = self.type_to_string(target_declared);
+            stack.push(ChainEntry {
+                message:
+                    &messages::PROPERTY_0_IS_PROTECTED_BUT_TYPE_1_IS_NOT_A_CLASS_DERIVED_FROM_2,
+                args: vec![display, source_text, target_text],
+            });
+            return Some(true);
         }
         // `propertyRelatedTo`'s last modifier arm (`relater.go:4296`).
         if protected(self, source_property) {
