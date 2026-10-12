@@ -2906,22 +2906,18 @@ impl<'a> Checker<'a, '_> {
         chain: Option<Diagnostic>,
     ) {
         let displayed_source = self.assignability_source_for_error_display(source, target);
-        let mut source_text = self.type_to_string(displayed_source);
-        let mut target_text = self.type_to_string(target);
-        // `getTypeNamesForErrorDisplay` (`relater.go:1277`): when the two
-        // print alike, both are re-printed fully qualified
-        // (`getTypeNameForErrorDisplay`), and `reportRelationError`'s
-        // `sourceType == targetType` arm (TS2719) asks whether even those
-        // collide: two different types with one name.
-        let mut same_name = false;
-        if self.type_to_string(source) == target_text {
-            let qualified_source = self.type_name_for_error_display(source);
-            let qualified_target = self.type_name_for_error_display(target);
-            same_name = qualified_source == qualified_target;
-            if displayed_source == source {
-                source_text = qualified_source;
-            }
-            target_text = qualified_target;
+        // `getTypeNamesForErrorDisplay` (`relater.go:1277`): each side as a
+        // message prints it, both re-printed fully qualified
+        // (`getTypeNameForErrorDisplay`) when the two print alike, and
+        // `reportRelationError`'s `sourceType == targetType` arm (TS2719)
+        // asks whether even those collide: two different types with one name.
+        let (mut source_text, target_text) = self.type_names_for_error_display(source, target, at);
+        let same_name = source_text == target_text;
+        // The generalized literal source is named fully qualified
+        // (`generalizedSourceType = getTypeNameForErrorDisplay(..)`,
+        // `relater.go:4759`).
+        if displayed_source != source {
+            source_text = self.type_name_for_error_display(displayed_source);
         }
         let message = if let Some(head) = head {
             head

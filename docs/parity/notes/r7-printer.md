@@ -2023,3 +2023,24 @@ site, which the port answers through `binder.resolve_name`, finds a `T` that
 native's scope does not hold, and the rename allocator takes `T_1`. The
 printer reads the binder's scope as given; the template's locals owner is the
 binder's decision. Routed.
+
+## 59. Landed (integrator-granted): the report sites adopt the message print
+
+§45's diff, refreshed for main `6085bece1` and landed in this lane under the
+integrator's grant. Files and functions outside this lane:
+- `assignreport.rs` `report_relation_head`: both names come from
+  `type_names_for_error_display` (`getTypeNamesForErrorDisplay`,
+  `relater.go:4752`), and a generalized literal source is named by
+  `type_name_for_error_display` (`:4759`).
+- `nonexistent_property.rs` `check_nonexistent_name` and
+  `union_constituent_miss`: every TS2339 receiver print goes through
+  `type_to_string_for_message`.
+- `check.rs`, the TS2403 site (`errorNextVariableOrPropertyDeclarationMustHaveSameType`):
+  both types are printed for a message.
+- `signatures.rs` carries the message gates of §43 and §44:
+  - `type_parameter_renames` renames nothing;
+  - `signature_parameter_source_text_at` declines;
+  - `serialized_parameter_type` adds an optional parameter's `undefined`
+    without the written-equivalence exemption.
+
+The measurement is in the commit's gate record (see the integration report).
