@@ -124,6 +124,7 @@ impl Checker<'_, '_> {
         let attributes = match self.node_map.get(declaration) {
             Some(Node::ImportDeclaration(node)) => node.attributes,
             Some(Node::ExportDeclaration(node)) => node.attributes,
+            Some(Node::JSDocImportTag(node)) => node.attributes,
             _ => None,
         };
         let Some(attributes) = attributes else { return };

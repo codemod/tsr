@@ -40,16 +40,24 @@ impl Checker<'_, '_> {
             Some(Node::ExportDeclaration(declaration)) => {
                 (declaration.attributes, declaration.module_specifier, declaration.is_type_only)
             }
+            // A JSDoc `@import` is a `JSImportDeclaration`, which
+            // `ast.IsExclusivelyTypeOnlyImportOrExport` counts as type-only
+            // (r7-grammar §70).
+            Some(Node::JSDocImportTag(tag)) => (tag.attributes, tag.module_specifier, true),
             _ => return,
         };
         let Some(attributes) = attributes else { return };
         let Some(attributes_id) = attributes.node_id else { return };
-        if !self.nodes.parent(node).is_some_and(|parent| {
-            matches!(
-                self.nodes.kind(parent),
-                SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
-            )
-        }) {
+        if self.nodes.kind(node) != SyntaxKind::JSDocImportTag
+            && !self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::SourceFile
+                        | SyntaxKind::ModuleBlock
+                        | SyntaxKind::ModuleDeclaration
+                )
+            })
+        {
             return;
         }
         // The relation opening `checkImportAttributes` is a `c.error`, so it
@@ -95,6 +103,26 @@ impl Checker<'_, '_> {
                 attributes_id,
                 &messages::RESOLUTION_MODE_CAN_ONLY_BE_SET_FOR_TYPE_ONLY_IMPORTS,
             );
+        }
+    }
+
+    /// `checkImportDeclaration` for the `JSImportDeclaration`s the reparser
+    /// makes of `node`'s `@import` tags (`reparseUnhosted`,
+    /// `parser/reparser.go:119`): `checkExternalImportOrExportDeclaration`'s
+    /// TS1141 and `checkImportAttributes`. This tree keeps the tags in the
+    /// comment, which the check walk does not descend into, so the host's
+    /// visit runs them; each comment has one host (r7-grammar §70).
+    pub(crate) fn check_jsdoc_import_tags(&mut self, node: NodeId) {
+        let Some(docs) = self.jsdoc_entries.get(&node).copied() else { return };
+        for doc in docs {
+            for tag in doc.tags {
+                let tsr_ast::JSDocTag::JSDocImportTag(tag) = tag else { continue };
+                let Some(id) = tag.node_id else { continue };
+                if let Some(specifier) = tag.module_specifier.and_then(|s| s.node_id()) {
+                    self.check_external_module_name_is_string_literal(specifier);
+                }
+                self.check_import_attributes(id);
+            }
         }
     }
 

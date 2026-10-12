@@ -170,9 +170,10 @@ impl Checker<'_, '_> {
         // and `checkGrammarHeritageClause`: `import<T>` is TS1326 on the
         // node, a grammar error (r7-grammar §63).
         if let Node::ExpressionWithTypeArguments(expression) = typed
-            && !expression.type_arguments.is_empty()
             && !self.file_has_parse_errors
             && let Some(id) = expression.node_id
+            && (!expression.type_arguments.is_empty()
+                || self.written_list(id, WrittenListKind::TypeArguments).is_some())
             && expression
                 .expression
                 .and_then(|inner| inner.node_id())
@@ -310,7 +311,7 @@ impl Checker<'_, '_> {
     /// its first-token report was silenced by the file's parse diagnostics:
     /// the function returns `!isInAppropriateContext`, not the report's
     /// result. `docs/parity/notes/r6-parsegate.md` §3.
-    fn check_external_module_name_is_string_literal(&mut self, module_name: NodeId) {
+    pub(crate) fn check_external_module_name_is_string_literal(&mut self, module_name: NodeId) {
         if let Some(Node::StringLiteral(literal)) = self.node_map.get(module_name) {
             self.check_relative_module_name_in_ambient_module(module_name, literal.text);
             return;
@@ -326,16 +327,23 @@ impl Checker<'_, '_> {
                 SyntaxKind::ImportDeclaration
                     | SyntaxKind::ExportDeclaration
                     | SyntaxKind::ImportEqualsDeclaration
+                    | SyntaxKind::JSDocImportTag
             )
         }) else {
             return;
         };
-        let at_module_level = self.nodes.parent(declaration).is_some_and(|parent| {
-            matches!(
-                self.nodes.kind(parent),
-                SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
-            )
-        });
+        // A JSDoc `@import` is reparsed into a `JSImportDeclaration` among
+        // its host's statements (`reparseUnhosted`); its comment has no
+        // parent edge here (r7-grammar §70).
+        let at_module_level = self.nodes.kind(declaration) == SyntaxKind::JSDocImportTag
+            || self.nodes.parent(declaration).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::SourceFile
+                        | SyntaxKind::ModuleBlock
+                        | SyntaxKind::ModuleDeclaration
+                )
+            });
         if !at_module_level {
             return;
         }
@@ -393,27 +401,9 @@ impl Checker<'_, '_> {
     /// that arm requires a declaration outside any ambient module
     /// (r7-grammar §59).
     fn check_relative_module_name_in_ambient_module(&mut self, module_name: NodeId, text: &str) {
-        if !tsr_path::is_external_module_name_relative(text) {
-            return;
-        }
-        let Some(declaration) = self.nodes.ancestors(module_name).find(|&ancestor| {
-            matches!(
-                self.nodes.kind(ancestor),
-                SyntaxKind::ImportDeclaration
-                    | SyntaxKind::ExportDeclaration
-                    | SyntaxKind::ImportEqualsDeclaration
-            )
-        }) else {
+        let Some(declaration) = self.relative_name_in_ambient_module(module_name, text) else {
             return;
         };
-        let Some(block) = self.nodes.parent(declaration) else { return };
-        let Some(module) = self.nodes.parent(block) else { return };
-        let ambient_module = self.nodes.kind(block) == SyntaxKind::ModuleBlock
-            && matches!(self.node_map.get(module), Some(Node::ModuleDeclaration(declaration))
-                if matches!(declaration.name, Some(tsr_ast::ModuleName::StringLiteral(_))));
-        if !ambient_module || self.module_is_external_augmentation(module) {
-            return;
-        }
         let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
         let span = self.error_span(declaration);
         self.report(
@@ -423,6 +413,28 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// The import or export declaration whose module name `module_name`
+    /// (text `text`) meets TS2439's condition.
+    fn relative_name_in_ambient_module(&self, module_name: NodeId, text: &str) -> Option<NodeId> {
+        if !tsr_path::is_external_module_name_relative(text) {
+            return None;
+        }
+        let declaration = self.nodes.ancestors(module_name).find(|&ancestor| {
+            matches!(
+                self.nodes.kind(ancestor),
+                SyntaxKind::ImportDeclaration
+                    | SyntaxKind::ExportDeclaration
+                    | SyntaxKind::ImportEqualsDeclaration
+            )
+        })?;
+        let block = self.nodes.parent(declaration)?;
+        let module = self.nodes.parent(block)?;
+        let ambient_module = self.nodes.kind(block) == SyntaxKind::ModuleBlock
+            && matches!(self.node_map.get(module), Some(Node::ModuleDeclaration(declaration))
+                if matches!(declaration.name, Some(tsr_ast::ModuleName::StringLiteral(_))));
+        (ambient_module && !self.module_is_external_augmentation(module)).then_some(declaration)
     }
 
     /// `ast.IsModuleAugmentationExternal` (`ast/utilities.go:1694`) for a
@@ -3857,6 +3869,14 @@ impl Checker<'_, '_> {
     /// arguments or a type query, whose `import<T>` arm is TS1326, unported).
     pub(crate) fn check_grammar_type_arguments(&mut self, node: NodeId, typed: Node<'_>) {
         match typed {
+            // An import call is `checkImportCallExpression`'s, which reports
+            // its type arguments as TS1326 instead (`checker.go:7773`).
+            Node::CallExpression(call)
+                if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
+                    if keyword.kind == SyntaxKind::ImportKeyword) =>
+            {
+                return;
+            }
             Node::CallExpression(_)
             | Node::NewExpression(_)
             | Node::TypeReferenceNode(_)

@@ -2494,11 +2494,23 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::FunctionKeyword);
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
-        // A function expression's name is optional and scoped to itself.
+        // A function expression's name is optional and scoped to itself. It
+        // is parsed in the expression's own await/yield context when the
+        // expression is async/a generator (`parseFunctionExpression`'s
+        // `doInContext(…, true, parseOptionalBindingIdentifier)`,
+        // `parser.go:5694`), so `async function await() {}` stamps
+        // `AwaitContext` on the name (r7-grammar §69).
         let name = if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
             None
         } else {
-            Some(self.parse_binding_identifier())
+            let saved_await = self.in_await_context;
+            let saved_yield = self.in_yield_context;
+            self.in_await_context |= async_modifier.is_some();
+            self.in_yield_context |= asterisk.is_some();
+            let name = self.parse_binding_identifier();
+            self.in_await_context = saved_await;
+            self.in_yield_context = saved_yield;
+            Some(name)
         };
         let type_parameters = self.parse_type_parameters();
         // The signature's own await context — see `parse_function_declaration`.

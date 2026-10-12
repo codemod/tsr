@@ -825,7 +825,6 @@ impl Checker<'_, '_> {
                 self.check_reflect_collision(node, identifier.text);
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);
-                self.check_await_as_binding_name(node);
                 self.check_umd_global_reference(node, identifier.text);
                 // `checkResolvedBlockScopedVariable` runs during name
                 // resolution, before `checkIdentifier`'s flow section.
@@ -894,6 +893,7 @@ impl Checker<'_, '_> {
             Node::ImportEqualsDeclaration(_) => {
                 self.check_alias_symbol(node);
                 self.check_module_hidden_by_local(node);
+                self.check_exported_import_equals_reference(node);
                 // `checkImportEqualsDeclaration` bails out on an illegal
                 // context (`checker.go:5465`).
                 if !self.check_grammar_module_element_context(node) {
@@ -1151,6 +1151,7 @@ impl Checker<'_, '_> {
         self.check_unmatched_jsdoc_parameters(node);
         self.check_jsdoc_satisfies_tags(node, ambient);
         if self.file_is_js {
+            self.check_jsdoc_import_tags(node);
             self.check_jsdoc_reparsed_this_parameter(node);
             self.check_jsdoc_overload_declarations(node);
             for reparsed in self.jsdoc_reparsed_type_nodes(node) {
@@ -3240,85 +3241,6 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::with_args(
                 &messages::_0_DECLARATIONS_MUST_BE_INITIALIZED,
-                span,
-                [keyword.to_string()],
-            ),
-        );
-    }
-
-    /// TS1359 — `Identifier expected. '{0}' is a reserved word that cannot be
-    /// used here.`
-    ///
-    /// `binder.go:1314`'s `await` arm, whose test is `node.Flags &
-    /// NodeFlagsAwaitContext`. That flag is unset in this parser — and it
-    /// records a **context**, which is a property of the ancestor chain, so the
-    /// walk answers it: is there an enclosing function-like carrying `async`?
-    /// The same substitution §508 made for `NodeFlagsAmbient`. A function's own
-    /// `async` counts for its own name (`asyncFunctionDeclaration12`).
-    ///
-    /// The top-level-module arm above it is a different code and is not ported
-    /// here (§501). §513.
-    fn check_await_as_binding_name(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // `await` needs an enclosing `async`; `yield` needs an enclosing
-        // generator. Two arms of one `else if` chain on one node, so they share
-        // a rule (§497) — and §494's differential applies within it: the arms
-        // are independent and each must keep firing when the other is added.
-        // §515.
-        let keyword = match self.identifier_text(node) {
-            Some("await") => "await",
-            // **`yield` is not the symmetric case.** §515 added it as the
-            // sibling arm — an enclosing generator instead of an enclosing
-            // `async` — and measured −4. Upstream's `NodeFlagsYieldContext` is
-            // set by the *parser* on the tokens it scans in a yield context,
-            // which is narrower than "somewhere inside a generator": a nested
-            // non-generator function inside a generator is not in yield context,
-            // and the ancestor walk cannot see that boundary the way it can see
-            // `async`, because `async` propagates to nested arrows and `yield`
-            // does not. §516.
-            _ => return,
-        };
-        // A binding-name position, not an expression.
-        let Some(parent) = self.nodes.parent(node) else { return };
-        let named = match self.node_map.get(parent) {
-            Some(Node::ParameterDeclaration(p)) => {
-                p.name.as_ref().and_then(tsr_ast::BindingName::node_id) == Some(node)
-            }
-            Some(Node::VariableDeclaration(v)) => {
-                v.name.as_ref().and_then(tsr_ast::BindingName::node_id) == Some(node)
-            }
-            Some(Node::FunctionExpression(f)) => f.name.and_then(|n| n.node_id) == Some(node),
-            Some(Node::FunctionDeclaration(f)) => f.name.and_then(|n| n.node_id) == Some(node),
-            _ => false,
-        };
-        if !named {
-            return;
-        }
-        // A function *declaration's* name is parsed before the await context
-        // its `async` opens (`parseFunctionDeclaration`, `parser.go:1715`), so
-        // `async function await() {}` is legal; an expression's name is parsed
-        // inside it (`asyncFunctionDeclaration11` vs `…12`).
-        let own_declaration =
-            matches!(self.node_map.get(parent), Some(Node::FunctionDeclaration(_)));
-        let in_context = self.nodes.ancestors(node).any(|ancestor| {
-            if own_declaration && ancestor == parent {
-                return false;
-            }
-            let Some(typed) = self.node_map.get(ancestor) else { return false };
-            modifiers_of(typed)
-                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::AsyncKeyword))
-        });
-        if !in_context {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.error_span(node);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_THAT_CANNOT_BE_USED_HERE,
                 span,
                 [keyword.to_string()],
             ),
@@ -10944,10 +10866,13 @@ impl Checker<'_, '_> {
                 &messages::DECORATORS_MAY_NOT_APPEAR_AFTER_EXPORT_OR_EXPORT_DEFAULT_IF_THEY_ALSO_APPEAR_BEFORE_EXPORT,
                 self.nodes.span(trailing),
             );
+            // Related information carries its file (r7-grammar §34, §69).
             let related = modifiers[decorator_index].node_id().map(|first| {
-                Diagnostic::new(
+                self.related_diagnostic_at(
+                    first,
                     &messages::DECORATOR_USED_BEFORE_EXPORT_HERE,
                     self.nodes.span(first),
+                    Vec::new(),
                 )
             });
             diagnostic.add_related_information(related);

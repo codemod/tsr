@@ -30,7 +30,16 @@ impl Checker<'_, '_> {
                     | tsr_core::ModuleKind::Node20
                     | tsr_core::ModuleKind::NodeNext
             );
-            let error = if !supports_options && call.arguments.len() > 1 {
+            // `checkGrammarImportCallExpression`'s type-argument arm
+            // (`grammarchecks.go:2176`), before the argument arms; an empty
+            // `import<>` is a written list too (r7-grammar §69).
+            let written_type_arguments = !call.type_arguments.is_empty()
+                || self
+                    .written_list(node, crate::resolution::WrittenListKind::TypeArguments)
+                    .is_some();
+            let error = if written_type_arguments {
+                Some((node, &messages::THIS_USE_OF_IMPORT_IS_INVALID_IMPORT_CALLS_CAN_BE_WRITTEN_BUT_THEY_MUST_HAVE_PARENTHESES_AND_CANNOT_HAVE_TYPE_ARGUMENTS))
+            } else if !supports_options && call.arguments.len() > 1 {
                 call.arguments[1].node_id().map(|at| (at,
                     &messages::DYNAMIC_IMPORTS_ONLY_SUPPORT_A_SECOND_ARGUMENT_WHEN_THE_MODULE_OPTION_IS_SET_TO_ESNEXT_NODE16_NODE18_NODE20_NODENEXT_OR_PRESERVE))
             } else if call.arguments.is_empty() || call.arguments.len() > 2 {

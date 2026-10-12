@@ -1587,3 +1587,77 @@ makes the member a method declaration where native has a method signature,
 so its error span is the name rather than the whole member. It also draws
 an extra TS2391 that native's `checkMappedType` (which never checks the
 members) does not report.
+
+## §69 Routed-back fixes in other lanes' files (default small-hunk grant)
+
+Each of these is one native root cause with its consumer hunk. They were
+granted by default for small, atomic hunks (integrator, 2026-10-12). The
+file and function are named for each owner.
+
+- **TS1359 reads `AwaitContext` only.** `binder.go:1312`'s arm is
+  strict_mode.rs's `check_contextual_identifier` (§9). check.rs's
+  `check_await_as_binding_name` predated the flag and walked for an
+  enclosing `async`. That gave an extra TS1359 on `function g(await) {}`
+  nested in an async function, where native's parser leaves the await
+  context. *Removed* (check.rs). The flag it now relies on was missing on
+  one name: `parseFunctionExpression` parses an async/generator expression's
+  name in its own await/yield context (`doInContext(…, true, …)`,
+  `parser.go:5694`). tsr-parser `expression.rs::parse_function_expression`
+  now does the same, so `var v = async function await() {}` keeps TS1359
+  (`asyncFunctionDeclaration12_es2017`).
+- **TS1486 carries its file in JS.** check.rs's JS decorator-placement arm
+  built `Decorator used before 'export' here` without a file. It now takes
+  `related_diagnostic_at` (§34;
+  `esDecorators-classDeclaration-exportModifier`).
+- *Refused: no TS2307 under TS2439.* `checkImportDeclaration` resolves
+  the module only when `checkExternalImportOrExportDeclaration` returns true,
+  and TS2439's arm returns false. A first cut made check.rs's
+  `check_module_specifier` return there too. The exact oracle lost
+  `ambientExternalModuleWithRelativeExternalImportDeclaration`: native still
+  reports TS2307 when the alias is *used* (`m2.c` resolves the alias and
+  with it the module). This port reports the module at the declaration, not
+  at a use, so the skip would only be right for an unused alias. Withdrawn;
+  §59's extra TS2307 on an unused alias stays.
+- **TS1326 on `import<T>(…)`.** `checkImportCallExpression` reports a written
+  type-argument list (`grammarchecks.go:2176`) before its argument arms.
+  The arm is now in import_call.rs's `check_import_call_specifier`. An empty
+  `import<>` is found through `written_list`, as is §63's instantiation-
+  expression arm. An import call never runs `checkGrammarTypeArguments`
+  (`checker.go:7773`), so grammar.rs's `check_grammar_type_arguments` skips
+  it, and it reports no TS1099. Converted (CLI): `importCallExpressionWithTypeArgument`.
+
+## §70 JSDoc `@import` tags: TS1141 and the import-attribute checks
+
+The reparser makes each `@import` tag a `JSImportDeclaration` among its
+host's statements (`reparseUnhosted`, `parser/reparser.go:119`), and
+`checkImportDeclaration` checks it like any import. That covers TS1141 from
+`checkExternalImportOrExportDeclaration` and `checkImportAttributes`, with
+the declaration exclusively type-only, so TS2857 under `esnext` and TS2823
+below it. This tree keeps the tag in its comment, which the check walk does
+not descend into. `check_jsdoc_import_tags` (import_attributes.rs) runs both
+checks from the host's visit (check.rs's JS arm, beside the reparsed-type
+walk). `check_import_attributes` accepts the tag. The module-element-context
+test does not apply to it: a comment has no parent edge here. Also changed:
+import_attribute_checks.rs's `check_import_attributes_assignable` reads the
+tag's attributes, and grammar.rs's TS1141 reader admits a tag as its
+declaration. Expected to convert (oracle): `importTag13`, `importTag15`
+(both variants), `importDeferJsdoc`. `importTag14` keeps a TS2306 that
+belongs to module resolution.
+
+## §71 TS2708 for an exported `import a = x.c` that does not resolve
+
+`checkImportEqualsDeclaration` calls `markLinkedReferences(node,
+ReferenceHintExportImportEquals)`. For an exported alias that is
+`markExportAsReferenced` (`checker.go:28845`). A target that does not resolve
+is `unknownSymbol`, a `Property`, so the value arm marks the alias, and
+`markIdentifierAliasReferenced` resolves the leftmost identifier as a value
+(`getResolvedSymbol`). When that fails, `onFailedToResolveSymbol` runs; for
+a name that is a namespace it reports TS2708, *Cannot use namespace 'x' as a
+value*. meaning_mismatch.rs's `check_exported_import_equals_reference` runs
+that path for a qualified module reference. It sits behind the same gates:
+no `verbatimModuleSyntax`, not ambient, and a legal module-element context.
+It is called from check.rs's import-equals arm. A name that resolves as
+nothing keeps only its TS2503. Checked with the CLI against
+`target/tsgo-pinned`: `importDeclWithClassModifiers` and the
+`declare export import` control `importDeclWithDeclareModifier` (silent,
+ambient).

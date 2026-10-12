@@ -158,6 +158,60 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// `markExportAsReferenced` → `markAliasSymbolAsReferenced` →
+    /// `markIdentifierAliasReferenced` (`checker.go:28824`, `:28845`) for an
+    /// exported `import a = x.y` whose target does not resolve
+    /// (`resolveAlias` answers `unknownSymbol`, a `Property`, so the value
+    /// arm marks the alias): the leftmost identifier is resolved as a value
+    /// (`getResolvedSymbol`), and a failure there runs
+    /// `onFailedToResolveSymbol`. Only that cascade's namespace-as-value arm
+    /// is reached for a name that resolves as a namespace (TS2708,
+    /// `importDeclWithClassModifiers`); a name that resolves as nothing keeps
+    /// its own TS2503 from the qualified name and is not reported again
+    /// here (r7-grammar §71).
+    pub(crate) fn check_exported_import_equals_reference(&mut self, node: NodeId) {
+        let Some(Node::ImportEqualsDeclaration(declaration)) = self.node_map.get(node) else {
+            return;
+        };
+        // `markLinkedReferences`' gates (`checker.go:28190`): alias data is
+        // collected only without `verbatimModuleSyntax`, and never in an
+        // ambient context; `checkImportEqualsDeclaration` itself returns on
+        // an illegal module-element context.
+        if !crate::check::has_modifier(declaration.modifiers, SyntaxKind::ExportKeyword)
+            || self.verbatim_module_syntax
+            || self.has_ambient_flag(node)
+            || self.module_element_context_is_illegal(node)
+        {
+            return;
+        }
+        let Some(tsr_ast::ModuleReference::QualifiedName(qualified)) = declaration.module_reference
+        else {
+            return;
+        };
+        let mut left = qualified.left;
+        let first = loop {
+            match left {
+                Some(tsr_ast::EntityName::Identifier(name)) => break name,
+                Some(tsr_ast::EntityName::QualifiedName(inner)) => left = inner.left,
+                None => return,
+            }
+        };
+        let Some(first_id) = first.node_id else { return };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        if self.qualified_alias_target(symbol).is_some() {
+            return;
+        }
+        if self.resolve_under(first_id, first.text, SymbolFlags::VALUE).is_some() {
+            return;
+        }
+        if self.resolve_symbol_under(first_id, first.text, SymbolFlags::NAMESPACE_MODULE).is_none()
+        {
+            return;
+        }
+        let text = first.text.to_string();
+        self.report_meaning_mismatch_in_value_position(first_id, &text);
+    }
+
     fn resolve_under(
         &self,
         node: NodeId,
