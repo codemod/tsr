@@ -1664,6 +1664,58 @@ These commits are the stack on main `d7cb3d4b` (batch 73): §41.2, §41.3,
 | gi | 191,031,756 | 176,737,272 | −7.48% |
 | dm | 798,913,799 | 781,019,961 | −2.24% |
 | dml | 3,405,828,450 | 3,373,206,034 | −0.96% |
+## §42 ADR-0056 accepted; stage 0b, the `node_id()` accessor beside the field
+
+This section is placed before §21, after §41, for the same reason as §32.
+On 2026-10-12 the integrator funded ADR-0056 through §40.2's option (b),
+with no flag day, and asked for the ADR to be marked accepted in the stage
+0b commit. ADR-0056 now records the staging.
+
+**What 0b changes.** `xtask/src/gen_nodes.rs` emits an inherent
+`#[inline] pub fn node_id(&self) -> Option<NodeId>` on every concrete node
+struct, next to its constructor. `Token` (`crates/tsr-ast/src/lib.rs`) has
+the same method by hand. The field stays `pub`, and a field and a method may
+share a name, so every `.node_id` read in every lane still compiles and no
+branch conflicts. New code should call `node_id()`. The generated
+`Node::node_id`, the alias accessors, the named-child accessors and
+`for_each_child_id` no longer import `HasNodeId`: an inherent method wins
+method resolution, so the import became unused. The generator's
+`needs_trait` bookkeeping, which decided when a concrete-typed field needed
+the import, is gone with it.
+
+Four hand-written imports became unused in the same way, and
+`-D warnings` rejects them. Each was removed as a one-token hunk in another
+lane's file, under the default grant:
+
+- `crates/tsr-binder/src/container.rs`, in `container_flags`'s `Block` arm;
+- `crates/tsr-checker/src/members.rs`, in the test modules
+  `property_name_tests` and `this_argument_tests`;
+- `crates/tsr-checker/src/perf_links.rs` (this lane's file), in
+  `receiver_signature_kinds_tests`.
+
+**Measured.** 0b is behaviour-neutral, with Ir within ±0.03% (inlining
+noise) and CLI output `cmp`-identical on dm, gi and dml:
+
+| | gi | dm | dml |
+|---|---:|---:|---:|
+| Ir before (§41.5) | 176,711,473 | 781,011,528 | 3,373,440,498 |
+| Ir with 0b | 176,768,614 | 781,083,924 | 3,372,859,599 |
+
+**What remains for the flip.** At `d7cb3d4b` there are 1,362 `.node_id`
+field reads in 290 files outside `tsr-ast`. By crate: `tsr-checker` 918,
+`tsr-declarations` 136, `tsr-conformance` 104, `tsr-binder` 53,
+`tsr-parser` 46, `tsr-dts` 41, `tsr-compiler` 29, `tsr-execute` 17,
+`tsr-printer` 9, `tsr-tsoptions` 2. A handful of these are non-AST structs
+with their own `node_id` field (`ExpandoMember`, `CommonJsExport`), which
+the flip does not touch. The count is
+`rg -o '\.node_id\b[^(]' crates --glob '!crates/tsr-ast/**'`.
+
+**Stage 1 needs the flip first.** `NodeIdCell` changes the field's *type*,
+and a read written `x.node_id` expects an `Option<NodeId>`. Until the
+field's readers outside `tsr-ast` are gone, stage 1 would break them. So 1
+and 2 are built and measured on the proposal branch
+`box/r7-perf-proposed-adr56`, on top of a scratch flip, not on
+`box/r7-perf`.
 
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 

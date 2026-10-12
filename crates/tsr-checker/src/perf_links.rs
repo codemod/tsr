@@ -699,7 +699,7 @@ impl Checker<'_, '_> {
 
 #[cfg(test)]
 mod receiver_signature_kinds_tests {
-    use tsr_ast::{HasNodeId, NodeId};
+    use tsr_ast::NodeId;
     use tsr_core::Arena;
 
     use crate::Checker;
