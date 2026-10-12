@@ -51,6 +51,11 @@ impl Checker<'_, '_> {
     pub(crate) fn check_nonexistent_property(&mut self, node: NodeId, _ambient: bool) {
         // The same native function's flow arm (`getFlowTypeOfAccessExpression`).
         self.check_property_used_before_assigned(node);
+        // `checkNonNullExpression` on the receiver comes first, and an
+        // `unknown` one answers `errorType` after TS18046.
+        if self.report_unknown_receiver(node) {
+            return;
+        }
         // Pinned `checkPropertyAccessExpressionOrQualifiedName` reports this
         // semantic error even with parse diagnostics. Existing receiver-image
         // completeness and unsupported-access declines still own the work.
@@ -123,6 +128,89 @@ impl Checker<'_, '_> {
             return;
         }
         self.check_nonexistent_name(node, receiver, name_text, name_id);
+    }
+
+    /// `checkNonNullTypeWithReporter`'s `unknown` arm (`checker.go:7413`) for
+    /// a property or element access's receiver
+    /// (`checkPropertyAccessExpression`/`checkElementAccess` run
+    /// `checkNonNullExpression` on it; a chain link passes
+    /// `getOptionalExpressionType` of it, which leaves `unknown` alone): under
+    /// `strictNullChecks`, TS18046 "'{0}' is of type 'unknown'" at the
+    /// receiver for an entity name shorter than 100 characters, TS2571
+    /// otherwise. Answers whether it reported (the access is then `errorType`
+    /// and nothing else is asked of it).
+    fn report_unknown_receiver(&mut self, node: NodeId) -> bool {
+        if !self.strict_null_checks {
+            return false;
+        }
+        let (receiver, is_chain_root) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                (access.expression, access.question_dot_token.is_some())
+            }
+            _ => return false,
+        };
+        let Some(receiver) = receiver else { return false };
+        let Some(receiver_id) = receiver.node_id() else { return false };
+        // `getOptionalExpressionType` never makes `unknown` (a chain root's
+        // `getNonNullableType(unknown)` is `{}`), so only an `unknown`
+        // receiver pays for it.
+        let receiver_type = self.check_expression(receiver);
+        if !self.store.get(receiver_type).flags.intersects(crate::flags::TypeFlags::UNKNOWN) {
+            return false;
+        }
+        let non_optional =
+            self.get_optional_expression_type(receiver_type, Some(receiver_id), is_chain_root);
+        if !self.store.get(non_optional).flags.intersects(crate::flags::TypeFlags::UNKNOWN) {
+            return false;
+        }
+        // Only a written `unknown` (an annotated declaration) or a catch
+        // clause's is certified: an `unknown` this port infers — a call's
+        // type argument, a contextually typed parameter — can be a gap where
+        // native has a type (`r7-flow.md` §35).
+        if !self.unknown_receiver_is_declared(receiver_id) {
+            return false;
+        }
+        let text = self.entity_name_expression_text(receiver_id).filter(|text| text.len() < 100);
+        let span = self.error_span(receiver_id);
+        let diagnostic = match text {
+            Some(text) => Diagnostic::with_args(&messages::_0_IS_OF_TYPE_UNKNOWN, span, [text]),
+            None => Diagnostic::new(&messages::OBJECT_IS_OF_TYPE_UNKNOWN, span),
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(receiver_id) else { return true };
+        self.report(file, diagnostic);
+        true
+    }
+
+    /// Is `receiver` an identifier whose `unknown` is its declaration's: a
+    /// catch-clause variable, or a declaration with a written type?
+    fn unknown_receiver_is_declared(&mut self, receiver: NodeId) -> bool {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(receiver) else {
+            return false;
+        };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            receiver,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && self
+                .nodes
+                .parent(declaration)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        {
+            return true;
+        }
+        self.type_annotation_of(declaration).is_some()
     }
 
     /// The miss certificate and report for one property name of `node`'s
