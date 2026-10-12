@@ -235,6 +235,11 @@ fn block_comments_end_at_their_first_terminator_wherever_it_is() {
         ("a /* é\u{2028} * 🎉 */ b", true),
         ("a /* x\u{2029}*/ b", true),
         ("a /*\n * / * \n*/ b", true),
+        // After a line break the terminator is found from its `/` (§41.2 of
+        // `r7-perf.md`): a `/` not preceded by `*` is comment text.
+        ("a /*\n/*/ b", true),
+        ("a /*\n x // y / */ b", true),
+        ("a /*\n x **/ b", true),
     ] {
         let (tokens, diagnostics) = tokenize(source);
         assert!(diagnostics.is_empty(), "{source:?}");
@@ -245,7 +250,7 @@ fn block_comments_end_at_their_first_terminator_wherever_it_is() {
         assert_eq!(tokens[1].has_preceding_line_break(), line_break, "{source:?}");
         assert_eq!(&source[tokens[1].span.start as usize..tokens[1].span.end as usize], "b");
     }
-    for source in ["/* x\n * never closed *", "/* é\u{2028} *", "/*\n"] {
+    for source in ["/* x\n * never closed *", "/* é\u{2028} *", "/*\n", "/*\n / x /"] {
         let (tokens, diagnostics) = tokenize(source);
         assert_eq!(diagnostics.len(), 1, "{source:?}");
         assert_eq!(diagnostics[0].message.code(), 1010);

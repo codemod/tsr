@@ -1450,6 +1450,79 @@ process. At §39's ratios that is roughly gi 0.50–0.53 and dm 0.44–0.47.
 Stages 1–4 are behind stage 0 and need no further cross-lane edits beyond
 the `tsr-parser`/`tsr-binder` hooks named above.
 
+## §41 The granted parse-and-bind items, measured one commit at a time
+
+This section is placed before §21, after §40, for the same reason as §32.
+The integrator granted §40.1's items 1, 2, 4, 5 and 6 on 2026-10-12, each as
+its own gated commit. Base: main `6085bece` (batch 71). Each item below has
+three measurements:
+
+- **Ir**: callgrind, `--singleThreaded`, release build, on generic-imports
+  (gi), domain-model (dm) and domain-model-large (dml). Deterministic; it
+  cannot see a store-forwarding stall.
+- **Lib parse and bind**: a scratch example (not committed) that parses and
+  binds gi's 63 lib files standalone, 15 iterations per process, dist
+  build. Processes of each build alternate, 15–25 rounds, and the table
+  shows the median of the per-process medians. A duplicate of the base binary
+  in the same rotation reads 0.994–1.010, which is the noise floor.
+- **Token identity**: every `.ts` under the corpus's `tests/cases`, its
+  `src` and the bundled libs (19,686 files) tokenized by the base and the
+  candidate scanner, comparing a hash of every token's kind, start and
+  flags, plus the token and diagnostic counts. Identical for every scanner
+  commit below.
+
+Whole-program wall on gi and dm does not resolve 1–3%. Two copies of one
+dist binary read 1.04 apart on gi in the same interleaved run, and a
+three-line scanner change read +3.3% and then +6.5% on dm's
+`--singleThreaded` wall, though dm's Ir did not move. The gates' 21-sample
+CPU ratios are reported, but the attribution comes from the two
+measurements above.
+
+### §41.1 Item 1, the token built from locals: refused
+
+`Scanner::scan` built its token as
+`Token::new(kind, Span::new(self.token_start, self.pos), flags)` and
+returned `self.token`. The perf annotation put about 23% of `scan`'s samples
+on those two loads (§40.1 #1). The candidate takes `start` as a local and
+returns the local `token`.
+
+| measurement | base | candidate |
+|---|---:|---:|
+| gi Ir | 191,025,405 | 191,431,367 (+0.21%) |
+| lib parse, run 1 / 2 / 3 | 1.000 | 0.979 / 1.013 / 1.002 |
+| lib bind, run 1 / 2 / 3 | 1.000 | 1.018 / 1.012 / 0.992 |
+
+§40's 41-pair reading (gi CPU 0.963) did not reproduce in any of the three
+runs. The samples on those instructions were most likely skid from the
+`scan_token` call's return, not a stall that the locals remove. **Refused**
+on run 3 (parse 1.002, 25 rounds). Revisit only with a cycle-level
+measurement, which this VM cannot take (`perf stat -e cycles` is
+`<not supported>`).
+
+### §41.2 Item 2, block comments end at a `/` after a `*`
+
+`skip_block_comment` walks the comment's first line byte by byte. After the
+first line break it searched for `*` with `str::find` and tested the next
+byte for `/`. Every JSDoc line opens with ` * `, so that search stopped once
+per line of every lib comment. The search is now for `/`, then the byte
+before it is tested. `/` is rare in comment prose. The `*` found can never
+be the opener's: the search starts at the line break, so a `/` found is at
+least one byte past it. Native (`scanner.go:646–666`) walks the comment
+with `scanASCIIWhile`, which stops at every `*` and every line break, so
+neither search is native's structure. The walk has to stop at the same
+terminator, and it does: the new cases in
+`scan.rs::block_comments_end_at_their_first_terminator_wherever_it_is`
+(`/*\n/*/`, `/*\n x // y / */`, `/*\n x **/`, unterminated `/*\n / x /`) and
+token identity on 19,686 files.
+
+| measurement | base | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 191,025,405 / 798,622,761 / 3,403,668,093 | 190,553,747 (−0.25%) / 798,441,148 (−0.02%) / 3,405,073,545 (+0.04%) |
+| lib parse (vs the build before it), run 1 / 2 | 1.000 | 0.949 / 0.953 |
+
+dm and dml have no block comments of their own. Their Ir moves only through
+the libs and through `scan`'s inlining, within ±0.04%.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):

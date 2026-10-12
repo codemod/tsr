@@ -650,22 +650,26 @@ impl<'a> Scanner<'a> {
             }
             i += 1;
         }
-        // Once a line break is seen only the terminator matters, and `*` is
+        // Once a line break is seen only the terminator matters, and it is
         // found by the library's word-at-a-time `memchr` rather than per byte.
-        // `i` sits on an ASCII byte or a U+2028/U+2029 lead, so the slice
-        // starts on a character boundary.
+        // The search is for the `/`, then the byte before it is tested: every
+        // JSDoc line opens with ` * `, so a search for `*` stops once per line,
+        // while `/` is rare in comment prose (`r7-perf.md` §41.2). `i` sits on
+        // the line break, so a `/` found is at `i + 1` or later and the `*`
+        // before it can never be the opener's. `i` is an ASCII byte or a
+        // U+2028/U+2029 lead, so the slice starts on a character boundary.
         if crossed_line {
             let text = &self.source[..limit];
-            while let Some(offset) = text[i..].find('*') {
-                let star = i + offset;
-                if star + 1 < limit && bytes[star + 1] == b'/' {
+            while let Some(offset) = text[i..].find('/') {
+                let slash = i + offset;
+                if bytes[slash - 1] == b'*' {
                     #[allow(clippy::cast_possible_truncation)]
                     {
-                        self.pos = (star + 2) as u32;
+                        self.pos = (slash + 1) as u32;
                     }
                     return true;
                 }
-                i = star + 1;
+                i = slash + 1;
             }
             i = limit;
         }
