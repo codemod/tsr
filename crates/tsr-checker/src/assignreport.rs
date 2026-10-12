@@ -6037,6 +6037,14 @@ impl Checker<'_, '_> {
             }
             if std::ptr::eq(
                 top.message,
+                &raw const messages::THE_TYPE_0_IS_READONLY_AND_CANNOT_BE_ASSIGNED_TO_THE_MUTABLE_TYPE_1,
+            ) && top.args.first() == Some(&source_text)
+                && top.args.get(1) == Some(&target_text)
+            {
+                return Some(());
+            }
+            if std::ptr::eq(
+                top.message,
                 &raw const messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
             ) && top.args.get(1) == Some(&source_text)
                 && top.args.get(2) == Some(&target_text)
@@ -6095,6 +6103,20 @@ impl Checker<'_, '_> {
     fn chain_error_results(&mut self, stack: &mut ChainStack, source: TypeId, target: TypeId) {
         let source_flags = self.type_of(source).flags;
         if !source_flags.contains(TypeFlags::OBJECT) {
+            return;
+        }
+        // `tryElaborateArrayLikeErrors` with `reportErrors`, ahead of the
+        // switch: a readonly array or tuple against a mutable one is TS4104,
+        // which then suppresses the pair's own relation error
+        // (`chainArgsMatch`; r7-reports §97).
+        if self.readonly_to_mutable_array_like(source, target) {
+            let source_text = self.type_to_string(source);
+            let target_text = self.type_to_string(target);
+            stack.push(ChainEntry {
+                message:
+                    &messages::THE_TYPE_0_IS_READONLY_AND_CANNOT_BE_ASSIGNED_TO_THE_MUTABLE_TYPE_1,
+                args: vec![source_text, target_text],
+            });
             return;
         }
         // `source == c.globalStringType`: the global interface's own
@@ -6583,7 +6605,7 @@ impl Checker<'_, '_> {
             (self.array_reference_readonly(source), self.array_reference_readonly(target))
         {
             if source_readonly && !target_readonly {
-                return None;
+                return Some(());
             }
             let source_element = self.type_reference_targets.get(&source)?.1.first().copied()?;
             let target_element = self.type_reference_targets.get(&target)?.1.first().copied()?;
@@ -6707,8 +6729,10 @@ impl Checker<'_, '_> {
                 let (elements, readonly) = shape(self, source)?;
                 (elements, readonly, false)
             };
+        // The tuple arm fails a readonly source against a mutable target
+        // with no report of its own; `reportErrorResults` adds TS4104.
         if source_readonly && !target_readonly {
-            return None;
+            return Some(());
         }
         let push_count = |stack: &mut ChainStack,
                           message: &'static tsr_diagnostics::Message,

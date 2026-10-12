@@ -2705,3 +2705,21 @@ walk). A related kind passes on, so the chain reads *Type '() => C2'
 provides no match for the signature 'new (): I3'.*. An undecided kind
 declines. Quick oracles over `ignature`, `allback`, `unctionType`,
 `nterface` and `onstruct`: 0 lost.
+
+## 97. TS4104 inside the chain
+
+`reportErrorResults` calls `tryElaborateArrayLikeErrors` with reporting
+before its switch. A readonly array or tuple against a mutable one reports
+*The type 'readonly [1, "1"]' is 'readonly' and cannot be assigned to the
+mutable type '[a: 1 | 2, b: "1" | "2"]'.*. `reportRelationError` then drops
+the pair's own message, because `chainArgsMatch` sees TS4104 naming the
+same pair. The port did this only at the head
+(`readonly_to_mutable_array_like` → `report_readonly_to_mutable`). Inside the
+chain, the tuple and array arms declined on a readonly source against a
+mutable target.
+
+Those arms now fail the pair with nothing of their own, as native's tuple
+arm does. `chain_error_results` pushes TS4104, and
+`chain_report_relation_error` suppresses the pair's message when TS4104
+names it (`contextualTupleTypeParameterReadonly`). Quick oracles over
+`eadonly`, `uple`, `rray` and `ontextualTuple`: 0 lost.
