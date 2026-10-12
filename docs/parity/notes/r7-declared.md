@@ -1665,3 +1665,59 @@ Ir gi 0.9998, dm 1.0000; exact oracle +1 (mappedTypeOverlappingStringEnumKeys),
 **Not reached:** `[q, r]` over `q: [A<T>]` and `r: A<T>` is still `error`.
 Subtype reduction relates the tuple and the conditional-alias mint, and the
 relater answers `Unknown` (relater.rs, routed).
+
+## 52. A generic union body that reduces to one type declares that type
+
+**Forcing constraint.** unknownType1 0:17: `type T23<T> = T | unknown`
+records `>T23 : unknown`; TSR declared `T23<T>`, and a reference `T23<T>`
+stayed the alias name where native reads `unknown`. getDeclaredTypeOfTypeAlias
+is getTypeFromTypeNode of the body, and getUnionTypeEx (checker.go:25672)
+answers `any`/`unknown` for a set that includes one, and the sole survivor
+of a reduced set, before an alias is considered. Only a set that is still a
+union is built with the alias.
+
+**Port.** Three sites in `declared.rs`, each the same rule:
+
+- `get_type_from_union_type_node`'s generic-alias arm, which answered
+  `error` for every body (the alias name could not be printed with its
+  arguments), now answers the reduced type when it is not a union;
+- `get_declared_type_of_type_alias_worker` publishes a union body's
+  resolved type when it is not a union (`DeclaredBody::Union`);
+- `evaluate_union_or_indexed_alias_body` accepts a non-union evaluation of
+  a union body, so a reference answers the reduced type with no alias
+  (`T23<T>` is `unknown`, `type U<T> = T | never` at `string` is `string`).
+
+A union answer keeps every existing road (the mint, and the named union
+over the reference). No state.
+
+**Alternatives.** Admitting only `any`/`unknown` answers is the forcing
+row's slice; the single-survivor half (`T | never`, `T | T`) is the same
+early return in getUnionTypeEx, so splitting them would leave a rule half
+ported.
+
+**Measured with §53, in one commit.** Alone, §52 lost one exact case
+(mappedTypes4, `Extract<keyof T, string>` read as `string`). It
+reached the for-in road's `keyof (T & object)`, which declined on `object`
+until §53. Gated against `6559089e` + §51 (each against its parent, then
+together): types **+12, 0 lost** (8 gap → right, 4 wrong → right; §52
+alone +1, unknownType1); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 0.9998–1.0001, dm 1.0000; exact oracle **+1**
+(extractInferenceImprovement), 0 lost, and keyofAndIndexedAccess2 moved
+from TSR_TIMEOUT to WRONG.
+
+## 53. `keyof object` is `never`
+
+**Forcing constraint.** mappedTypes4 0:13–0:19: `obj[k]` over `obj: T &
+object` and a generic key printed `error` where native reads `(T &
+object)[Extract<keyof T, string>]`. checkIndexedAccessIndexType admits a
+generic key by relating it to `keyof` of the receiver; `keyof (T &
+object)` is `keyof T | keyof object`, and `resolved_keyof_type` answered
+`None` for the `object` constituent, which declined the whole union and so
+the access.
+
+**Port.** `resolved_keyof_type_worker` answers `never` for the
+`non_primitive` intrinsic, beside the `unknown` arm: getIndexTypeEx's
+default arm reads the literal keys of the apparent type, and `object`'s
+apparent type is the empty object type. No state.
+
+**Measured** with §52; see §52.
