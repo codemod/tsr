@@ -2451,3 +2451,35 @@ could be instantiated with an arbitrary type which could be unrelated to
   first.
 - **Measured.** Quick oracles over `appedType`, `onditional`, `keyof`,
   `ndexedAccess` and `eneric`: 0 lost against the previous build.
+
+## 85. Union enums report their member walk; indexed-access targets with no base constraint
+
+(§84 is the held `unions.rs` change on `box/r7-reports-held`.)
+
+- **`isEnumTypeRelatedTo`'s reports** (`relater.go:282`, reached from
+  `isSimpleTypeRelatedTo`'s union-enum arm at `:243`, with the error
+  reporter). The member walk's first failure is the whole chain:
+  - *Property 'd' is missing in type 'First.E'.*, with the target named
+    fully qualified (`UseFullyQualifiedType`);
+  - *Each declaration of 'E.c' differs in its value, where '2' was expected
+    but '0' was given.*;
+  - the string-against-unknown variant.
+
+  The union's members then relate with reporting off, as the union arm
+  already notes. Enums with different names, and const enums, fail with no
+  report. The new arm sits ahead of every other arm in `explain_relation`;
+  it reads the enum symbol from the union-enum type, whose symbol flag is
+  `REGULAR_ENUM` (`ENUM` is the composite, so the test is `intersects`).
+  `enumAssignmentCompat3` is EXACT.
+- **Correction to §81 and §83.** The port's `base_constraint_of_type` folds
+  `noConstraintType` and `circularConstraintType` into `None`, as native's
+  `getBaseConstraintOfType` does, so `None` is native's nil and not an
+  undecided answer. An indexed-access target over a type-parameter object
+  with no base constraint therefore always takes the arbitrary-type line.
+  §81 had declined in that case, and §83 had special-cased only an
+  unconstrained object. `T extends object, P extends keyof T` has no
+  constraint for `T[P]`, because `object` has no index signature for `keyof
+  T`'s base constraint. `nonPrimitiveConstraintOfIndexAccessType` is EXACT.
+- **Measured.** Quick oracles against base24 (`num`, `onPrimitive`,
+  `ndexed`, `keyof`, `onstrain`) gained the two cases above and lost
+  nothing.

@@ -2829,6 +2829,89 @@ impl<'a> Checker<'a, '_> {
         true
     }
 
+    /// The enum symbol of a union-enum type (`getDeclaredTypeOfEnum`'s
+    /// union, which carries the enum symbol).
+    fn chain_enum_symbol(&self, ty: TypeId) -> Option<SymbolId> {
+        let TypeData::Union { symbol: Some(symbol), .. } = &self.type_of(ty).data else {
+            return None;
+        };
+        let symbol = self.binder.merged_symbol(*symbol);
+        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ENUM).then_some(symbol)
+    }
+
+    /// `isEnumTypeRelatedTo` (`relater.go:282`) with its error reporter: the
+    /// first member that fails, as its chain entry; `None` when the enums
+    /// relate or fail without a report (different names, a const enum).
+    fn enum_relation_failure(&mut self, source: SymbolId, target: SymbolId) -> Option<ChainEntry> {
+        let symbols = self.binder.symbols();
+        let (source_data, target_data) = (symbols.get(source), symbols.get(target));
+        if source_data.name != target_data.name
+            || !source_data.flags.contains(SymbolFlags::REGULAR_ENUM)
+            || !target_data.flags.contains(SymbolFlags::REGULAR_ENUM)
+        {
+            return None;
+        }
+        let target_name = target_data.name.to_string();
+        let mut members: Vec<(String, SymbolId)> = source_data
+            .exports
+            .as_ref()
+            .map(|table| table.iter().map(|(name, &id)| (name.to_string(), id)).collect())
+            .unwrap_or_default();
+        members.sort_by_key(|&(_, id)| id);
+        for (name, source_member) in members {
+            let symbols = self.binder.symbols();
+            if !symbols.get(source_member).flags.contains(SymbolFlags::ENUM_MEMBER) {
+                continue;
+            }
+            let target_member = symbols
+                .get(target)
+                .exports
+                .as_ref()
+                .and_then(|table| table.get(name.as_str()).copied())
+                .filter(|&member| symbols.get(member).flags.contains(SymbolFlags::ENUM_MEMBER));
+            let Some(target_member) = target_member else {
+                let declared = self.get_declared_type_of_symbol(target);
+                let target_text = self.type_name_for_error_display(declared);
+                return Some(ChainEntry {
+                    message: &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1,
+                    args: vec![name, target_text],
+                });
+            };
+            let source_type = self.get_declared_type_of_symbol(source_member);
+            let target_type = self.get_declared_type_of_symbol(target_member);
+            let value = |checker: &Self, ty: TypeId| {
+                checker.enum_member_payload(ty).map(|(_, value)| match value {
+                    crate::types::EnumLiteralValue::Number(text) => (false, text.clone()),
+                    crate::types::EnumLiteralValue::String(text) => {
+                        (true, crate::printing::quote(text))
+                    }
+                })
+            };
+            let (source_value, target_value) = (value(self, source_type), value(self, target_type));
+            if source_value == target_value {
+                continue;
+            }
+            match (source_value, target_value) {
+                (Some((_, source_text)), Some((_, target_text))) => {
+                    return Some(ChainEntry {
+                        message: &messages::EACH_DECLARATION_OF_0_1_DIFFERS_IN_ITS_VALUE_WHERE_2_WAS_EXPECTED_BUT_3_WAS_GIVEN,
+                        args: vec![target_name, name, target_text, source_text],
+                    });
+                }
+                (Some((true, text)), None) | (None, Some((true, text))) => {
+                    return Some(ChainEntry {
+                        message: &messages::ONE_VALUE_OF_0_1_IS_THE_STRING_2_AND_THE_OTHER_IS_ASSUMED_TO_BE_AN_UNKNOWN_NUMERIC_VALUE,
+                        args: vec![target_name, name, text],
+                    });
+                }
+                // An unknown value beside a numeric one is assumed equal;
+                // two unknown values compare equal above.
+                _ => {}
+            }
+        }
+        None
+    }
+
     /// `reportErrorResults` (`relater.go:4700`) names the pair `isRelatedTo`
     /// normalized unless the original has an alias: an indexed access whose
     /// object is a mapped type is printed as its substitution
@@ -3193,8 +3276,6 @@ impl<'a> Checker<'a, '_> {
         let target_flags = self.type_of(target).flags;
         let explains_type_parameter = if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
             self.indexed_access_target_explained(source, target) == Some(true)
-                && (self.base_constraint_of_type(target).is_some()
-                    || self.indexed_access_object_unconstrained(target))
         } else {
             target_flags.contains(TypeFlags::TYPE_PARAMETER)
         };
@@ -3250,17 +3331,6 @@ impl<'a> Checker<'a, '_> {
             return Some(false);
         }
         Some(self.type_of(object).flags.contains(TypeFlags::TYPE_PARAMETER))
-    }
-
-    /// `computeBaseConstraint`'s indexed-access arm (`checker.go`): with no
-    /// base constraint for the object, the access has none, so an
-    /// unconstrained type-parameter object decides a nil constraint.
-    fn indexed_access_object_unconstrained(&mut self, target: TypeId) -> bool {
-        let Some(&(object, _, _)) = self.deferred_indexed_access_types.get(&target) else {
-            return false;
-        };
-        self.type_of(object).flags.contains(TypeFlags::TYPE_PARAMETER)
-            && self.constraint_of_type(object) == crate::constraints::ConstraintOfType::Nil
     }
 
     /// An object literal against a union target, up to the outer report:
@@ -5896,12 +5966,6 @@ impl Checker<'_, '_> {
         // relation error (`relater.go:4768`).
         if explains_type_parameter && !self.variance_marker_types.contains(&target) {
             let constraint = self.base_constraint_of_type(target);
-            if constraint.is_none()
-                && target_flags.contains(TypeFlags::INDEXED_ACCESS)
-                && !self.indexed_access_object_unconstrained(target)
-            {
-                return None;
-            }
             let assignable = constraint.and_then(|constraint| {
                 if self.is_type_assignable_to(displayed_source, constraint) {
                     Some((displayed_source, constraint))
@@ -6217,6 +6281,19 @@ impl Checker<'_, '_> {
         let target = self.chain_normalized_target(source, target);
         let source_flags = self.type_of(source).flags;
         let target_flags = self.type_of(target).flags;
+        // `isSimpleTypeRelatedTo`'s union-enum arm (`relater.go:243`) runs
+        // `isEnumTypeRelatedTo` with the error reporter: its member walk's
+        // first failure is the chain, and the union's members then relate
+        // without reporting (r7-reports §85).
+        if let (Some(source_enum), Some(target_enum)) =
+            (self.chain_enum_symbol(source), self.chain_enum_symbol(target))
+            && source_enum != target_enum
+        {
+            if let Some(entry) = self.enum_relation_failure(source_enum, target_enum) {
+                stack.push(entry);
+            }
+            return Some(());
+        }
         // `eachTypeRelatedToType`: the first source constituent that fails
         // (constituents in union order). A primitive union (`boolean`, an
         // enum) is related with `reportErrors` off (`relater.go:2873`).
