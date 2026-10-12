@@ -1266,8 +1266,7 @@ impl Checker<'_, '_> {
     /// variable read before any assignment the read can see), native reports
     /// TS7034 at the declaration's name and TS7005 at the reference, both
     /// with `TypeToString(autoType)`, `any`. The flow answer is r7-flow's
-    /// `identifier_flow_type_is_auto` (`flow.rs`), which answers the auto
-    /// track only, not `autoArrayType`.
+    /// `identifier_flow_auto_kind` (`flow.rs`).
     ///
     /// Asked for a value reference that is not a definite assignment target
     /// (`checkIdentifier` returns the declared type for those first) and not
