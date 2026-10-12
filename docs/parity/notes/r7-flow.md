@@ -979,3 +979,33 @@ Measured on `e2e5c9d1` unfiltered: diagnostics **+1**
 message text only, which the legacy suite does not read), types unchanged,
 0 lost; exact oracle 9671 → 9674 (all three), 0 lost; jsTyping 122 → 122,
 new_false 0, lost_true 0; Ir gi 0.9998, dm 1.0000.
+
+## §35 TS18046 for an `unknown` property or element access receiver
+
+`checkPropertyAccessExpression` and `checkElementAccess` pass the receiver
+through `checkNonNullExpression`, whose `unknown` arm (`checker.go:7413`,
+under `strictNullChecks`) reports TS18046 "'e' is of type 'unknown'" at an
+entity-name receiver shorter than 100 characters (TS2571 otherwise) and
+answers `errorType`; a chain link passes `getOptionalExpressionType` of the
+receiver, which leaves `unknown` alone. The port had the callee half
+(`calls.rs`' `check_non_null_callee`) only, so `catch (e) { e.toUpperCase() }`
+under `useUnknownInCatchVariables` was silent. `report_unknown_receiver`
+(nonexistent_property.rs) is the receiver half; after it reports, the access
+asks nothing else, as the error type would.
+
+Certified receivers only: an identifier whose `unknown` is its declaration's
+(a catch-clause variable, or a declaration with a written type). Uncertified,
+the arm measured diagnostics +4 against **3 lost** (`badInferenceLowerPriorityThanGoodInference`,
+`inferFromGenericFunctionReturnTypes2`, `typeArgumentInferenceWithClassExpression3`):
+each receiver was `unknown` only in this port, an inferred type argument
+(`const result = canYouInferThis(() => ({ … }))`) or a contextually typed
+parameter (`s => s.length`) native types concretely. Those wait on inference
+(r7-contextual, r7-calls).
+
+Measured (certified) on `57d327e6` unfiltered: diagnostics **+4**
+(`catchClauseWithTypeAnnotation`, `controlFlowAliasingCatchVariables(useunknownincatchvariables=true)`,
+`es2016IntlAPIs`, `privateNameAndAny`), types unchanged, 0 lost; exact oracle
+9674 → 9676, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi
+1.0000, dm 1.0005 (the receiver's cached type read on every access; the
+optional-chain type only for an `unknown` receiver). `useUnknownInCatchVariables01` keeps its
+`e++` TS18046 (the arithmetic operand's `checkNonNullType`, not this arm).
