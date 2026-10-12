@@ -2538,7 +2538,17 @@ impl<'a> Checker<'a, '_> {
             },
             _ => return None,
         }?;
+        let empty_identifier = matches!(name, tsr_ast::ModuleExportName::Identifier(_))
+            && crate::module_exports::module_export_name_text(name).is_empty();
         let name = crate::module_exports::module_export_name_text(name);
+        // `if isShorthandAmbientModuleSymbol(moduleSymbol) { return
+        // moduleSymbol }` (`checker.go:14693`): every member of `declare
+        // module "jquery";` is the module itself, typed `any`, and so is a
+        // re-export of one (`export {x} from "jquery"`,
+        // `ambientShorthand_reExport`, r7-shared.md §41).
+        if !empty_identifier && self.is_shorthand_ambient_module(module_symbol) {
+            return Some(module_symbol);
+        }
         // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
         // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
         // for both callers here: its synthetic-default and

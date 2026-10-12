@@ -1176,3 +1176,14 @@ node text, except for an `export =` / `export default` assignment, whose
 the error span). The class and interface property duplicates that print the
 first declaration's spelling (`'0b11'`, `'"1"'`) are the checker's
 `checkObjectTypeForDuplicateDeclarations` path (check.rs), not this one.
+
+## 41. A member of a shorthand ambient module is the module
+
+`getExternalModuleMember` (checker.go:14693) answers `moduleSymbol` itself
+for any name of a shorthand ambient module (`declare module "jquery";`, no
+body): every member is the module, typed `any`. So `export {x} from
+"jquery"` re-exports the module, and `import {x} from "./reExportX"` reads
+`x : any` (`ambientShorthand_reExport`). `get_type_of_alias`'s §300 arm
+covered only an import made directly from the shorthand module. The rule now
+sits where native's does, in `get_external_module_member`, so a re-export
+chain reaches it.
