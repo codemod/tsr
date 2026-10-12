@@ -2772,3 +2772,23 @@ type parameters. Template literals and string mappings are not normalized
 by `isRelatedTo`, so they are now admitted too. A primitive source against
 a template literal or string mapping is a leaf. Quick oracles over
 `emplate`, `ntersection` and `tringMapping`: 0 lost.
+
+## 100. Conditional targets are leaves; unsimplifiable conditional constituents
+
+- **A conditional target.** `structuredTypeRelatedToWorker`'s conditional
+  target arm (`relater.go:3594`) relates the branches with `reportErrors`
+  off. A source that is not a type variable has no later arm that reports,
+  so nothing goes below the pair: `Q → InferBecauseWhyNot<Q>` explains as
+  its constraint line and stops (`conditionalTypeAssignabilityWhenDeferred`
+  is EXACT). An instantiable source still reaches its own arms (§78), and a
+  union source the each-type arm.
+- **Conditional constituents of an intersection target.** `isRelatedTo`
+  normalizes a conditional only through `getSimplifiedConditionalType`, and
+  only when a branch is `never`. A conditional with neither branch `never`
+  is related as written, so the each-type arm now admits it
+  (`intersection_target_parts_explainable`). `conditionalTypesExcessProperties`
+  gets the right chain shape. Its constituent prints the uninstantiated
+  `T extends object ? …` where native prints `A extends object ? …`, which
+  is a printing difference outside this lane.
+- **Measured.** Quick oracles over `onditional`, `ntersection`, `nfer` and
+  `xtract`: 0 lost.

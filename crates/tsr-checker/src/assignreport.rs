@@ -2833,6 +2833,44 @@ impl<'a> Checker<'a, '_> {
         true
     }
 
+    /// The constituents of an intersection target the each-type arm can
+    /// relate as they are: no union, and an instantiable constituent only
+    /// where `isRelatedTo` would not normalize it first (a type parameter,
+    /// a template literal, a string mapping, an unsimplifiable conditional).
+    fn intersection_target_parts_explainable(&mut self, types: &[TypeId]) -> bool {
+        for &part in types {
+            let flags = self.type_of(part).flags;
+            if flags.contains(TypeFlags::UNION) {
+                return false;
+            }
+            if flags.intersects(TypeFlags::INSTANTIABLE)
+                && !flags.intersects(
+                    TypeFlags::TYPE_PARAMETER
+                        | TypeFlags::TEMPLATE_LITERAL
+                        | TypeFlags::STRING_MAPPING,
+                )
+                && !self.conditional_is_unsimplifiable(part)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// A conditional type `getSimplifiedConditionalType` leaves as it is:
+    /// neither branch is `never`, so `isRelatedTo`'s normalization does not
+    /// rewrite it (r7-reports §100).
+    fn conditional_is_unsimplifiable(&mut self, ty: TypeId) -> bool {
+        if !self.type_of(ty).flags.contains(TypeFlags::CONDITIONAL) {
+            return false;
+        }
+        let Some([_, _, yes, no]) = self.conditional_inference_operands(ty) else {
+            return false;
+        };
+        !self.type_of(yes).flags.contains(TypeFlags::NEVER)
+            && !self.type_of(no).flags.contains(TypeFlags::NEVER)
+    }
+
     /// The global `Object` interface's own declared type.
     fn is_global_object_type(&mut self, ty: TypeId) -> bool {
         matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
@@ -6412,6 +6450,17 @@ impl Checker<'_, '_> {
         {
             return Some(());
         }
+        // A conditional target (`structuredTypeRelatedToWorker`'s target arm,
+        // `relater.go:3594`) relates its branches with `reportErrors` off,
+        // and a source that is not a type variable has no arm after it that
+        // reports: nothing below the pair (r7-reports §100).
+        if target_flags.contains(TypeFlags::CONDITIONAL)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
+            && !(source_flags.contains(TypeFlags::INTERSECTION)
+                && self.intersection_has_instantiable(source))
+        {
+            return Some(());
+        }
         // A primitive against a template literal or string mapping: the
         // target arm matches the source's text and reports nothing below
         // (r7-reports §99).
@@ -6464,16 +6513,7 @@ impl Checker<'_, '_> {
                 || unconstrained_type_parameter)
             && !(source_flags.contains(TypeFlags::INTERSECTION)
                 && self.intersection_has_instantiable(source))
-            && !types.iter().any(|&part| {
-                let flags = self.type_of(part).flags;
-                flags.contains(TypeFlags::UNION)
-                    || flags.intersects(TypeFlags::INSTANTIABLE)
-                        && !flags.intersects(
-                            TypeFlags::TYPE_PARAMETER
-                                | TypeFlags::TEMPLATE_LITERAL
-                                | TypeFlags::STRING_MAPPING,
-                        )
-            })
+            && self.intersection_target_parts_explainable(&types)
         {
             let previous = std::mem::replace(&mut stack.intersection_target, true);
             for part in types {
