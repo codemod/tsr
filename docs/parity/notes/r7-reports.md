@@ -2245,3 +2245,59 @@ Repro: `fallbackToBindingPatternForTypeInference`
   an inference candidate. That would show up as new TS2345s on
   `destructuring`/`binding` cases. The quick oracles over those filters are
   the check.
+
+## 78. Indexed-access sources through their constraint; constraint descents push their source only
+
+From the base22 rank (batch 63): the largest relater-rooted chain bucket is
+TS2322 with no chain (111 rows across 40 files). Its biggest family is a
+generic indexed-access source: `T[K] → object` explains as `T[keyof T]`, then
+`T[string] | T[number] | T[symbol]`, then `T[string]`
+(`keyofAndIndexedAccess`, `indexedAccessConstraints`, `deepComparisons`,
+`mappedTypes6`).
+
+- **The arm.** `structuredTypeRelatedToWorker`'s type-variable case
+  (`relater.go:3665`) relates `getConstraintOfType(source)` and reports when
+  that constraint is not `unknown`. The explain walk now covers an indexed
+  access the same way: a nil constraint reports nothing; a constraint is
+  related and explained. `isRelatedTo` normalizes the pair before it names
+  it, so `T[string | number | symbol]` is printed as its distribution
+  (`chain_simplified_indexed_access` is the relater's
+  `simplified_indexed_access`, reading). The arm declines in three cases:
+  a mapped object or alias reference (`isMappedTypeGenericIndexedAccess`
+  explores a second constraint), an undecided constraint, and an
+  indexed-access or intersection target.
+- **Constraint descents push their source only.** Native relates the
+  constraint with `RecursionFlagsSource`, so the target is not pushed on
+  `targetStack`. The retrace's assumed pairs had always pushed both sides.
+  At the third level `object` sat on the target stack three times,
+  `isDeeplyNestedType` called the target expanding, and `T[string] → object`
+  answered Maybe, which the walk took as related. The chain then stopped
+  after its first line. The assumed pairs now record whether they were
+  entered as a constraint descent (`relate_ternary_assuming`'s
+  `source_only`). The type-parameter arm uses the same
+  `explain_constraint_descent`.
+- **Not yet EXACT: union order.** The port prints `T[number] | T[string] |
+  T[symbol]`; native prints `T[string] | …`. `CompareTypes`
+  (`utilities.go:544`) orders two indexed accesses by object, then by index.
+  `unions.rs`'s `compare_types` has no such arm and falls back to type-id
+  creation order. That file is outside this lane, so the fix is proposed to
+  the integrator, not made here. Until it lands, the indexed-access cases
+  above stay non-exact with the right chain shape.
+- **A §76 loss, fixed.** In the base22 gate, `intersectionAsWeakTypeSource`
+  went RIGHT→WRONG. Its source `Brand<…>` is `number & { __brand: T }`.
+  Native's structural pass reads `getApparentType` of the intersection, so
+  its TS2739 names `Number & { __brand: … }`, and §76's head suppression
+  does not apply. The intersection-source arm named `Brand<…>`, which
+  matched the head, so the head was dropped. That arm now declines for an
+  intersection with a primitive constituent, which restores base22's
+  output.
+- **Refused here: conditional alias variances.** `Stuff<U> → Stuff<T>`
+  (`conditionalTypeVarianceBigArrayConstraintsPerformance`) relates the
+  alias arguments first (`relater.go:3392`). `inference_variances` answers
+  `None` for an alias whose body is a conditional (variances.rs,
+  `measurable_alias_body`), so the walk has nothing to explain from. That
+  file is outside this lane.
+- **Measured.** Quick oracles against base22 (`ntersection`,
+  `ndexedAccess`, `keyof`, `onstrain`, `ypeParameter`, `eakType`) gained
+  `errorMessageOnIntersectionsWithDiscriminants01`, `intersectionAndUnionTypes`
+  and `typeParameterArgumentEquivalence3`, with 0 lost.
