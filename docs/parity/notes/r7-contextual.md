@@ -886,3 +886,40 @@ tuple as an absent yield and answers `any`; the spread line printed `error`.
 before that road. Routed: the for-of reader (`for_of_yield_types`,
 symbols.rs) still gives `for (const q of a0)` `q : any`, where native gives
 `never`.
+
+## 30. Phase 1 checks every object/array literal argument under the inference context
+
+`inferTypeArguments` checks each ordinary argument with
+`checkExpressionWithContextualType(arg, paramType, context)`
+(`checker.go:9485`, `:7486`). The argument's contextual type is the
+uninstantiated parameter, mapped only by the return mapper
+(`instantiateContextualType`), and its apparent type is the constraint. The
+port marked the active context `inferential` in phase 1 only for a §1
+fresh-literal argument or under a return-literal map. Any other literal read
+its context through the stateless argument road, which fixes the call's type
+parameters to `unknown` first. `test2<T extends Test<"bar">>(arg: T)` with
+`{ foo: true, bar() {} }` read `unknown` (probed), where native reads
+`Test<"bar">`, whose `foo` is `true` (inferenceAndSelfReferentialConstraint:
+native `T = { foo: true; … }`). Object and array literal arguments whose subtree holds no
+function, method, accessor or class now read the active context in phase 1
+(`literal_subtree_holds_function`). Function and conditional arguments keep
+the return-literal-map gate.
+
+The function boundary is §8's work boundary, measured again here. Admitting
+every literal (first run, against b55) gained 49 lines but lost 3:
+`reverseMappedContravariantInference` 0:7–0:9. Under the active context, the
+member `(v: string) => false` gets the generic contextual signature
+`(val: T["foo"]) => boolean`, and the port's return widening
+(`inferred_return_type`, signatures.rs) then widens to `boolean`. Native keeps
+`false` because `boolean` is a literal context. With the boundary (verdicts
+on the same tree): deeplyNestedMappedTypes 12→1, genericRestParameters2 9→1,
+genericRestParameters1 27→23, trailingCommasInFunctionParametersAndArguments
+1→0 non-RIGHT lines, and reverseMappedContravariantInference stays 0. The
+boundary gives up intraExpressionInferences (26→17 without it) and
+jsxChildrenGenericContextualTypes (10→7), whose literals hold functions.
+Those return once the function-member return widening follows a generic
+contextual signature's return type (routed with §25's signatures.rs items).
+
+That case still needs the mapped-type member resolution routed in the report:
+the port does not resolve `{ [P in "bar" | "foo"]: P extends "foo" ? true :
+() => any }` into members at all.

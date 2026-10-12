@@ -731,7 +731,19 @@ impl<'a> Checker<'a, '_> {
                     }
                     None => false,
                 };
+                // checkExpressionWithContextualType checks every ordinary
+                // argument under the inference context, so an object or array
+                // literal reads the uninstantiated parameter (mapped only by
+                // the return mapper, its apparent type the constraint), not
+                // the stateless argument road's fixed `unknown`.
                 let use_active_context = fresh_literal
+                    || matches!(
+                        argument,
+                        Expression::ObjectLiteralExpression(_)
+                            | Expression::ArrayLiteralExpression(_)
+                    ) && argument
+                        .node_id()
+                        .is_some_and(|id| !self.literal_subtree_holds_function(id))
                     || return_literal_map.is_some()
                         && matches!(
                             argument,
@@ -1899,6 +1911,33 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::for_each_child_id(node, |child| stack.push(child));
             }
         }
+    }
+
+    /// Whether a literal's subtree holds a function, method, accessor or class:
+    /// this port derives such a member's function type (its return widening
+    /// included) from the context it is first checked in, where native keeps
+    /// the type the member's own symbol cached. §8 and §30 keep those literals
+    /// on their previous context.
+    fn literal_subtree_holds_function(&self, root: NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            if matches!(
+                self.nodes.kind(id),
+                K::FunctionExpression
+                    | K::ArrowFunction
+                    | K::ClassExpression
+                    | K::MethodDeclaration
+                    | K::GetAccessor
+                    | K::SetAccessor
+            ) {
+                return true;
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        false
     }
 
     /// Whether a literal argument's subtree holds a node whose check resolves
