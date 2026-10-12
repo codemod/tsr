@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1838/1928 (95.33%)
-Assertion lines: 78048/78552 (99.36%)  — a gradient, not a pass rate
-Failed         : 90
+Passed         : 1842/1928 (95.54%)
+Assertion lines: 78058/78552 (99.37%)  — a gradient, not a pass rate
+Failed         : 86
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -65,10 +65,6 @@ compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=false)
   discriminateWithOptionalProperty2.ts: >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; } — expected >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; }; next(): Promise<{ done: boolean; value: number; }>; }
 compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=true)
   discriminateWithOptionalProperty2.ts: >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; } — expected >{  [Symbol.asyncIterator]() {    return this;  },  next() {    const value = items[0];    items.shift();    return Promise.resolve({      done: items.length === 0,      value,    });  },} : { [Symbol.asyncIterator](): { [Symbol.asyncIterator](): any; next(): Promise<{ done: boolean; value: number; }>; }; next(): Promise<{ done: boolean; value: number; }>; }
-compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=false)
-  discriminateWithOptionalProperty3.ts: >variableValues : Maybe<{ readonly [variable: string]: unknown; }> | undefined — expected >variableValues : Maybe<{ readonly [variable: string]: unknown; }>
-compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=true)
-  discriminateWithOptionalProperty3.ts: >variableValues : Maybe<{ readonly [variable: string]: unknown; }> | undefined — expected >variableValues : Maybe<{ readonly [variable: string]: unknown; }>
 compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=false)
   discriminateWithOptionalProperty4.ts: >z.a : string[] — expected >z.a : string[] | undefined
 compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=true)
@@ -99,8 +95,6 @@ compiler/neverAsDiscriminantType(strict=false)
   neverAsDiscriminantType.ts: >GatewayPayload : error — expected >GatewayPayload : GatewayPayload
 compiler/neverAsDiscriminantType(strict=true)
   neverAsDiscriminantType.ts: >GatewayPayload : error — expected >GatewayPayload : GatewayPayload
-compiler/newLexicalEnvironmentForConvertedLoop(target=es2015)
-  newLexicalEnvironmentForConvertedLoop.ts: >...[] : error — expected >...[] : never
 compiler/operationsAvailableOnPromisedType(target=es2015)
   operationsAvailableOnPromisedType.ts: >[...c] : any — expected >[...c] : any[]
 compiler/optionalChainWithInstantiationExpression1(target=es2019)
@@ -203,7 +197,5 @@ conformance/thisTypeInAccessorsNegative(target=es2015)
   thisTypeInAccessorsNegative.ts: >mismatch : { n: number; x: Bar; } — expected >mismatch : { n: number; x: number; }
 conformance/thisTypeInObjectLiterals2(target=es2015)
   thisTypeInObjectLiterals2.ts: >obj1 : { a: number; f(): number; b: string; c: { g(): void; }; readonly d: number; e: any; } — expected >obj1 : { a: number; f(): number; b: string; c: { g(): void; }; readonly d: number; e: string; }
-conformance/trailingCommasInFunctionParametersAndArguments(target=es2015)
-  trailingCommasInFunctionParametersAndArguments.ts: >...[] : any — expected >...[] : never
 conformance/useObjectValuesAndEntries1(target=es2015)
   useObjectValuesAndEntries1.ts: >entries1 : error — expected >entries1 : [string, any][]
