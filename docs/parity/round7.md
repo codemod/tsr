@@ -1240,3 +1240,16 @@ small atomic consumer hunks in another lane's file, when they share the commit's
 native root cause and pass every gate (named in the lane note). ADR-0056
 (rebasable node ids, per-file bind) is funded as a no-flag-day migration in
 r7-perf.
+
+### Batch 75 — r7-contextual `5a5b2283`, r7-flow `98781152`, r7-parser `3fe71bfd`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **11135 / 12797 EXACT (87.01%)**, 17 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +23 RIGHT / 0 lost / 0 missing, diagnostics +4 cases / 0 lost / 0 missing. jsTyping 104 → 104 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0001, domain-model 1.0006. No suite's failure count rose.
+
+| Suite | Before | Batch 75 |
+|---|---|---|
+| `checker_types` | 9,040 | 9,044 |
+| `checker_types_configured` | 1,848 | 1,848 |
+| `diagnostics` | 5,121 | 5,125 |
+| `diagnostics_configured` | 1,035 | 1,035 |

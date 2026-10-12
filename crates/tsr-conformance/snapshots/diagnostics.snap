@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 5121/5502 (93.08%)
-Failed         : 381
+Passed         : 5125/5502 (93.15%)
+Failed         : 377
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 381 failures:
+First 100 of 377 failures:
 compiler/abstractPropertyInConstructor
   10 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
@@ -110,8 +110,6 @@ compiler/contextualTypeFunctionObjectPropertyIntersection
   2 missing (first TS2353 at contextualTypeFunctionObjectPropertyIntersection.ts(84,5))
 compiler/contextuallyTypedParametersOptionalInJSDoc
   2 missing (first TS2345 at index.js(17,15))
-compiler/controlFlowArrayErrors
-  8 missing (first TS7034 at controlFlowArrayErrors.ts(4,9))
 compiler/controlFlowFunctionLikeCircular1
   2 unexpected (first TS2456 at controlFlowFunctionLikeCircular_8.ts(5,10)), 11 missing
 compiler/crashInEmitTokenWithComment
@@ -137,7 +135,7 @@ compiler/divergentAccessorsTypes8
 compiler/divergentAccessorsVisibility1
   6 missing (first TS2808 at divergentAccessorsVisibility1.ts(11,19))
 compiler/doYouNeedToChangeYourTargetLibraryES2016Plus
-  3 missing (first TS2550 at doYouNeedToChangeYourTargetLibraryES2016Plus.ts(16,113))
+  2 missing (first TS2550 at doYouNeedToChangeYourTargetLibraryES2016Plus.ts(16,113))
 compiler/duplicateClassElements
   1 missing (first TS2717 at duplicateClassElements.ts(34,12))
 compiler/dynamicNames
@@ -162,8 +160,6 @@ compiler/es6ImportNamedImportParsingError
   2 unexpected (first TS2695 at es6ImportNamedImportParsingError_1.ts(4,13)), 0 missing
 compiler/esModuleInteropPrettyErrorRelatedInformation
   1 missing (first TS2345 at index.ts(3,8))
-compiler/evolvingArrayResolvedAssert
-  3 missing (first TS7034 at evolvingArrayResolvedAssert.ts(1,5))
 compiler/exactOptionalPropertyTypesIdentical
   1 missing (first TS2322 at exactOptionalPropertyTypesIdentical.ts(2,12))
 compiler/excessPropertyCheckIntersectionWithRecursiveType
@@ -212,3 +208,7 @@ compiler/importInsideModule
   1 missing (first TS2307 at importInsideModule_file2.ts(2,26))
 compiler/importUsedAsTypeWithErrors
   1 missing (first TS1340 at main.ts(1,17))
+compiler/importedEnumMemberMergedWithExportedAliasIsError
+  2 missing (first TS2395 at alias.ts(3,8))
+compiler/indexSignatureInOtherFile
+  1 unexpected (first TS2739 at index.ts(1,7)), 2 missing
