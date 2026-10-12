@@ -1461,3 +1461,28 @@ work since `4af98855`), and the mapped-type rows it unblocks now land too.
 (deeplyNestedMappedTypes 11, thislessFunctionsNotContextSensitive1 1);
 diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9998, dm
 1.0000.
+
+## 46. §18 and the wide union-alias slice landed together
+
+§18's frame isolation (getDeclaredTypeOfTypeAlias resolves with no mapper:
+`get_declared_type_of_type_alias` sets the alias-evaluation frames aside for
+the resolution, so React's `type ReactNode = ReactChild | …` first reached
+under `ComponentType<P>`'s frame is published with its alias) and §10.1's
+wide union-alias slice (`is_union_alias_body` admits any constituents, so a
+generic union-bodied alias instance is its instantiated union carrying the
+alias, getUnionTypeEx's alias argument) were held for one
+deeplyNestedMappedTypes diagnostic that §45 now lands. Alone, the slice
+still loses ReactNode's alias (styledComponentsInstantiaionLimitNotReached)
+and HandlerRendererResult's (jsxComplexSignatureHasApplicabilityError):
+that is the frame leak, so the two go in one commit. Measured alone on
+`cfe2d4e5`: the slice +50 / −2 types; with the isolation +61 / 0.
+
+**Measured** (unfiltered against `56aba53c`): types **+50, 0 lost**
+(assignmentTypeNarrowing 9, jsxComplexSignatureHasApplicabilityError 8,
+typePredicateFreshLiteralWidening 4, discriminateWithOptionalProperty3 8,
+unionAndIntersectionInference1 4, awaitedType/awaitedTypeStrictNull 6,
+for-of58 3, and others); diagnostics **+4 cases, 0 lost**
+(coAndContraVariantInferences5, jsxElementTypeLiteralWithGeneric,
+typeAssignabilityErrorMessage, for-of58); jsTyping new_false 0 / lost_true
+0 (one native-absent error fewer); Ir gi 0.9999, dm **1.0012** (the union
+instances are built where the mint was a name).

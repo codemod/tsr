@@ -8139,17 +8139,7 @@ impl<'a> Checker<'a, '_> {
         !arguments.is_empty()
             && self.local_type_parameters_of(symbol).len() == arguments.len()
             && !self.instantiation_expressions.union_alias_in_progress.contains(&symbol)
-            && union.types.iter().all(|&constituent| {
-                matches!(
-                    Self::skip_type_parentheses(constituent),
-                    Some(
-                        TypeNode::KeywordTypeNode(_)
-                            | TypeNode::LiteralTypeNode(_)
-                            | TypeNode::FunctionTypeNode(_)
-                            | TypeNode::ConstructorTypeNode(_)
-                    )
-                )
-            })
+            && !union.types.is_empty()
     }
 
     /// [`Checker::evaluate_alias_body`] for the indexed and union arms of
@@ -9442,7 +9432,24 @@ impl<'a> Checker<'a, '_> {
     /// The circularity guard is upstream\'s and is not optional: `type T = T`
     /// resolves through this function forever without it, and the corpus
     /// contains such cases deliberately.
+    /// getDeclaredTypeOfTypeAlias (checker.go:23837) resolves the body with
+    /// no mapper: a type alias's declared type is frame-independent. This
+    /// port reaches it from inside alias-body evaluations, whose
+    /// `alias_evaluation_bindings` frames bind another alias's parameters
+    /// (which the body cannot name) and switch off the body's own alias
+    /// naming (getAliasSymbolForTypeNode), so React's `type ReactNode =
+    /// ReactChild | ReactFragment | …` first resolved under
+    /// `ComponentType<P>`'s frame was published without its alias, and
+    /// every later `React.ReactNode` printed its constituents. The frames are
+    /// set aside for the resolution and restored after (r7-declared §18).
     fn get_declared_type_of_type_alias(&mut self, symbol: SymbolId) -> TypeId {
+        let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+        let declared = self.get_declared_type_of_type_alias_worker(symbol);
+        self.alias_evaluation_bindings = frames;
+        declared
+    }
+
+    fn get_declared_type_of_type_alias_worker(&mut self, symbol: SymbolId) -> TypeId {
         let error = self.intrinsics.error;
         // A generic alias keeps its own name in the printed form:
         // `type Tree<T> = T | { left: Tree<T> }` records `>Tree : Tree<T>`
