@@ -3017,3 +3017,28 @@ it. `chain_property_symbol_display` printed the late-bound key instead
 (`1`). It now reads the computed name's source text, as §110 does for
 numeric names (`dynamicNamesErrors`' TS2322 chains match; its TS2717 is
 another lane's). Quick oracles over `ynamic` and `omputed`: 0 lost.
+
+## 113. Private names, never-reduced intersection targets, apparent-empty type parameters
+
+- **`#name` across classes.** Natively a private name is keyed per declaring
+  class (`GetSymbolNameForPrivateIdentifier`), so another class's `#foo` is
+  an unmatched property. `reportUnmatchedProperty`'s private-identifier arm
+  reports *Property '#foo' in type 'B' refers to a different member that
+  cannot be accessed from within type 'A'.* The port keys `#foo` once and
+  had reported *Types have separate declarations of a private property*.
+  The unmatched pass now checks `#` names first (`private_name_mismatch`;
+  `privateNamesUnique-1/5`).
+- **`reportErrorResults`' never-intersection arm.** A target intersection
+  reduced to `never` by a private or conflicting property reports *The
+  intersection 'A & B' was reduced to 'never' because property 'x' exists
+  in multiple constituents and is private in some.*, with nothing
+  structural, because the normalized target is `never`. The explanation
+  reads `never_reduced_property` (`intersectionWithConflictingPrivates` is
+  EXACT).
+- **`T & { a: boolean } → { a?: string }`.** The structural pass reads the
+  intersection's apparent type. A type parameter with no constraint, or
+  constrained to `unknown` or `object`, contributes no members, so the
+  combined-member arm applies: `Types of property 'a' are incompatible.`
+  (`intersectionPropertyCheck`'s second line).
+- **Measured.** Quick oracles over `ntersection`, `rivate`, `eneric` and
+  `bject`: 0 lost.
