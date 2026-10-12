@@ -1862,3 +1862,22 @@ before asking the site.
 site, the path a parameter without a carried text already took) is asked
 first, and the carried text is the fallback when the visitor declines. No
 cache or table.
+
+## 53. A spread member's declaration is reused before its type is printed
+
+**Forcing constraint.** `spreadIdenticalTypesRemoved` (2 lines):
+`{ ...(pet.owner && pet), paid: false }` over `interface Animal2 { name:
+string; owner?: string }` prints natively as
+`{ name?: string | undefined; owner?: string; paid: boolean; }`. The port
+printed `owner?: string | undefined`.
+
+**Cause.** `addPropertyToElementList` serializes each member through
+`serializeTypeForDeclaration(nil, type, propertySymbol, true)`
+(`nodebuilderimpl.go:2605`). That first reuses the property's declaration
+when its pseudo type is equivalent: `owner?: string` is optional-annotated,
+so `string | undefined` matches `string`, and `name: string` is not. §35's
+spread road re-printed the type at the site without asking the declaration,
+which the certified renderer does (`reused_property_type_text`).
+
+**The port.** `reprint_property_slots_at` (§35, §36, §38) asks
+`reused_property_type_text` for the member's origin first. No cache or table.
