@@ -1972,8 +1972,37 @@ impl<'a> Checker<'a, '_> {
         use crate::types::TypeData;
         budget.approximate_length += property.name.len() + 1;
         let ty = self.property_type(property);
-        let printed = if !budget.visiting.contains(&ty) && self.is_member_printed_mapped_object(ty)
-        {
+        // serializeTypeForDeclaration(nil, propertyType, propertySymbol)
+        // (`nodebuilderimpl.go:2181`), at print time, asks the property's
+        // declarations first:
+        // a mapped symbol linked to its source property reuses that
+        // property's written annotation when the mapped type is the
+        // annotation's type (`{ readonly [K in keyof M]: DR<M[K]> }` over
+        // `a?: number` prints `readonly a?: number`; r7-declared §57).
+        // The reuse test resolves the annotation (`getTypeFromTypeNode`,
+        // memoized per node in native). This port bakes a mapped object's
+        // text when the annotation's mapped type is built, so an annotation
+        // whose own members include the property being printed
+        // (`readonly [Symbol.unscopables]: { [K in keyof any[]]?: boolean }`)
+        // re-enters this test for the same property; the re-entry declines
+        // and prints the type. Key: the origin symbol; owner:
+        // `instantiation_expressions.mapped_reuse_in_progress`; inserted
+        // around the test.
+        let reused = match property.origin {
+            Some(origin)
+                if budget.site.is_some()
+                    && self.instantiation_expressions.mapped_reuse_in_progress.insert(origin) =>
+            {
+                let reused = self.reused_property_type_text(origin, ty, budget.site);
+                self.instantiation_expressions.mapped_reuse_in_progress.remove(&origin);
+                reused
+            }
+            _ => None,
+        };
+        let printed = if let Some(reused) = reused {
+            budget.approximate_length += reused.len();
+            reused
+        } else if !budget.visiting.contains(&ty) && self.is_member_printed_mapped_object(ty) {
             budget.visiting.push(ty);
             let printed = self.mapped_object_text(ty, budget);
             budget.visiting.pop();

@@ -1880,3 +1880,43 @@ lost** (extractInferenceImprovement 0:35, 0:37); diagnostics **+2 cases,
 jsTyping **104 → 102** (the two resolutionCache.ts lines), new_false 0;
 Ir gi 0.9999, dm 1.0001; exact oracle +1 (extractInferenceImprovement),
 0 lost.
+
+## 57. A linked mapped member reuses its source property's annotation
+
+**Forcing constraint.** Over `interface M { a?: number; c?: { x: 1 } }`,
+native prints `DeepReadonly<M>` as `{ readonly a?: number; readonly c?: {
+readonly x: 1; } | undefined; }`; TSR printed `readonly a?: number |
+undefined`. addPropertyToElementList (`nodebuilderimpl.go:2486`) serializes
+a property through serializeTypeForDeclaration(nil, propertyType,
+propertySymbol), whose first arm reuses the symbol's declaration
+annotation when getTypeFromTypeNode of it is the property's type, with
+`undefined` stripped for an optional one. A homomorphic mapped symbol
+carries its source property's declarations, so `a`, whose mapped type is
+the source's `number | undefined`, reuses `number`; `c`'s type is
+transformed and prints in full. The bench's `DeepReadonly<ModelNNN>`
+records the same shape (`updatedAt?: number`, `email?: string`).
+
+**Port.** At a print site (`mapped_object_text_at`, the renderer a
+`.types` line and a diagnostic use), `mapped_property_member` asks
+`reused_property_type_text` (the port's one property-slot reuse decision,
+node_reuse.rs) with the member's origin before it prints the type. The
+creation-time text keeps the type's print: native asks only when it
+prints, and asking while the mapped type is still being built resolved the
+origin's own type mid-construction. With §56's symbol members that broke
+`interface NodeArray<T> extends ReadonlyArray<T>`: `NodeArray<Statement>`
+lost `[Symbol.unscopables]` (whose annotation is the mapped `{ [K in keyof
+readonly any[]]?: boolean }` being built) and jsTyping gained 570 false
+TS2741/TS2345 lines. The test resolves the annotation, and
+this port bakes a mapped object's text when the annotation's mapped type
+is built, so an annotation whose members include the property itself
+(`readonly [Symbol.unscopables]: { [K in keyof any[]]?: boolean }`, which
+§56 made a mapped member) re-entered the test without bound. A re-entry
+for the same origin declines and prints the type. Key: the origin symbol;
+owner: `instantiation_expressions.mapped_reuse_in_progress`; inserted
+around the test.
+
+**Measured** (unfiltered, against §56 on `1e4a24d9`): types **+6, 0
+lost** (declarationEmitExactOptionalPropertyTypesNodeNotReused, both
+variants, 0:9–0:11); diagnostics 0 / 0; jsTyping 102 → 102, new_false 0;
+Ir gi 1.0000, dm 1.0000; exact oracle 0 / 0 (the two cases turn exact
+with §58's run).
