@@ -4712,7 +4712,7 @@ impl Checker<'_, '_> {
         // `addTypeOnlyDeclarationRelatedInfo` (`checker.go:2168`): `'{0}' was
         // imported here.` / `exported here.` at the type-only declaration,
         // with its file (r7-grammar §74).
-        if let Some(declaration) = self.type_only_alias_declaration_node(symbol) {
+        if let Some(declaration) = self.type_only_alias_declaration_site(symbol) {
             let is_export = matches!(
                 self.nodes.kind(declaration),
                 SyntaxKind::ExportSpecifier
@@ -4724,7 +4724,15 @@ impl Checker<'_, '_> {
             } else {
                 &messages::_0_WAS_IMPORTED_HERE
             };
-            let related_span = self.error_span(declaration);
+            // An import clause's range starts at its `type` keyword
+            // natively (`import type types from …`); this parser starts the
+            // clause at the name.
+            let mut related_span = self.error_span(declaration);
+            if let Some(Node::ImportClause(clause)) = self.node_map.get(declaration)
+                && let Some(phase) = clause.phase_modifier.and_then(|token| token.node_id)
+            {
+                related_span = tsr_core::Span::new(self.nodes.span(phase).start, related_span.end);
+            }
             diagnostic.add_related_information(Some(self.related_diagnostic_at(
                 declaration,
                 related,
@@ -4733,6 +4741,32 @@ impl Checker<'_, '_> {
             )));
         }
         self.report(file, diagnostic);
+    }
+
+    /// The declaration [`Self::type_only_alias_declaration_walk`] stops at:
+    /// the type-only alias declaration (a specifier, clause or namespace
+    /// import) or the `export type *` that makes it type-only, for TS1361's
+    /// related information. The same walk, so the related site and the
+    /// message agree. Error path only, uncached.
+    fn type_only_alias_declaration_site(&mut self, symbol: tsr_binder::SymbolId) -> Option<NodeId> {
+        let mut current = self.binder.merged_symbol(symbol);
+        for _ in 0..16 {
+            let entry = self.binder.symbols().get(current);
+            if !entry.flags.intersects(SymbolFlags::ALIAS)
+                || entry.flags.intersects(SymbolFlags::VALUE)
+            {
+                return None;
+            }
+            let declaration = *entry.declarations.first()?;
+            if self.declaration_is_type_only(declaration).is_some() {
+                return Some(declaration);
+            }
+            if let Some(star) = self.specifier_type_only_export_star(declaration) {
+                return Some(star);
+            }
+            current = self.binder.merged_symbol(self.immediate_alias_target(current)?);
+        }
+        None
     }
 
     /// `IsValidTypeOnlyAliasUseSite` (`ast/utilities.go:3124`) — §121's debt,
@@ -4750,7 +4784,10 @@ impl Checker<'_, '_> {
     /// `check_value_identifier` because §79 made them a value position for
     /// TS2304's purposes. §123.
     fn is_valid_type_only_alias_use_site(&self, node: NodeId) -> bool {
-        if self.entity_name_root_is_a_type_query(node) {
+        // `useSite.Flags&ast.NodeFlagsAmbient != 0` (`ast/utilities.go:3125`):
+        // `declare class B extends A {}` over `import type { A }` emits
+        // nothing (r7-grammar §85).
+        if self.entity_name_root_is_a_type_query(node) || self.has_ambient_flag(node) {
             return true;
         }
         // `isIdentifierInNonEmittingHeritageClause` (`:3127`), the clause §123

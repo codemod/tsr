@@ -1879,3 +1879,24 @@ and now also counts a zero-width body as missing. Checked with `--pretty
 true` against `target/tsgo-pinned`: `defaultValueInFunctionTypes`. The
 object-literal arm is in a file with parse errors, which the CLI does not
 show semantically, so the oracle measures `callSignaturesWithParameterInitializers2`.
+
+## §85 TS1361/TS1362: an ambient use site, and the related site from the same walk
+
+Three corrections to §74, from the exact oracle:
+
+- `IsValidTypeOnlyAliasUseSite` starts with `useSite.Flags&NodeFlagsAmbient`.
+  `declare class B extends A {}` over `import type { A }` emits nothing and
+  is not reported (`typeOnly/ambient`). check.rs's
+  `is_valid_type_only_alias_use_site` now asks `has_ambient_flag` first.
+- §74 took the related site from isolated_alias.rs's
+  `type_only_alias_declaration_node`. That walk stops at an alias merged with
+  a local namespace, while the walk that decides the message does not, so
+  `typeOnlyMerge2` reported TS1362 without its `exported here`.
+  `type_only_alias_declaration_site` (check.rs) is now the message's own walk,
+  returning its node.
+- An import clause's native range starts at its `type` keyword
+  (`import type types from './c'`). This parser starts the clause at the
+  name, so the related span starts at the phase modifier when there is one.
+
+Checked with `--pretty true` against `target/tsgo-pinned`: `typeOnlyMerge2`,
+`importEquals1`, `filterNamespace_import`, and the §74 cases.
