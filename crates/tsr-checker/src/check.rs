@@ -6250,12 +6250,20 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `ast.GetFunctionFlags(n) & FunctionFlagsAsyncGenerator != 0`: async
+    /// **or** a generator (`FunctionFlagsAsyncGenerator` is the two bits;
+    /// the test is any of them), for any function-like. An async arrow or a
+    /// generator IIFE runs its body after the declaration completes
+    /// (r7-grammar §53).
     fn is_async_generator(&self, function: NodeId) -> bool {
         let (modifiers, asterisk) = match self.node_map.get(function) {
             Some(Node::FunctionExpression(f)) => (f.modifiers, f.asterisk_token.is_some()),
+            Some(Node::ArrowFunction(f)) => (f.modifiers, false),
+            Some(Node::FunctionDeclaration(f)) => (f.modifiers, f.asterisk_token.is_some()),
+            Some(Node::MethodDeclaration(f)) => (f.modifiers, f.asterisk_token.is_some()),
             _ => return false,
         };
-        asterisk && has_modifier(modifiers, SyntaxKind::AsyncKeyword)
+        asterisk || has_modifier(modifiers, SyntaxKind::AsyncKeyword)
     }
 
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
