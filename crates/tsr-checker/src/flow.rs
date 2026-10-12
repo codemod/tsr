@@ -2413,18 +2413,16 @@ impl Checker<'_, '_> {
         let Some(mut declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;
         };
-        while let Some(parent) = self.nodes.parent(declaration) {
-            if matches!(
-                self.nodes.kind(parent),
-                SyntaxKind::BindingElement
-                    | SyntaxKind::ObjectBindingPattern
-                    | SyntaxKind::ArrayBindingPattern
-                    | SyntaxKind::Parameter
-            ) {
-                declaration = parent;
-            } else {
-                break;
-            }
+        // `GetRootDeclaration`: a binding element's pattern's owner, up to
+        // the `VariableDeclaration` or `Parameter` (`let { x } = o` is a
+        // mutable local).
+        while self.nodes.kind(declaration) == SyntaxKind::BindingElement {
+            let Some(owner) =
+                self.nodes.parent(declaration).and_then(|pattern| self.nodes.parent(pattern))
+            else {
+                return false;
+            };
+            declaration = owner;
         }
         match self.nodes.kind(declaration) {
             SyntaxKind::Parameter => true,
