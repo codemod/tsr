@@ -1231,3 +1231,12 @@ previous freeze: types +13 RIGHT / 0 lost / 0 missing, diagnostics +12 cases / 0
 | `diagnostics_configured` | 1,034 | 1,035 |
 
 The loop blocked this batch on its jsTyping leg. moduleNameResolver.ts(1087,9) is a TS2322 that tsgo does not report and the base already printed; only its message changed, because optional parameters now print as `T | undefined`, as native's typeToString does. The integration owner landed the batch by hand. From this batch on, the leg keys false lines by location and code, so a reworded message on a line that was already false is not counted as new.
+
+**Ownership change (after batch 74).** r7-calls exhausted its call-rooted rank
+buckets, so the JS/JSDoc checking files move to it from r7-reports:
+`jsdoc_*.rs`, `js_case_data.rs`, `assignment_declarations.rs`. r7-reports
+keeps relater, assignreport, implicit_any and JSX. Grants are default-on for
+small atomic consumer hunks in another lane's file, when they share the commit's
+native root cause and pass every gate (named in the lane note). ADR-0056
+(rebasable node ids, per-file bind) is funded as a no-flag-day migration in
+r7-perf.
