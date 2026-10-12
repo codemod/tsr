@@ -1189,7 +1189,7 @@ impl Checker<'_, '_> {
             }
         } else {
             let reduced = self.get_union_type(&elements);
-            if self.object_constituent_count(reduced) > 1 {
+            if self.subtype_reduction_may_apply(reduced) {
                 // Upstream reduces the element union with
                 // `UnionReductionSubtype` (`checker.go:8096`). In a position
                 // WITH a contextual type the members kept their literals and
@@ -1387,20 +1387,28 @@ impl Checker<'_, '_> {
         None
     }
 
-    /// How many of a type's union constituents are object types — or 1 for a
-    /// bare object type, and 0 for anything else.
-    ///
-    /// The test for whether subtype reduction could have changed the answer.
-    fn object_constituent_count(&self, id: TypeId) -> usize {
-        let ty = self.store.get(id);
-        if let crate::types::TypeData::Union { types, .. } = &ty.data {
-            return types
-                .iter()
-                .filter(|&&constituent| {
-                    self.store.get(constituent).flags.contains(TypeFlags::OBJECT)
-                })
-                .count();
-        }
-        usize::from(ty.flags.contains(TypeFlags::OBJECT))
+    /// The test for whether subtype reduction could have changed the answer:
+    /// a union with a removal candidate. `removeSubtypes` (`checker.go:25955`)
+    /// tests only a structured or instantiable source (or any source beside an
+    /// empty object type, itself an object). `[a, b, c]` with
+    /// `C extends B extends A` reduces to `A[]`
+    /// (typeArgumentInferenceTransitiveConstraints), so a type-parameter
+    /// constituent is a candidate as much as an object one. A lone object
+    /// beside primitives stays unreduced, as before: no primitive is a
+    /// candidate without an empty object type.
+    fn subtype_reduction_may_apply(&self, id: TypeId) -> bool {
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data else {
+            return false;
+        };
+        let candidate = TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE;
+        let candidates = types
+            .iter()
+            .filter(|&&constituent| self.store.get(constituent).flags.intersects(candidate))
+            .count();
+        let objects = types
+            .iter()
+            .filter(|&&constituent| self.store.get(constituent).flags.contains(TypeFlags::OBJECT))
+            .count();
+        objects > 1 || candidates > objects
     }
 }

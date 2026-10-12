@@ -764,3 +764,20 @@ its literal type under the literal context, and `b : "bar" | "foo"`
 (literalTypesAndTypeAssertions). `satisfies` also takes its operand's
 context from its own type (`:29396`) but is not admitted: it has no corpus
 line and has not been measured.
+
+## 24. Array-literal subtype reduction admits instantiable constituents
+
+`checkArrayLiteral` builds its element union with `UnionReductionSubtype`
+(`checker.go:8096`). The port ran `union_with_subtype_reduction` only
+when the union held two or more object types (`object_constituent_count`),
+because `removeSubtypes` (`:25955`) tests a source only if it is
+structured or instantiable. A type-parameter constituent is such a
+candidate: `[a, b, c]` with `C extends B extends A` is `A[]` natively, and the
+port printed `(A | B | C)[]` (typeArgumentInferenceTransitiveConstraints,
+three lines). The gate (`subtype_reduction_may_apply`) now also admits any
+intersection or instantiable constituent; the reducer already ports the
+type-parameter arms (the union-constraint test included) and answers
+`None` → gap when the relation is undecidable. A lone object beside
+primitives still skips reduction, as before: primitives are no candidates
+without an empty object type. The contextual/literal gate in front of it
+(an uncontextual position or a literal-free union) is unchanged.
