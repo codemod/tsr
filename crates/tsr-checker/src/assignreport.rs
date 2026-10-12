@@ -6505,6 +6505,14 @@ impl Checker<'_, '_> {
                 continue;
             };
             let target_member = self.get_type_of_property_of_type(target, name)?;
+            // `getNonMissingTypeOfSymbol` on both sides (`relater.go:4334`):
+            // under exactOptionalPropertyTypes an optional member's missing
+            // type is removed, as the relater's own walk does.
+            let (source_member, target_member) = if self.exact_optional_property_types {
+                (self.remove_missing_type(source_member), self.remove_missing_type(target_member))
+            } else {
+                (source_member, target_member)
+            };
             match self.chain_property_privacy(stack, source, target, name) {
                 Some(true) => return Some(()),
                 Some(false) => {}

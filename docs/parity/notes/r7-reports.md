@@ -2004,3 +2004,15 @@ follows that order: index signature only for a missing member; then the
 member's declaration, the mapped type's declaration (`mapped_types`),
 and the target symbol's. `errorElaboration` and
 `genericMappedTypeAsClause` read the native position.
+
+## 66. exactOptionalPropertyTypes members in the chain
+
+`propertiesRelatedTo` reads both members through
+`getNonMissingTypeOfSymbol` (`relater.go:4334`). Under
+`exactOptionalPropertyTypes` an optional member's missing type is
+removed, so an explicit `undefined` source member fails against `number`.
+The relater's walk already does this (`remove_missing_type`). The
+retrace read the members with the missing type left in, found them
+related, and declined. It now removes it the same way, so TS2375 reads
+`Types of property 'value' are incompatible.` → `Type 'undefined' is not
+assignable to type 'number'.` (`strictOptionalProperties1/3`).
