@@ -3223,12 +3223,24 @@ impl Checker<'_, '_> {
             }
             // An abstract construct signature (a class declared `abstract`
             // gives every one of its construct signatures that kind) is
-            // `resolveErrorCall` after TS2511, which the check pass reports
-            // (`check_new_on_abstract_class`).
+            // `resolveErrorCall` after TS2511. The check pass reports TS2511
+            // for an identifier naming an abstract class
+            // (`check_new_on_abstract_class`); every other callee (an
+            // abstract construct-signature type, a union holding one) is
+            // reported here.
             if construct_signatures.iter().any(|signature| {
                 signature.kind == SignatureKind::AbstractConstruct
                     || signature.union_contains_abstract
             }) {
+                if !self.names_abstract_class(callee_id) {
+                    self.report_at_node(
+                        node,
+                        Diagnostic::new(
+                            &messages::CANNOT_CREATE_AN_INSTANCE_OF_AN_ABSTRACT_CLASS,
+                            self.nodes.span(node),
+                        ),
+                    );
+                }
                 return CallHead::Done;
             }
             return CallHead::Resolve(apparent);
@@ -3302,6 +3314,36 @@ impl Checker<'_, '_> {
             }
             _ => CallHead::Resolve(apparent),
         }
+    }
+
+    /// Whether `callee` is the shape `check_new_on_abstract_class`
+    /// (`check.rs`) reports TS2511 for: an identifier whose value symbol
+    /// (merged) has an abstract class declaration among its declarations,
+    /// outside a JavaScript file. The `new` head reports TS2511 for every
+    /// other abstract target, so the two never both report.
+    fn names_abstract_class(&self, callee: tsr_ast::NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        if self.in_js_file(callee) || self.nodes.kind(callee) != K::Identifier {
+            return false;
+        }
+        let Some(text) = self.identifier_text(callee) else { return false };
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, callee, text, SymbolFlags::VALUE)
+        else {
+            return false;
+        };
+        self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.iter().any(
+            |&declaration| {
+                matches!(self.nodes.kind(declaration), K::ClassDeclaration | K::ClassExpression)
+                    && self
+                        .node_map
+                        .get(declaration)
+                        .and_then(crate::check::modifiers_of)
+                        .is_some_and(|modifiers| {
+                            crate::check::has_modifier(modifiers, K::AbstractKeyword)
+                        })
+            },
+        )
     }
 
     /// `isConstructorAccessible` (`checker.go:8648`): a `private` or

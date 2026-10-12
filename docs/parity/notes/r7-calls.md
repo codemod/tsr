@@ -1091,9 +1091,16 @@ test covers native's `valueDecl` arm.
 
 Both fall back to the old `Unknown` head.
 
-**Proposed:** TS2511 belongs in `resolveNewExpression` (any callee shape,
-abstract construct-signature types included). `check_new_on_abstract_class`
-covers identifier callees only.
+TS2511 itself is split. The check pass keeps the shape it already reports
+(`check_new_on_abstract_class`: an identifier naming an abstract class,
+outside JavaScript). The `new` head reports every other abstract target:
+an abstract construct-signature type, or a union holding one
+(unionTypeConstructSignatures, abstractClassUnionInstantiation).
+`names_abstract_class` mirrors the check pass's predicate so the two never
+both report.
+
+**Proposed:** move TS2511 wholly into `resolveNewExpression` and drop the
+check pass's arm along with this split.
 
 **TS2679.** `resolveNewExpression`'s call-signature arm also reports
 `A_function_that_is_called_with_the_new_keyword_cannot_have_a_this_type_that_is_void`
