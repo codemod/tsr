@@ -1431,3 +1431,29 @@ Arms added to §36's retracing, each checked against pinned tsgo first:
 
 **Measured** (exact oracle, unfiltered, batch 45 base): 9813 → 9975 (+162
 including §36's +119), 0 lost.
+
+## 38. Related information: `'p' is declared here.` and the expected-type origin
+
+Two `diag:related-info` classes in this lane's reports.
+
+- **TS2728 under a missing property.** `reportUnmatchedProperty` adds
+  `'p' is declared here.` at the missing property's first declaration when
+  one property is missing. `NewDiagnosticChain` copies a chain child's
+  related information up, so it appears at every level from that message to
+  the head. `missing_properties_diagnostic` now attaches it (reading an
+  inherited generic member through `generic_heritage_property_symbol`).
+  §36's retrace collects it into the chain, and `attach_chain_file` lifts
+  the first child's list onto the head.
+- **TS6500 / TS6501 under an object-literal member.** `elaborateElement`
+  (`relater.go:575`) adds `The expected type comes from property 'p' which
+  is declared here on type 'T'` to its report on the member itself (not to
+  an inner elaboration), at the target member's first declaration. Without
+  a member, it uses the applicable index signature's declaration (`The
+  expected type comes from this index signature.`). Nothing is added for a
+  declaration in a default library. `add_expected_type_related_info`
+  attaches it when the elaboration's single new diagnostic sits on the
+  member's span.
+
+**Measured** (exact oracle, against batch 45, with §36–§37 and main's
+batch 46 in the tree): 9813 → 10138, 0 lost. A clean batch-46 base is
+measured with the gate.

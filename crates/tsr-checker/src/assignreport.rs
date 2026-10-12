@@ -2086,7 +2086,27 @@ impl<'a> Checker<'a, '_> {
                 vec![source_text, target_text, properties.join(", ")],
             )
         };
-        Diagnostic::with_args(message, span, args)
+        let mut diagnostic = Diagnostic::with_args(message, span, args);
+        // `reportUnmatchedProperty`: `'p' is declared here.` at the missing
+        // property's first declaration (r7-reports §38).
+        if let [name] = properties
+            && let Some(property) = self
+                .get_property_of_type(target, name)
+                .or_else(|| self.generic_heritage_property_symbol(target, name, &mut Vec::new()))
+            && let Some(&declaration) = self.binder.symbols().get(property).declarations.first()
+        {
+            let declared_span = self.error_span(declaration);
+            let related = self.related_diagnostic_at(
+                declaration,
+                &messages::_0_IS_DECLARED_HERE,
+                declared_span,
+                vec![name.clone()],
+            );
+            if related.file().is_some() {
+                diagnostic.set_related_information(std::sync::Arc::new(vec![related]));
+            }
+        }
+        diagnostic
     }
 
     /// `reportRelationError`'s missing-property suppression (`relater.go:4816`)
@@ -2839,7 +2859,16 @@ impl<'a> Checker<'a, '_> {
             copy.set_message_chain(children);
             copy
         }
-        let children = diagnostic.message_chain().iter().map(|child| deep(child, &file)).collect();
+        let children: Vec<Diagnostic> =
+            diagnostic.message_chain().iter().map(|child| deep(child, &file)).collect();
+        // `NewDiagnosticChain` copies the child's related information up.
+        if diagnostic.related_information().is_empty()
+            && let Some(first) = children.first()
+            && !first.related_information().is_empty()
+        {
+            let related = std::sync::Arc::new(first.related_information().to_vec());
+            diagnostic.set_related_information(related);
+        }
         diagnostic.set_message_chain(children);
     }
 
@@ -3684,6 +3713,7 @@ impl<'a> Checker<'a, '_> {
             let Some(source_property_type) = source_property_type else {
                 continue;
             };
+            let before = self.diagnostics.len();
             reported |= self.elaborate_element_with(
                 name_id,
                 next,
@@ -3691,8 +3721,73 @@ impl<'a> Checker<'a, '_> {
                 target_property_type,
                 head,
             );
+            self.add_expected_type_related_info(before, name_id, target, &name);
         }
         Some(reported)
+    }
+
+    /// `elaborateElement`'s related information (`relater.go:575`): when its
+    /// report landed on the member itself (not an inner elaboration), `The
+    /// expected type comes from property 'p' which is declared here on type
+    /// 'T'` at the target member's declaration, unless that is in a default
+    /// library (r7-reports §38).
+    fn add_expected_type_related_info(
+        &mut self,
+        before: usize,
+        prop: NodeId,
+        target: TypeId,
+        name: &str,
+    ) {
+        if self.diagnostics.len() != before + 1 {
+            return;
+        }
+        let span = self.error_span(prop);
+        if self.diagnostics[before].1.span != span
+            || !self.diagnostics[before].1.related_information().is_empty()
+        {
+            return;
+        }
+        let related = if let Some(property) = self.get_property_of_type(target, name) {
+            let Some(&declaration) = self.binder.symbols().get(property).declarations.first()
+            else {
+                return;
+            };
+            if self.in_default_library(declaration) {
+                return;
+            }
+            let declared_span = self.error_span(declaration);
+            let target_text = self.type_to_string(target);
+            self.related_diagnostic_at(
+                declaration,
+                &messages::THE_EXPECTED_TYPE_COMES_FROM_PROPERTY_0_WHICH_IS_DECLARED_HERE_ON_TYPE_1,
+                declared_span,
+                vec![name.to_owned(), target_text],
+            )
+        } else {
+            let key = self.property_name_key_type(name);
+            let Some(declaration) =
+                self.get_applicable_index_info(target, key).and_then(|info| info.declaration)
+            else {
+                return;
+            };
+            if self.in_default_library(declaration) {
+                return;
+            }
+            let declared_span = self.error_span(declaration);
+            self.related_diagnostic_at(
+                declaration,
+                &messages::THE_EXPECTED_TYPE_COMES_FROM_THIS_INDEX_SIGNATURE,
+                declared_span,
+                Vec::new(),
+            )
+        };
+        if related.file().is_none() {
+            return;
+        }
+        let diagnostic = &mut self.diagnostics[before].1;
+        let mut list = diagnostic.related_information().to_vec();
+        list.push(related);
+        diagnostic.set_related_information(std::sync::Arc::new(list));
     }
 
     /// `getBestMatchIndexedAccessTypeOrUndefined` (`relater.go:620`) for a
@@ -5132,6 +5227,26 @@ struct ChainEntry {
     args: Vec<String>,
 }
 
+/// `errorChain` and `relatedInfo` as one retrace accumulates them.
+#[derive(Default)]
+struct ChainStack {
+    entries: Vec<ChainEntry>,
+    related: Vec<Diagnostic>,
+}
+
+impl std::ops::Deref for ChainStack {
+    type Target = Vec<ChainEntry>;
+    fn deref(&self) -> &Vec<ChainEntry> {
+        &self.entries
+    }
+}
+
+impl std::ops::DerefMut for ChainStack {
+    fn deref_mut(&mut self) -> &mut Vec<ChainEntry> {
+        &mut self.entries
+    }
+}
+
 /// The four return-type markers `compareSignaturesRelated` reports only to
 /// steer `reportError`'s chain reduction; `ElidedInCompatibilityPyramid`
 /// drops them from the final diagnostic.
@@ -5197,10 +5312,15 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<Diagnostic> {
-        let mut stack: Vec<ChainEntry> = Vec::new();
+        let mut stack = ChainStack::default();
         self.explain_relation(&mut stack, source, target, 0)?;
-        let entries: Vec<ChainEntry> =
-            stack.into_iter().rev().filter(|entry| !is_return_marker(entry.message)).collect();
+        let related = std::mem::take(&mut stack.related);
+        let entries: Vec<ChainEntry> = stack
+            .entries
+            .into_iter()
+            .rev()
+            .filter(|entry| !is_return_marker(entry.message))
+            .collect();
         if entries.is_empty() {
             return None;
         }
@@ -5210,11 +5330,15 @@ impl Checker<'_, '_> {
             .related_diagnostic_at(at, entries[0].message, span, Vec::new())
             .file()
             .map(|file| std::sync::Arc::new(file.clone()));
+        let related = std::sync::Arc::new(related);
         let mut chain: Option<Diagnostic> = None;
         for entry in entries.into_iter().rev() {
             let mut diagnostic = Diagnostic::with_args(entry.message, span, entry.args);
             if let Some(file) = &file {
                 diagnostic.set_file(file.clone());
+            }
+            if !related.is_empty() {
+                diagnostic.set_related_information(related.clone());
             }
             diagnostic.add_message_chain(chain);
             chain = Some(diagnostic);
@@ -5227,7 +5351,7 @@ impl Checker<'_, '_> {
     /// not this port's to choose (a type-parameter target's explanations).
     fn chain_report_relation_error(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
     ) -> Option<()> {
@@ -5324,7 +5448,7 @@ impl Checker<'_, '_> {
     /// arm's chain, then `reportErrorResults`' relation error for the pair.
     fn explain_pair(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         depth: usize,
@@ -5353,7 +5477,7 @@ impl Checker<'_, '_> {
     /// without the pair's own relation error.
     fn explain_relation(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         depth: usize,
@@ -5460,7 +5584,7 @@ impl Checker<'_, '_> {
     /// object types.
     fn explain_object_relation(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         depth: usize,
@@ -5481,6 +5605,7 @@ impl Checker<'_, '_> {
                     target,
                     &properties,
                 );
+                stack.related.extend(diagnostic.related_information().iter().cloned());
                 stack.push(ChainEntry { message: diagnostic.message, args: diagnostic.args });
                 return Some(());
             }
@@ -5577,7 +5702,7 @@ impl Checker<'_, '_> {
     /// return types.
     fn explain_signature(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
         depth: usize,
@@ -5779,7 +5904,7 @@ impl Checker<'_, '_> {
     /// retraced) or an unreadable member.
     fn chain_property_privacy(
         &mut self,
-        stack: &mut Vec<ChainEntry>,
+        stack: &mut ChainStack,
         source: TypeId,
         target: TypeId,
         name: &str,
@@ -5829,7 +5954,7 @@ impl Checker<'_, '_> {
 /// `reportError` (`relater.go:4831`) with its property-message
 /// reductions.
 fn chain_report(
-    stack: &mut Vec<ChainEntry>,
+    stack: &mut ChainStack,
     message: &'static tsr_diagnostics::Message,
     mut args: Vec<String>,
 ) {
@@ -5857,7 +5982,8 @@ fn chain_report(
         if let Some(arg) = returned {
             message = &messages::THE_TYPES_RETURNED_BY_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
             args[0] = arg;
-            stack.truncate(stack.len() - 2);
+            let keep = stack.len() - 2;
+            stack.truncate(keep);
         }
         if let Some(next) = message_at(stack, 1)
             && (std::ptr::eq(next, &raw const messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE)
@@ -5869,7 +5995,8 @@ fn chain_report(
             let head = property_name_arg(&args[0]);
             let tail = property_name_arg(&stack[stack.len() - 2].args[0]);
             let arg = add_to_dotted_name(&head, &tail);
-            stack.truncate(stack.len() - 2);
+            let keep = stack.len() - 2;
+            stack.truncate(keep);
             if std::ptr::eq(message, &raw const messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE) {
                 message = &messages::THE_TYPES_OF_0_ARE_INCOMPATIBLE_BETWEEN_THESE_TYPES;
             }
