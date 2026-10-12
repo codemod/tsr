@@ -349,13 +349,13 @@ impl Checker<'_, '_> {
     /// `checkTypeAssignableTo(source, target, errorNode, headMessage)` for a
     /// heritage relation (TS2415/TS2430): the relater's report under the head
     /// message, with its elaboration chain, through `report_relation_failure`.
-    /// Only TS2415 and TS2430 take that road: both implements heads
-    /// (`Class_0_incorrectly_implements_interface_1` and the
-    /// `…implements_class_1_Did_you_mean_to_extend…` variant) are
-    /// `isConversionOrInterfaceImplementationMessage` heads, which keep
-    /// themselves over a missing-property chain (`relater.go:4816`). That
-    /// reporter does not make the exception, so they keep the bare head.
-    /// A report the relater declines also keeps the bare head (r7-grammar §41).
+    /// Both implements heads (`Class_0_incorrectly_implements_interface_1`,
+    /// TS2420, and the `…implements_class_1_Did_you_mean_to_extend…` variant,
+    /// TS2720) are `isConversionOrInterfaceImplementationMessage` heads, which
+    /// keep themselves over a missing-property chain (`relater.go:4816`). The
+    /// reporter makes that exception since r7-reports `ec17ba88`, so all four
+    /// heads take this road (r7-grammar §57; §41 held the implements heads
+    /// back until then). A report the relater declines keeps the bare head.
     fn report_heritage_relation(
         &mut self,
         at: NodeId,
@@ -364,15 +364,7 @@ impl Checker<'_, '_> {
         head: &'static Message,
     ) {
         let span = self.error_span(at);
-        let through_relater =
-            std::ptr::eq(head, &raw const messages::CLASS_0_INCORRECTLY_EXTENDS_BASE_CLASS_1)
-                || std::ptr::eq(
-                    head,
-                    &raw const messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1,
-                );
-        if through_relater
-            && self.report_relation_failure(at, span, None, source, target, Some(head))
-        {
+        if self.report_relation_failure(at, span, None, source, target, Some(head)) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };

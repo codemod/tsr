@@ -982,7 +982,10 @@ expression, so those uses were TS2448. It now reads either bit on any
 function-like (arrow: `async` only). Converted:
 `blockScopedVariablesUseBeforeDef`.
 
-## §53 TS1106 reads `NodeFlagsAwaitContext`; the stale "parser drops `await`" comments
+## §56 TS1106 reads `NodeFlagsAwaitContext`; the stale "parser drops `await`" comments
+
+*Renumbered:* this section was first committed as a second §53 (`cee33e03`),
+beside the IIFE section above; the number is now its own.
 
 `checkGrammarForInOrForOfStatement`'s `async` arm (`grammarchecks.go:1251`)
 reports `for (async of xs)` on a statement without `NodeFlagsAwaitContext`.
@@ -1073,3 +1076,123 @@ wrong text. All were checked against `target/tsgo-pinned`
 *Falsifier.* A TS18027 where native's marks differ from the subtree read,
 i.e. a private-named element that native never checks (an unchecked
 region). That would show as an extra TS18027.
+
+## §57 TS2420/TS2720 with the relater's elaboration; TS2300 at an import's name
+
+*TS2420/TS2720.* §41 sent TS2415 and TS2430 through `report_relation_failure`
+and kept both implements heads bare. `Class_0_incorrectly_implements_interface_1`
+and `…implements_class_1_Did_you_mean_to_extend…` are
+`isConversionOrInterfaceImplementationMessage` heads, which keep themselves
+over a missing-property chain (`relater.go:4816`). The reporter did not make
+that exception then. r7-reports `ec17ba88` added it (assignreport.rs
+`is_conversion_or_interface_implementation_message`), so
+`report_heritage_relation` now sends every head through the relater, as
+native's `checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`
+does. Checked with the CLI against `target/tsgo-pinned`: `classImplementsClass2`/`4`,
+`genericConstraint2`, `inheritance1`, `implementPublicPropertyAsPrivate`,
+`classExtendsInterfaceThatExtendsClassWithPrivates1`,
+`classWithMultipleBaseClasses` and `declareClassInterfaceImplementation` now
+match. That is the `TS2741/TS2739/TS2740/TS2325/TS2442/TS2329 in TS2420` and
+`… in TS2720` buckets of `full_oracle_run rank` (about 39 sole-code cases).
+
+*TS2300 at an import's name.* `addDuplicateDeclarationError` reports at
+`getAdjustedNodeForError(node)`, i.e. `GetNameOfDeclaration`. That covers an
+import-equals declaration, an import clause, an import specifier and an export
+specifier, which `error_span`'s declaration list does not name.
+`duplicate_declaration_span` (merge_conflicts.rs) now takes their names. So
+`export import VNode = react.ReactNode` merged across files with
+`type VNode` reports at `VNode` (`checkerInitializationCrash`).
+
+Not here: `umdGlobalConflict`'s extra TS2300. Native adds a file's
+`GlobalExports` with first-in-wins and never merges them
+(`checker.go:1321`). This binder reports the second `export as namespace
+Alpha` while declaring into its program-wide `global_exports` table
+(binder.rs `Destination::GlobalExports`). That is the binder's, routed.
+
+## §58 TS6205's range and TS1184's first token on an object-literal method
+
+*TS6205.* `checkUnusedTypeParameters` reports `All type parameters are
+unused.` at `rangeOfTypeParameters` (`utilities.go:1554`):
+`[list.Pos() - 1, SkipTrivia(text, list.End()) + 1)`. This tree keeps no
+`NodeList` positions. unused.rs took one byte before the first parameter to
+its end, which is `<T` for `<T, V>` and wrong for every JS `@template` list.
+`range_of_type_parameters` recovers the list's positions:
+
+- A written list starts right after its `<`. That `<` is found by stepping
+  back over whitespace and block comments from the first parameter. `End()`
+  is after the last parameter, or after a trailing comma.
+- A JS list that `gatherTypeParameters` (`reparser.go:293`) hosts from
+  `@template` tags runs from the first template tag's `Pos()` to the last
+  one's `End()`. Those are the tags' own spans, so the range takes in the
+  `*` of the closing ` */` or of the next line, as native's does.
+
+Checked with `--pretty true` against `target/tsgo-pinned`: `< T, V >`,
+`<A,B,>`, `</*x*/A, B /*y*/ >`, and `@template` lists across tags, with a
+tag comment, with a constraint, and interleaved with `@param`.
+Converted: `unusedTypeParameters_templateTag2`.
+
+*TS1184.* `checkGrammarMethod` reports modifiers on an object-literal
+method (other than a lone `async`) with `grammarErrorOnFirstToken(node, …)`,
+i.e. the whole first modifier. grammar.rs's postfix-token walk reported a
+one-byte span there. Correction of the record: it now goes through
+`grammar_error_on_first_token`. Converted: `objectLiteralMemberWithModifiers1`.
+
+## §59 TS2737 and TS2439
+
+Two arms with no emitter. Both are reached from grammar.rs's per-node
+`check_parser_lane_statement` hook. Both checked with `--pretty true`
+against `target/tsgo-pinned`.
+
+- **TS2737** (`checkGrammarBigIntLiteral`, `grammarchecks.go:2105`, from
+  `checkExpression`'s `KindBigIntLiteral` arm): below ES2020, a bigint
+  literal outside a literal type node (`1n`, or `-1n` as one) and outside an
+  ambient context (`has_ambient_flag`) is a grammar error. Converted:
+  `bigintAmbientMinimal`, `bigintWithoutLib` (es2015 variants).
+- **TS2439** (`checkExternalImportOrExportDeclaration`, `checker.go:5348`):
+  an import or export in a string-named ambient module's block, whose module
+  name is relative (`tspath.IsExternalModuleNameRelative`), is reported at
+  the declaration unless the ambient module is an external module
+  augmentation (`isTopLevelInExternalModuleAugmentation`). It sits beside
+  the same function's TS1141 arm. The TS1147/TS1198 arm between them is
+  check.rs's; the two exclude each other. Converted:
+  `ambientExternalModuleWithRelativeExternalImportDeclaration`.
+
+*Not here.* Native's caller checks the import binding (and so resolves the
+module) only when `checkExternalImportOrExportDeclaration` returns true. A
+TS2439 declaration therefore never draws TS2307. This port's module report
+does not read that answer, so `import * as b from "../y"` in `declare
+module "A"` still gets an extra TS2307 here. That was true before this
+change too. Routed to the import-declaration check's owner.
+
+## §60 TS2564 skips a property whose annotation is circular
+
+`checkPropertyInitialization` skips a property whose type has
+`TypeFlagsAnyOrUnknown`, and `errorType` has it. A property annotated with
+itself (`class C1 { x: C1["x"]; }`) fails `popTypeResolution` in
+`getTypeOfVariableOrParameterOrProperty`, which reports TS2502 and answers
+`errorType`. This port reports the same TS2502 (symbols.rs), but its outer
+resolution keeps the indexed access's answer (a gap), so
+`check_property_initialization` (granted) went on to TS2564. It now also
+skips a declaration in `circularity_reported`, the set symbols.rs records at
+exactly that report. Converted: `circularIndexedAccessErrors`'s extra TS2564.
+The case keeps its TS2589 and TS2536 gaps, which are not this lane's.
+
+## §62 TS1335/TS1331/TS1332 for a JSDoc `@type {unique symbol}`
+
+`checkGrammarTypeOperatorNode` judges `unique symbol` by the type's parent,
+after `WalkUpParenthesizedTypes`. In JS, `reparseHosted`'s `KindJSDocTypeTag`
+arm (`parser/reparser.go:344`) moves a `@type` onto its declaration: the
+first untyped declaration of a documented variable statement, a documented
+variable declaration, or a property declaration. That declaration is then
+the parent. This tree keeps the JSDoc type under its `JSDocTypeExpression`,
+so `/** @type {unique symbol} */ const x = Symbol()` drew TS1335
+(`uniqueSymbolJs`, `uniqueSymbolJs2`). `jsdoc_type_reparse_host` maps the
+outermost type back to that declaration. It starts at the comment's host
+(`jsdoc_hosts`) and accepts a declaration only when its JSDoc type reader
+(`jsdoc_type_annotation`, `jsdoc_self_hosted_type`) answers this very node.
+The variable/property arms then run as written. The property arm reads
+`hasReadonlyModifier`, i.e. `ast.HasModifier`, so a JS `@readonly` counts
+(`has_effective_modifier`). Checked with `--pretty true` against
+`target/tsgo-pinned` at es2015 and es2022: `let`/`const`, a multi-declaration
+statement, a parenthesized type, static/instance/`@readonly` class fields, a
+`@param` (still TS1335) and a type-literal member (TS1330).

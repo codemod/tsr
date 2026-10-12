@@ -145,6 +145,11 @@ impl Checker<'_, '_> {
         if let Node::ParameterDeclaration(parameter) = typed {
             self.check_constructor_parameter_property_name(parameter);
         }
+        if let Node::BigIntLiteral(literal) = typed
+            && let Some(id) = literal.node_id
+        {
+            self.check_grammar_big_int_literal(id);
+        }
         // `Checker.checkExternalImportOrExportDeclaration` (`checker.go:5333`):
         // a module name that is present but not a string literal is TS1141.
         let module_name = match typed {
@@ -273,7 +278,8 @@ impl Checker<'_, '_> {
     /// the function returns `!isInAppropriateContext`, not the report's
     /// result. `docs/parity/notes/r6-parsegate.md` §3.
     fn check_external_module_name_is_string_literal(&mut self, module_name: NodeId) {
-        if self.nodes.kind(module_name) == SyntaxKind::StringLiteral {
+        if let Some(Node::StringLiteral(literal)) = self.node_map.get(module_name) {
+            self.check_relative_module_name_in_ambient_module(module_name, literal.text);
             return;
         }
         // `ast.NodeIsMissing`: an empty span.
@@ -303,6 +309,138 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(module_name) else { return };
         let span = self.error_span(module_name);
         self.report(file, Diagnostic::new(&messages::STRING_LITERAL_EXPECTED, span));
+    }
+
+    /// The child of `expression` (a `JSDocTypeExpression`) on the way up
+    /// from `node`.
+    fn outermost_type_below(&self, node: NodeId, expression: NodeId) -> Option<NodeId> {
+        std::iter::once(node)
+            .chain(self.nodes.ancestors(node))
+            .find(|&at| self.nodes.parent(at) == Some(expression))
+    }
+
+    /// The declaration a `@type` tag's type `outer` is reparsed onto, for the
+    /// hosts whose type `checkGrammarTypeOperatorNode` reads: the first
+    /// untyped declaration of a documented variable statement, a documented
+    /// variable declaration, or a property declaration (`reparseHosted`,
+    /// `parser/reparser.go:344`). Read back through the readers that answer
+    /// those declarations' JSDoc types (`jsdoc_type_annotation`,
+    /// `jsdoc_self_hosted_type`), so a tag they do not apply is no host
+    /// (r7-grammar §62).
+    fn jsdoc_type_reparse_host(&self, outer: NodeId) -> Option<NodeId> {
+        let root = self.nodes.ancestors(outer).last()?;
+        let host = *self.jsdoc_hosts.get(&root)?;
+        let candidates: Vec<NodeId> = match self.node_map.get(host)? {
+            Node::VariableStatement(statement) => match statement.declaration_list {
+                Some(list) => {
+                    list.declarations.iter().filter_map(|declaration| declaration.node_id).collect()
+                }
+                None => Vec::new(),
+            },
+            Node::VariableDeclaration(_) | Node::PropertyDeclaration(_) => vec![host],
+            _ => Vec::new(),
+        };
+        candidates.into_iter().find(|&declaration| {
+            let hosted = match self.nodes.kind(declaration) {
+                SyntaxKind::VariableDeclaration => self.jsdoc_type_annotation(declaration),
+                SyntaxKind::PropertyDeclaration => self.jsdoc_self_hosted_type(declaration),
+                _ => None,
+            };
+            hosted.and_then(|ty| Node::from(ty).node_id()) == Some(outer)
+        })
+    }
+
+    /// `checkExternalImportOrExportDeclaration`'s ambient-module arm
+    /// (`checker.go:5348`): in a string-named ambient module's block, a
+    /// relative module name (`tspath.IsExternalModuleNameRelative`) is
+    /// TS2439 at the declaration, a `c.error`, unless the module is an
+    /// external module augmentation (`isTopLevelInExternalModuleAugmentation`,
+    /// whose errors `checkModuleDeclaration` reports). The TS1147/TS1198
+    /// namespace arm before it is check.rs's; the two exclude each other, as
+    /// that arm requires a declaration outside any ambient module
+    /// (r7-grammar §59).
+    fn check_relative_module_name_in_ambient_module(&mut self, module_name: NodeId, text: &str) {
+        if !tsr_path::is_external_module_name_relative(text) {
+            return;
+        }
+        let Some(declaration) = self.nodes.ancestors(module_name).find(|&ancestor| {
+            matches!(
+                self.nodes.kind(ancestor),
+                SyntaxKind::ImportDeclaration
+                    | SyntaxKind::ExportDeclaration
+                    | SyntaxKind::ImportEqualsDeclaration
+            )
+        }) else {
+            return;
+        };
+        let Some(block) = self.nodes.parent(declaration) else { return };
+        let Some(module) = self.nodes.parent(block) else { return };
+        let ambient_module = self.nodes.kind(block) == SyntaxKind::ModuleBlock
+            && matches!(self.node_map.get(module), Some(Node::ModuleDeclaration(declaration))
+                if matches!(declaration.name, Some(tsr_ast::ModuleName::StringLiteral(_))));
+        if !ambient_module || self.module_is_external_augmentation(module) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let span = self.error_span(declaration);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::IMPORT_OR_EXPORT_DECLARATION_IN_AN_AMBIENT_MODULE_DECLARATION_CANNOT_REFERENCE_MODULE_THROUGH_RELATIVE_MODULE_NAME,
+                span,
+            ),
+        );
+    }
+
+    /// `ast.IsModuleAugmentationExternal` (`ast/utilities.go:1694`) for a
+    /// string-named module declaration: at the top level of an external
+    /// module, or directly inside a top-level ambient module of a script.
+    /// checker.rs has a private copy for the printer; this file cannot
+    /// reach it.
+    fn module_is_external_augmentation(&self, module: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(module) else { return false };
+        let is_external = |file: NodeId| {
+            matches!(self.node_map.get(file), Some(Node::SourceFile(source))
+                if tsr_binder::is_external_module(source))
+        };
+        match self.nodes.kind(parent) {
+            SyntaxKind::SourceFile => is_external(parent),
+            SyntaxKind::ModuleBlock => self.nodes.parent(parent).is_some_and(|outer| {
+                matches!(self.node_map.get(outer), Some(Node::ModuleDeclaration(declaration))
+                    if matches!(declaration.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+                    && self.nodes.parent(outer).is_some_and(|file| {
+                        self.nodes.kind(file) == SyntaxKind::SourceFile && !is_external(file)
+                    })
+            }),
+            _ => false,
+        }
+    }
+
+    /// `Checker.checkGrammarBigIntLiteral` (`grammarchecks.go:2105`), from
+    /// `checkExpression`'s `KindBigIntLiteral` arm (`checker.go:7752`): below
+    /// ES2020, a bigint literal outside a literal type node (`1n`, or `-1n`
+    /// as one) and outside an ambient context is TS2737, a grammar error
+    /// (r7-grammar §59).
+    fn check_grammar_big_int_literal(&mut self, node: NodeId) {
+        if self.language_version >= tsr_core::ScriptTarget::ES2020 || self.file_has_parse_errors {
+            return;
+        }
+        let parent = self.nodes.parent(node);
+        let literal_type = parent.is_some_and(|parent| {
+            self.nodes.kind(parent) == SyntaxKind::LiteralType
+                || (self.nodes.kind(parent) == SyntaxKind::PrefixUnaryExpression
+                    && self
+                        .nodes
+                        .parent(parent)
+                        .is_some_and(|outer| self.nodes.kind(outer) == SyntaxKind::LiteralType))
+        });
+        if literal_type || self.has_ambient_flag(node) {
+            return;
+        }
+        self.grammar_error_on_node(
+            node,
+            &messages::BIGINT_LITERALS_ARE_NOT_AVAILABLE_WHEN_TARGETING_LOWER_THAN_ES2020,
+        );
     }
 
     /// The parser lane's grammar checks that upstream runs only when
@@ -862,17 +1000,15 @@ impl Checker<'_, '_> {
                         [ModifierLike::Token(token)] if token.kind == SyntaxKind::AsyncKeyword
                     );
                     if !method.modifiers.is_empty() && !lone_async {
-                        // TS1184 on the method's first token, and return.
-                        if let Some(id) = method.node_id
-                            && let Some(file) = self.source_file_of_for_diagnostics(id)
-                        {
-                            let start = self.nodes.span(id).start;
-                            self.report(
-                                file,
-                                Diagnostic::new(
-                                    &messages::MODIFIERS_CANNOT_APPEAR_HERE,
-                                    tsr_core::Span::new(start, start + 1),
-                                ),
+                        // TS1184 on the method's first token
+                        // (`grammarErrorOnFirstToken(node, …)`, the whole
+                        // first modifier), and return. Correction of the
+                        // record: this reported a one-byte span (r7-grammar
+                        // §58).
+                        if let Some(id) = method.node_id {
+                            self.grammar_error_on_first_token(
+                                id,
+                                &messages::MODIFIERS_CANNOT_APPEAR_HERE,
                             );
                         }
                         continue;
@@ -1012,7 +1148,16 @@ impl Checker<'_, '_> {
                 {
                     parent = self.nodes.parent(at);
                 }
-                let Some(parent) = parent else { return };
+                let Some(mut parent) = parent else { return };
+                // A JSDoc `@type` is reparsed onto its declaration
+                // (`reparseHosted`'s `KindJSDocTypeTag` arm,
+                // `parser/reparser.go:344`), which is then the type's parent.
+                if self.nodes.kind(parent) == SyntaxKind::JSDocTypeExpression
+                    && let Some(outer) = self.outermost_type_below(node, parent)
+                    && let Some(host) = self.jsdoc_type_reparse_host(outer)
+                {
+                    parent = host;
+                }
                 match self.node_map.get(parent) {
                     Some(Node::VariableDeclaration(declaration)) => {
                         if !matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(_))) {
@@ -1046,9 +1191,11 @@ impl Checker<'_, '_> {
                             );
                         }
                     }
+                    // `!ast.IsStatic(parent) || !hasReadonlyModifier(parent)`:
+                    // `ast.HasModifier`, so a JS `@readonly` counts.
                     Some(Node::PropertyDeclaration(property)) => {
                         if (!has_modifier(property.modifiers, SyntaxKind::StaticKeyword)
-                            || !has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword))
+                            || !self.has_effective_modifier(parent, SyntaxKind::ReadonlyKeyword))
                             && let Some(name) = property.name.node_id()
                         {
                             self.grammar_error_on_node(

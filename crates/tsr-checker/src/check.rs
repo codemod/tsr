@@ -4151,6 +4151,13 @@ impl Checker<'_, '_> {
                         .flags
                         .intersects(TypeFlags::ANY | TypeFlags::UNKNOWN))
                 || self.contains_undefined_type(declared)
+                // A property whose annotation references itself
+                // (`x: C1["x"]`): `getTypeOfVariableOrParameterOrProperty`
+                // fails its `popTypeResolution`, reports TS2502 and answers
+                // `errorType`, which the flag test skips. This port's outer
+                // resolution keeps the indexed access's answer, so the
+                // reported circularity is read instead (r7-grammar §60).
+                || self.circularity_reported.contains(&id)
             {
                 continue;
             }
