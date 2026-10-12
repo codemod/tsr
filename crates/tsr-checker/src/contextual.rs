@@ -522,7 +522,16 @@ impl<'a> Checker<'a, '_> {
             return Some(result);
         }
         let ContextualSignature::Present(signature) = result else { return Some(result) };
-        if self.live_inference_context(function).is_some() {
+        // checkFunctionExpressionOrObjectLiteralMethod fixes through the
+        // inference mapper (and infers from annotated parameters) only for a
+        // CONTEXT-SENSITIVE function; getContextualSignature itself never
+        // fixes. A non-context-sensitive function reads the signature as
+        // getContextualSignature gives it: `(v: string) => false` under
+        // `(val: T["foo"]) => boolean` keeps `false` against the `boolean`
+        // return while `T` has no inference (r7-contextual §51).
+        if self.live_inference_context(function).is_some()
+            && self.is_context_sensitive_function_like(function)
+        {
             self.infer_contextual_annotations(function, &signature);
             let non_fixing_rest = signature.parameters.last().is_some_and(|parameter| {
                 parameter.rest && {

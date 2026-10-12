@@ -1344,3 +1344,37 @@ falsifier coAndContraVariantInferences3. tsgo's d.ts emit agrees on three
 probes. **Cross-lane hunks:** one arm each in signatures.rs (two sites) and
 symbols.rs, under round 7's default grant: same native root cause, small and
 atomic, named here.
+
+## 50. The generic mapped contextual read reduces `keyof` and indexed-access keys (mapped.rs hunk, default grant)
+
+`getIndexedMappedTypeSubstitutedTypeOfContextualType` admits a key assignable
+to the base constraint of the mapped type's constraint
+(`getBaseConstraintOrType`; computeBaseConstraint gives an index type
+`string | number | symbol` and an indexed access its base object indexed by
+its base index). `contextual_mapped_key_base_constraint` missed both for this
+port's representations. The legacy deferred `keyof` keeps its Index identity in
+`deferred_keyof_types`, and a deferred indexed access (`T["type"]`) stayed
+unreduced, so `{ [K in T["type"]]: (p: K) => void }` refused the `[A]` key
+(contextuallyTypedSymbolNamedProperties 3 → 0, the §32 routing). One
+boundary: a filtering mapped type (`as K extends X ? K : never`) keeps its
+indexed-access keys unreduced. The port reads it generically only because it
+cannot instantiate it, and native reads the instantiated type, whose filter
+drops keys this substitution would admit. contextualTypeFunctionObjectPropertyIntersection's
+`bar: (ev) => …` (native `ev: any`) measured 2 losses without the boundary.
+**Cross-lane hunk:** mapped.rs, default grant.
+
+## 51. A non-context-sensitive function's contextual signature is not fixed through the inference mapper; §30's function boundary lifts
+
+`getContextualSignature` never fixes. `checkFunctionExpressionOrObjectLiteralMethod`
+instantiates the contextual signature through the inference mapper, and
+infers from annotated parameters, only for a CONTEXT-SENSITIVE function.
+`contextual_signature_result` did both for every function in a live inference
+context. Fixing `(val: T["foo"]) => boolean` with `T` uninferred answered
+nothing, so `(v: string) => false` lost its `boolean` contextual return and
+widened, and that cached answer is what §30's function boundary existed to
+avoid. A non-context-sensitive function now reads the signature as given. With
+that, §30's boundary (`literal_subtree_holds_function`) is lifted: every
+object/array literal argument reads the active context in phase 1.
+reverseMappedContravariantInference stays 0; intraExpressionInferences 26 → 17
+and jsxChildrenGenericContextualTypes 10 → 7 non-RIGHT lines; no loss across
+110,939 related verdict lines.

@@ -324,10 +324,20 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
+        // A filtering mapped type (`as K extends X ? K : never`) is read here
+        // only because this port could not instantiate it; native reads the
+        // instantiated type, whose filter drops keys this substitution would
+        // admit. Its indexed-access keys stay unreduced, which refuses the
+        // read as before (r7-contextual §50).
+        let reduce_indexed_access = info.name_type.is_none();
         let bases: Vec<_> = constraints
             .into_iter()
             .map(|constraint| {
-                self.contextual_mapped_key_base_constraint(constraint, &mut Vec::new())
+                self.contextual_mapped_key_base_constraint(
+                    constraint,
+                    reduce_indexed_access,
+                    &mut Vec::new(),
+                )
             })
             .collect();
         let constraint = self.get_intersection_type(&bases, None);
@@ -367,6 +377,7 @@ impl<'a> Checker<'a, '_> {
     fn contextual_mapped_key_base_constraint(
         &mut self,
         id: TypeId,
+        reduce_indexed_access: bool,
         stack: &mut Vec<TypeId>,
     ) -> TypeId {
         use crate::{flags::TypeFlags, types::TypeData};
@@ -374,27 +385,51 @@ impl<'a> Checker<'a, '_> {
             return id;
         }
         stack.push(id);
-        let result = if self.store.get(id).flags.contains(TypeFlags::INDEX) {
+        // computeBaseConstraint: an index type's base is `string | number |
+        // symbol` (the legacy deferred `keyof` keeps its Index identity in
+        // `deferred_keyof_types`), and an indexed access's is its base object
+        // indexed by its base index (r7-contextual §50).
+        let result = if self.store.get(id).flags.contains(TypeFlags::INDEX)
+            || self.deferred_keyof_types.contains(&id)
+        {
             self.get_union_type(&[
                 self.intrinsics.string,
                 self.intrinsics.number,
                 self.intrinsics.es_symbol,
             ])
         } else if let Some(constraint) = self.type_parameter_constraint(id) {
-            self.contextual_mapped_key_base_constraint(constraint, stack)
+            self.contextual_mapped_key_base_constraint(constraint, reduce_indexed_access, stack)
+        } else if reduce_indexed_access
+            && let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&id)
+        {
+            let object = self.contextual_mapped_key_base_constraint(object, true, stack);
+            let index = self.contextual_mapped_key_base_constraint(index, true, stack);
+            self.resolved_indexed_access_type(object, index, false).unwrap_or(id)
         } else {
             match self.store.get(id).data.clone() {
                 TypeData::Union { types, .. } => {
                     let types: Vec<_> = types
                         .into_iter()
-                        .map(|ty| self.contextual_mapped_key_base_constraint(ty, stack))
+                        .map(|ty| {
+                            self.contextual_mapped_key_base_constraint(
+                                ty,
+                                reduce_indexed_access,
+                                stack,
+                            )
+                        })
                         .collect();
                     self.get_union_type(&types)
                 }
                 TypeData::Intersection { types, .. } => {
                     let types: Vec<_> = types
                         .into_iter()
-                        .map(|ty| self.contextual_mapped_key_base_constraint(ty, stack))
+                        .map(|ty| {
+                            self.contextual_mapped_key_base_constraint(
+                                ty,
+                                reduce_indexed_access,
+                                stack,
+                            )
+                        })
                         .collect();
                     self.get_intersection_type(&types, None)
                 }
