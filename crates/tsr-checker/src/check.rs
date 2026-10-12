@@ -7463,9 +7463,25 @@ impl Checker<'_, '_> {
     fn check_constructor_type_parameters(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
         let (Some(first), Some(last)) = (node.type_parameters.first(), node.type_parameters.last())
         else {
+            let Some(id) = node.node_id else { return };
+            // In a JavaScript file the reparser gathers `@template` tags into
+            // the constructor's type parameters (`gatherTypeParameters`,
+            // `parser/reparser.go:293`), a list from the first tag's `Pos()`
+            // to the last's `End()`.
+            if let Some((start, end)) = self.jsdoc_constructor_template_range(id)
+                && let Some(file) = self.source_file_of_for_diagnostics(id)
+            {
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::TYPE_PARAMETERS_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                        tsr_core::Span::new(start, end),
+                    ),
+                );
+                return;
+            }
             // An empty `<>`: the list's `Pos() == End()`, right after the
             // `<`, so the report is zero-width there.
-            let Some(id) = node.node_id else { return };
             let Some(list) = self
                 .written_list(id, crate::resolution::WrittenListKind::TypeParameters)
                 .filter(|list| list.empty)
@@ -7495,12 +7511,52 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// The `@template` tags of a JavaScript constructor's last comment, as
+    /// the range `gatherTypeParameters` gives the reparsed list: the first
+    /// tag's start to the last tag's end. `None` without such a tag, or when
+    /// the comment declares a typedef or callback (whose type the templates
+    /// belong to).
+    fn jsdoc_constructor_template_range(&self, constructor: NodeId) -> Option<(u32, u32)> {
+        if !self.in_js_file(constructor) {
+            return None;
+        }
+        let doc = *self.jsdoc_entries.get(&constructor)?.last()?;
+        let mut range: Option<(u32, u32)> = None;
+        for tag in doc.tags {
+            match tag {
+                tsr_ast::JSDocTag::JSDocTypedefTag(_) | tsr_ast::JSDocTag::JSDocCallbackTag(_) => {
+                    return None;
+                }
+                tsr_ast::JSDocTag::JSDocTemplateTag(template) => {
+                    let span = self.nodes.span(template.node_id?);
+                    range =
+                        Some(range.map_or((span.start, span.end), |(start, _)| (start, span.end)));
+                }
+                _ => {}
+            }
+        }
+        range
+    }
+
     /// TS1093 — `Type annotation cannot appear on a constructor declaration.`
     ///
     /// `checkGrammarConstructorTypeAnnotation` (`grammarchecks.go:1874`),
     /// reported on the annotation. §823.
     fn check_constructor_type_annotation(&mut self, node: &tsr_ast::ConstructorDeclaration<'_>) {
-        let Some(at) = node.r#type.and_then(|t| t.node_id()) else { return };
+        // In a JavaScript file the reparser makes a `@returns` type the
+        // constructor's `Type` (`reparseHosted`), so it is reported too.
+        let reparsed = || {
+            node.node_id
+                .filter(|&id| self.in_js_file(id))
+                .and_then(|id| self.jsdoc_reparsed_function(id).return_type)
+        };
+        let Some(mut at) = node.r#type.or_else(reparsed).and_then(|t| t.node_id()) else { return };
+        // The reparsed type is the tag's type, not its `{…}` expression.
+        if let Some(Node::JSDocTypeExpression(expression)) = self.node_map.get(at)
+            && let Some(inner) = expression.r#type.and_then(|t| t.node_id())
+        {
+            at = inner;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
         self.report(
