@@ -1601,3 +1601,25 @@ infos). With that supplied, `` `bool${P}` → keyof T `` is still `Unknown`
 in the port. That needs the index-target arm's `getSimplifiedTypeOrConstraint`
 and the template-source arm against an instantiable target. It was tried
 and reverted in this commit. The case's verdict stays as it was.
+
+## 42. The argument head's chain, and reference variances
+
+- **TS2345 carries the chain.** `report_argument_failure` reported its
+  head through `report_argument_head`, which never retraced the relation:
+  every argument mismatch printed the head alone. Its final branch now
+  builds `relation_failure_chain` exactly as `report_relation_failure`
+  does (when the relation is decided and there is no signature-arity
+  elaboration). The head goes through `attach_chain_file` and the
+  type-parameter hint like the TS2322 head.
+- **References to one class or interface** (`relateVariances`,
+  `relater.go:3266`; `typeArgumentsRelatedTo`, `:3903`). Each type
+  argument is related under its measured variance, and the first failure
+  explains the pair, with no `Types of property` above it:
+  `Container<Ref<string>> → Container<Ref<number>>` reads `Type
+  'Ref<string>' is not assignable to type 'Ref<number>'.` under it.
+  The structural comparison decides instead in three cases, and the arm
+  steps aside for each: a variance with `Unmeasurable`/`Unreliable`
+  flags (`AllowsStructuralFallback`), a covariant `void` target argument,
+  or an invariant parameter (upstream resets the variance errors to show
+  the structural reason). Aliases relate through their own variance path
+  in the relater and decline here.

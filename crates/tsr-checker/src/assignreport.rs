@@ -2418,10 +2418,16 @@ impl<'a> Checker<'a, '_> {
                 self.report_missing_properties(file, span, source, normalized, &properties);
                 return true;
             };
-            self.report_argument_head(file, span, source, display_target, None, chain);
+            self.report_argument_head(at, file, span, source, display_target, None, chain);
             return true;
         }
-        self.report_argument_head(file, span, source, display_target, signature_error, None);
+        // checkTypeRelatedToEx's error chain under the head (r7-reports §42).
+        let chain = if not_related && signature_error.is_none() {
+            self.relation_failure_chain(at, span, source, normalized)
+        } else {
+            None
+        };
+        self.report_argument_head(at, file, span, source, display_target, signature_error, chain);
         true
     }
 
@@ -2454,8 +2460,10 @@ impl<'a> Checker<'a, '_> {
     /// `reportRelationError`'s TS2345 head (`relater.go:4751`) for
     /// [`Checker::report_argument_failure`], with the signature elaboration or
     /// the missing-property message kept under it.
+    #[allow(clippy::too_many_arguments)]
     fn report_argument_head(
         &mut self,
+        at: NodeId,
         file: NodeId,
         span: tsr_core::Span,
         source: TypeId,
@@ -2479,7 +2487,8 @@ impl<'a> Checker<'a, '_> {
             diagnostic.add_message_chain(Some(signature_error));
         }
         diagnostic.add_message_chain(chain);
-        self.report(file, diagnostic);
+        self.attach_chain_file(at, span, &mut diagnostic);
+        self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
 
     /// Report the assignability failure at `span`, choosing the code the way
@@ -5945,7 +5954,71 @@ impl Checker<'_, '_> {
         {
             return None;
         }
+        if let Some(explained) = self.explain_reference_variances(stack, source, target, depth) {
+            return explained;
+        }
         self.explain_object_relation(stack, source, target, depth, false)
+    }
+
+    /// `relateVariances` for two references to one class or interface
+    /// (`relater.go:3266`, `typeArgumentsRelatedTo` at `:3903`): the first
+    /// type argument that fails under its variance is the explanation.
+    /// `None` where the structural comparison decides instead: a variance
+    /// with `Unmeasurable`/`Unreliable` flags, a covariant `void` target
+    /// argument, or an invariant parameter (whose errors upstream resets to
+    /// show the structural reason). `Some(None)` declines.
+    #[allow(clippy::option_option)]
+    fn explain_reference_variances(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<Option<()>> {
+        use crate::relater::Ternary;
+        use crate::variances::Variance;
+        let (source_symbol, source_arguments) = self.type_reference_targets.get(&source)?.clone();
+        let (target_symbol, target_arguments) = self.type_reference_targets.get(&target)?.clone();
+        let symbol = self.binder.merged_symbol(source_symbol);
+        if symbol != self.binder.merged_symbol(target_symbol)
+            || source_arguments.len() != target_arguments.len()
+            || self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        let Some(variances) = self.inference_variances(symbol) else { return Some(None) };
+        if variances.len() != source_arguments.len() {
+            return Some(None);
+        }
+        let reliability = self.variance_reliability(symbol, variances.len());
+        let covariant_void = target_arguments.iter().zip(&variances).any(|(&argument, variance)| {
+            *variance == Variance::Covariant
+                && self.type_of(argument).flags.intersects(TypeFlags::VOID)
+        });
+        if reliability.iter().any(|flags| !flags.is_empty())
+            || covariant_void
+            || variances.contains(&Variance::Invariant)
+        {
+            return None;
+        }
+        for ((&s, &t), variance) in source_arguments.iter().zip(&target_arguments).zip(&variances) {
+            let (from, to) = match variance {
+                Variance::Independent | Variance::Invariant => continue,
+                Variance::Covariant => (s, t),
+                Variance::Contravariant => (t, s),
+                Variance::Bivariant => match self.chain_relate(stack, t, s) {
+                    Ternary::Related => continue,
+                    Ternary::Unknown => return Some(None),
+                    Ternary::NotRelated => (s, t),
+                },
+            };
+            match self.chain_relate(stack, from, to) {
+                Ternary::Related => {}
+                Ternary::Unknown => return Some(None),
+                Ternary::NotRelated => return Some(self.explain_pair(stack, from, to, depth)),
+            }
+        }
+        Some(None)
     }
 
     /// `propertiesRelatedTo`, then `signaturesRelatedTo(Call)`, for two plain
