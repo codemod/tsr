@@ -1044,6 +1044,15 @@ behind `publish(event: string, data?: any)`) becomes exact. A per-case
 oracle run over the 190 EXACT cases carrying a call diagnostic (base
 `cand17`) kept every one exact.
 
+**A decorator's arity error keeps its related information on the head.**
+`getArgumentArityError` chains its diagnostic under `headMessage` first and
+adds the too-short arm's related information (TS6210) after, so only the
+head carries it (decoratorOnClass8, decoratorOnClassProperty7,
+esDecorators-arguments in the exact oracle). §30 had added it before
+`chain_reports_under`, whose `NewDiagnosticChain` copy left it on the child
+as well. `report_argument_arity_error_under` now builds the chain itself
+in native's order, and the decorator path passes its head there.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
