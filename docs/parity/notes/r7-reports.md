@@ -3055,3 +3055,17 @@ first constituent (`narrowingUnionToNeverAssigment`'s `Type '"c"' is not
 assignable to type 'never'.`), and a first version of this arm that came
 ahead of the union arm lost that case in a quick oracle. Quick oracles over
 `ever`, `estParam` and `allback`: 0 lost.
+
+## 115. A fixed tuple against a union of fixed tuples picks native's best match
+
+`getBestMatchingType` for `[] → [string] | [number, boolean]`:
+`findMatchingDiscriminantType` reads `length`, a literal per fixed tuple. A
+unique constituent of the source's length is the match. With none (or
+several), `findMostOverlappyType` counts the shared keys: the element names
+`"0"`, `"1"`, … up to the shorter length, the `Array` members and `length`
+being common to all, so ties go to the later constituent. That gives
+`Type '[]' is not assignable to type '[number, boolean]'.` / `Source has 0
+element(s) but target requires 2.` (`genericRestParameters3`). The retrace
+had no property list for tuples and declined. `tuple_union_best_match`
+handles fixed tuples only; optional, rest and variadic elements go through
+the general path. Quick oracles over `uple`, `estParam` and `pread`: 0 lost.
