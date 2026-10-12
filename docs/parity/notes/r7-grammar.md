@@ -1160,3 +1160,16 @@ TS2439 declaration therefore never draws TS2307. This port's module report
 does not read that answer, so `import * as b from "../y"` in `declare
 module "A"` still gets an extra TS2307 here. That was true before this
 change too. Routed to the import-declaration check's owner.
+
+## §60 TS2564 skips a property whose annotation is circular
+
+`checkPropertyInitialization` skips a property whose type has
+`TypeFlagsAnyOrUnknown`, and `errorType` has it. A property annotated with
+itself (`class C1 { x: C1["x"]; }`) fails `popTypeResolution` in
+`getTypeOfVariableOrParameterOrProperty`, which reports TS2502 and answers
+`errorType`. This port reports the same TS2502 (symbols.rs), but its outer
+resolution keeps the indexed access's answer (a gap), so
+`check_property_initialization` (granted) went on to TS2564. It now also
+skips a declaration in `circularity_reported`, the set symbols.rs records at
+exactly that report. Converted: `circularIndexedAccessErrors`'s extra TS2564.
+The case keeps its TS2589 and TS2536 gaps, which are not this lane's.
