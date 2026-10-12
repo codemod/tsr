@@ -1054,7 +1054,7 @@ impl Checker<'_, '_> {
     }
 
     /// `getExportSymbolOfValueSymbolIfExported` (`checker.go:14383`).
-    fn export_symbol_of_value_symbol_if_exported(&self, symbol: SymbolId) -> SymbolId {
+    pub(crate) fn export_symbol_of_value_symbol_if_exported(&self, symbol: SymbolId) -> SymbolId {
         let entry = self.binder.symbols().get(symbol);
         let symbol = match entry.export_symbol {
             Some(export) if entry.flags.intersects(SymbolFlags::EXPORT_VALUE) => export,

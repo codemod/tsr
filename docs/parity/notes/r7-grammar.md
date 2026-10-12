@@ -1765,3 +1765,18 @@ module has a `default` export. That is TS1195, at the export declaration.
 check.rs's `check_module_has_default_export` built the head alone. It now
 adds the related diagnostic, with its file (§34). Checked with `--pretty
 true` against `target/tsgo-pinned`: `exportStar` (es2015).
+
+## §78 TS2449/TS2450 on an exported class or enum
+
+`resolveNameHelper` checks block-scoped use with the export symbol of an
+exported local (`getExportSymbolOfValueSymbolIfExported(result)`). The local
+of `export class C`, `export default class E` or a namespace's `export class
+D` is only `ExportValue`; its export symbol carries `Class`. check.rs's
+`check_used_before_its_declaration` read the local's flags, found no arm,
+and was silent on every exported class or enum used before its declaration
+(`es5ExportDefaultClassDeclaration3` es2015, `parserRealSource10`). §964's
+`export const bar = bar` special case had covered variables only. It now
+takes isolated_alias.rs's `export_symbol_of_value_symbol_if_exported`
+(made `pub(crate)`) first. Checked with the CLI against `target/tsgo-pinned`
+on module, namespace and default exports. The used-before-declaration
+cases above are unchanged.

@@ -6306,6 +6306,12 @@ impl Checker<'_, '_> {
             return;
         };
         let symbol = self.binder.merged_symbol(symbol);
+        // `resolveNameHelper` hands `checkResolvedBlockScopedVariable` the
+        // export symbol of an exported local (`exportOrLocalSymbol :=
+        // getExportSymbolOfValueSymbolIfExported(result)`), whose flags carry
+        // `Class`/`Enum`; the local itself is only `ExportValue`
+        // (r7-grammar §78).
+        let symbol = self.export_symbol_of_value_symbol_if_exported(symbol);
         let entry = self.binder.symbols().get(symbol);
         // `checkResolvedBlockScopedVariable` (`checker.go:1888`) picks the
         // message off the symbol's flags and shares everything below.
