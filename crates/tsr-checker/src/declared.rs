@@ -661,6 +661,10 @@ impl<'a> Checker<'a, '_> {
                 let target = self.get_type_from_type_node(inner);
                 // getIndexTypeEx (checker.go:26701): any, never and unknown
                 // answer stringNumberSymbolType/never directly.
+                // shouldDeferIndexType (checker.go:26834): any other
+                // instantiable operand (a deferred `Original[T]`) keeps one
+                // deferred index type, printed from its operand (r7-declared
+                // §39).
                 if self.mapped_types.contains_key(&target)
                     || self.store.get(target).flags.intersects(
                         TypeFlags::TYPE_PARAMETER
@@ -668,6 +672,8 @@ impl<'a> Checker<'a, '_> {
                             | TypeFlags::NEVER
                             | TypeFlags::UNKNOWN,
                     )
+                    || (self.deferred_indexed_access_types.contains_key(&target)
+                        && !self.unresolved_types.contains(&target))
                 {
                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
                 }
@@ -7291,6 +7297,9 @@ impl<'a> Checker<'a, '_> {
             if self.argument_less_reference_is_error(resolved, node.node_id) {
                 return self.intrinsics.native_error;
             }
+            if let Some(filled) = self.defaulted_qualified_reference(node, name, resolved) {
+                return filled;
+            }
             // §280's annotation half: a qualified name resolving to an ENUM
             // MEMBER answers the member's declared type in REGULAR form, not
             // a mint of the written text — upstream's `getTypeFromTypeNode`
@@ -7458,6 +7467,66 @@ impl<'a> Checker<'a, '_> {
             return minted;
         }
         self.unresolved_type_reference(node)
+    }
+
+    /// fillMissingTypeArguments (checker.go:19458) for an argument-less
+    /// qualified reference to a generic type whose every parameter has a
+    /// default: the reference is the target at its defaults, and the node
+    /// builder prints those arguments (`NS.RT` over `type RT<P = any>` is
+    /// `NS.RT<any>`, callsOnComplexSignatures' `React.ReactType<any>`), while
+    /// a reused annotation keeps the written bare name (the
+    /// `qualified_written_text` channel). The mint is §42 v2's generic one,
+    /// keyed and registered the same way. `None` where a default mentions a
+    /// type parameter (a forward default needs substitution) or does not
+    /// resolve (r7-declared §41).
+    fn defaulted_qualified_reference(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        name: tsr_ast::EntityName<'a>,
+        resolved: SymbolId,
+    ) -> Option<TypeId> {
+        let declarations = self.local_type_parameters_of(resolved);
+        if declarations.is_empty()
+            || !self
+                .binder
+                .symbols()
+                .get(resolved)
+                .flags
+                .intersects(SymbolFlags::TYPE_ALIAS | SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return None;
+        }
+        let mut arguments = Vec::with_capacity(declarations.len());
+        for declaration in declarations.iter() {
+            let default = self.get_type_from_type_node(declaration.default_type?);
+            if self.is_gap(default)
+                || self.is_error(default)
+                || self.mentions_any_type_parameter(default, 4)
+            {
+                return None;
+            }
+            arguments.push(default);
+        }
+        let written = Self::entity_name_text(node.type_name)?;
+        let base = self.qualification_free_name(name, resolved);
+        let printed: Vec<String> =
+            arguments.iter().map(|&argument| self.type_to_string(argument)).collect();
+        let text =
+            format!("{}<{}>", base.as_deref().unwrap_or(written.as_str()), printed.join(", "));
+        if let Some(id) = node.node_id {
+            self.qualified_written_text.entry(id).or_insert(written);
+        }
+        let key = (text.clone(), resolved, arguments.clone());
+        if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
+            return Some(existing);
+        }
+        if self.instantiate_intersection_alias(resolved, &arguments).is_some() {
+            return None;
+        }
+        let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
+        self.qualified_generic_reference_types.insert(key, minted);
+        self.type_reference_targets.insert(minted, (resolved, arguments));
+        Some(minted)
     }
 
     /// getTypeReferenceType's declared type for an argument-less qualified
