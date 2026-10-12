@@ -1773,3 +1773,13 @@ return marker is elided, as upstream does.
   retraced as one. In that file, `I2 extends T1 & { b: number }` still
   declines (the `I2 → T1` constituent verdict is `Unknown` under
   `IntersectionStateTarget`), and so does `I3 extends number[]`.
+
+## 51. `Property 'x' is optional in type 'S' but required in type 'T'.`
+
+`propertyRelatedTo` (`relater.go:4309`) relates the member types first.
+When they relate, an optional source member against a required target
+member is still a failure (TS2327), with no `Types of property` above
+it. The target member must carry `SymbolFlagsClassMember`
+(method, accessor or property, which is every property symbol). The
+property loop now checks this after a related member pair, so `C` with
+`x?` against `{ x: any }` reads it.

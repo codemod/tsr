@@ -6225,6 +6225,25 @@ impl Checker<'_, '_> {
                     return Some(());
                 }
             }
+            // `propertyRelatedTo`'s optionality arm (`relater.go:4309`): a
+            // related optional source member against a required class
+            // member (r7-reports §51).
+            let target_class_member =
+                self.get_property_of_type(target, name).is_some_and(|symbol| {
+                    self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS_MEMBER)
+                });
+            if target_class_member
+                && self.chain_property_is_optional(source, name)?
+                && !self.chain_property_is_optional(target, name)?
+            {
+                let source_text = self.type_to_string(source);
+                let target_text = self.type_to_string(target);
+                stack.push(ChainEntry {
+                    message: &messages::PROPERTY_0_IS_OPTIONAL_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
+                    args: vec![chain_property_display(name), source_text, target_text],
+                });
+                return Some(());
+            }
         }
         if properties_only {
             return None;
