@@ -529,3 +529,19 @@ fn a_readonly_array_intersection_keeps_symbol_members() {
          const x = r[it];\n";
     assert_eq!(type_of_last_initializer(source), "() => number");
 }
+
+/// §58: a union alias that captured an intersection alias's placeholder
+/// (the intersection declared first, its member naming the union)
+/// distributes over the completed intersection (tsgo: `Element`).
+#[test]
+fn a_captured_intersection_placeholder_completes_in_place() {
+    let source = "interface Expression { _expressionBrand: any }\n\
+         interface Identifier extends Expression { _identifierBrand: any }\n\
+         interface ElementAccessExpression extends Expression { readonly expression: Expression }\n\
+         type Element = ElementAccessExpression & { readonly expression: Name };\n\
+         type Name = Identifier | Element;\n\
+         type Ex<T, U> = T extends U ? never : T;\n\
+         declare const n: Ex<Name, Identifier>;\n\
+         const x = n;\n";
+    assert_eq!(type_of_last_initializer(source), "Element");
+}

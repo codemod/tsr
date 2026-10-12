@@ -1920,3 +1920,55 @@ lost** (declarationEmitExactOptionalPropertyTypesNodeNotReused, both
 variants, 0:9–0:11); diagnostics 0 / 0; jsTyping 102 → 102, new_false 0;
 Ir gi 1.0000, dm 1.0000; exact oracle 0 / 0 (the two cases turn exact
 with §58's run).
+
+## 58. An intersection alias's placeholder is completed with its declared type
+
+**Forcing constraint.** jsTyping's BindableStatic false line, routed from
+r7-perf as a parity bug. Reduced:
+
+```ts
+interface Expression { _expressionBrand: any }
+interface Identifier extends Expression { _identifierBrand: any }
+interface ElementAccessExpression extends Expression { readonly expression: Expression }
+type Element = ElementAccessExpression & { readonly expression: Name };
+type Name = Identifier | Element;
+export declare const n: Exclude<Name, Identifier>;
+export const k: number = n;   // tsgo: Type 'Element' is not assignable to type 'number'.
+```
+
+TSR reported `'Name'` and declared `n : Exclude<Name, Identifier>`; with
+the two aliases swapped it agreed with tsgo. Native resolves the type
+literal's member `expression: Name` lazily, so declaring `Element` never
+resolves `Name`. This port resolves it inside `Element`'s resolution: `Name`'s
+union then meets `Element` while it is on the stack and takes §29's NAME
+placeholder, a member-less mint, and `Name`'s declared type keeps it.
+`Exclude` distributes over `Identifier | <placeholder>`, cannot relate the
+placeholder to `Identifier`, and declines.
+
+§7 already completes such a placeholder in place once the alias's declared
+type is published (`complete_alias_placeholder`, `TypeStore::complete_object`),
+but only for a type-literal body, whose declared type is the literal's
+members-symbol mint.
+
+**Port.** `complete_alias_placeholder` also completes the placeholder when
+the declared type is the alias's own intersection (`TypeData::Intersection`
+whose alias symbol is the alias, getTypeFromIntersectionTypeNode's alias).
+The placeholder then carries the intersection's constituents and alias, so
+the captured union distributes over it as native's does over the declared
+type. Key and owner are unchanged (`alias_placeholders`, written once when
+the declared type completes).
+
+**Alternatives.** Resolving type-literal members lazily is native's shape,
+but member types are resolved where a literal is minted (its text is fixed
+then), so that is outside this lane. Declining to cache `Name` when its
+resolution captured a placeholder would rebuild `Name` later with a new
+identity, while `Element`'s member would still hold the first one.
+
+**How we would know we were wrong.** A reader of the completed placeholder
+that relies on a side table keyed by the declared intersection's own
+`TypeId`. It would answer for the placeholder as for an unknown type.
+
+**Measured** (unfiltered, against §57 on `1e4a24d9`): types 0 / 0;
+diagnostics 0 / 0; jsTyping **102 → 100** (the BindableStatic lines),
+new_false 0; Ir gi 0.9998, dm 0.9999; exact oracle +2
+(declarationEmitExactOptionalPropertyTypesNodeNotReused, both variants), 0 lost.

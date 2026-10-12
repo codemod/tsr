@@ -9899,6 +9899,21 @@ impl<'a> Checker<'a, '_> {
         {
             return;
         }
+        // An intersection body (`type Element = ElementAccessExpression & {
+        // readonly expression: Name }`) is native's intersection itself, with
+        // the alias (getTypeFromIntersectionTypeNode, checker.go:24081): a
+        // mention of it inside a lazily resolved member of its own body is
+        // that intersection. The completed placeholder carries the
+        // intersection's constituents and alias, so a union that captured it
+        // (`type Name = Identifier | Element`) distributes over it as over
+        // the declared type (BindableStatic's `Exclude<Name, Identifier>`
+        // reads `Element`; r7-declared §58).
+        if matches!(self.store.get(resolved).data,
+            crate::types::TypeData::Intersection { symbol: Some(owner), .. } if owner == symbol)
+        {
+            self.store.complete_object(placeholder, resolved);
+            return;
+        }
         let Some(literal) = self.alias_body_literal_symbol(symbol) else { return };
         if matches!(self.store.get(resolved).data,
             crate::types::TypeData::Named { members: Some(members), .. } if members == literal)
