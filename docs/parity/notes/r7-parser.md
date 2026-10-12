@@ -502,3 +502,13 @@ skip of a missing name, under a grant as well.
 Parse time is not a wall bottleneck: on domain-model TSR's parse phase is
 17–36 ms against tsgo's 53–66 ms (`--extendedDiagnostics`, noisy 4-core box),
 and the scanner is 8% of single-threaded Ir.
+
+## 13. Checker items from the §12 work list
+
+The integrator asked this lane to work through §12's list in order of
+cases, with a grant per file. One row per commit, each naming the native
+function it ports:
+
+| native function | divergence | cases |
+|---|---|---|
+| `checkReturnStatement` (`checker.go:4086`) and `checkBreakOrContinueStatement` (`:4081`) behind `checkGrammarStatementInAmbientContext` (`grammarchecks.go:2045`) | the walk refused TS1108/TS1104/TS1105 anywhere in an ambient context, a stand-in from before TS1036 was ported. Native's ambient check reports once per block and answers `false` for every later statement, which then reaches the container test. TS1108 also spanned the whole statement, not its first token (`grammarErrorOnFirstToken`) | ambientWithStatements, parserReturnStatement2, parserNotRegex1, fileWithNextLine3, multiLinePropertyAccessAndArrowFunctionIndent1, parserErrorRecovery_VariableList1 (exact oracle) |

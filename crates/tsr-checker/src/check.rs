@@ -431,7 +431,6 @@ impl Checker<'_, '_> {
                         node,
                         true,
                         statement.label.map(|label| label.text),
-                        ambient,
                     );
                 }
                 ambient
@@ -442,7 +441,6 @@ impl Checker<'_, '_> {
                         node,
                         false,
                         statement.label.map(|label| label.text),
-                        ambient,
                     );
                 }
                 ambient
@@ -562,8 +560,12 @@ impl Checker<'_, '_> {
                         Diagnostic::new(&messages::SETTERS_CANNOT_RETURN_A_VALUE, span),
                     );
                 }
-                self.check_grammar_statement_in_ambient_context(node, ambient);
-                self.check_return_container(node, ambient);
+                // `checkReturnStatement` (`checker.go:4095`): the container
+                // test runs only when the ambient-statement check did not
+                // report, and that reports once per block.
+                if !self.check_grammar_statement_in_ambient_context(node, ambient) {
+                    self.check_return_container(node);
+                }
                 self.check_return_statement(node, ambient);
                 self.check_return_statement_implicit_returns(
                     node,
@@ -8882,8 +8884,8 @@ impl Checker<'_, '_> {
     /// is nothing at all. Both branches ported — the static-block one has no
     /// blocked cases and is free, and shipping one branch of a two-branch `if`
     /// is §230's shape. §296.
-    fn check_return_container(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+    fn check_return_container(&mut self, node: NodeId) {
+        if self.file_has_parse_errors {
             return;
         }
         let container = self
@@ -8901,10 +8903,7 @@ impl Checker<'_, '_> {
         };
         // `grammarErrorOnFirstToken(node, …)` — the `return` keyword, not the
         // statement (r7-grammar §52).
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let whole = self.nodes.span(node);
-        let span = self.first_token_span(node, whole.start).unwrap_or(whole);
-        self.report(file, Diagnostic::new(message, span));
+        self.grammar_error_on_first_token(node, message);
     }
 
     /// `checkGrammarClassLikeDeclaration` and
@@ -11693,23 +11692,12 @@ impl Checker<'_, '_> {
     /// whose own kind is function-like cannot occur and the first iteration is
     /// always a no-op — kept that way because it is upstream's loop and moving
     /// the start is the kind of edit that silently changes a boundary case.
-    fn check_break_or_continue(
-        &mut self,
-        node: NodeId,
-        is_break: bool,
-        label: Option<&str>,
-        ambient: bool,
-    ) {
+    fn check_break_or_continue(&mut self, node: NodeId, is_break: bool, label: Option<&str>) {
         // `checkBreakOrContinueStatement` (`checker.go:4081`) runs this grammar
         // check **only if** `checkGrammarStatementInAmbientContext` did not
-        // report — and in an ambient context that function reports TS1036
-        // `Statements are not allowed in ambient contexts` and short-circuits.
-        // TS1036 is not ported (19 cases of its own on `diaggap.rs`'s board), so
-        // the short-circuit is reproduced as a refusal: silence where upstream
-        // says something else. It was worth exactly the two wrong lines this
-        // rule's first measurement produced, `parserBreakStatement1.d` and
-        // `parserContinueStatement1.d`, both one-line `.d.ts` files.
-        if self.file_has_parse_errors || ambient {
+        // report, which the caller tests; that check reports once per block,
+        // so a later `break` in an ambient block still reaches this one.
+        if self.file_has_parse_errors {
             return;
         }
         let mut current = Some(node);
