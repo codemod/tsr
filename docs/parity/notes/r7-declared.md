@@ -1448,3 +1448,91 @@ parentheses are. No state.
 **Measured** (unfiltered against `58a511f1`): types **+1, 0 lost**
 (readonlyArraysAndTuples 0:7); diagnostics 0 / 0; jsTyping new_false 0 /
 lost_true 0; Ir gi 0.9999, dm 1.0000.
+
+## 45. §21 landed: `keyof` of a non-generic object that mentions a type parameter resolves now
+
+§21's held diff (`keyof_operand_resolves_now`: a plain object operand that is
+not generic, `is_generic_type`, has its keys now, as getIndexTypeEx defers
+only under shouldDeferIndexType) re-measured on the rebased `cfe2d4e5`: the
+deeplyNestedMappedTypes diagnostic it cost is gone (other lanes' relation
+work since `4af98855`), and the mapped-type rows it unblocks now land too.
+
+**Measured** (unfiltered against `cfe2d4e5`): types **+12, 0 lost**
+(deeplyNestedMappedTypes 11, thislessFunctionsNotContextSensitive1 1);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9998, dm
+1.0000.
+
+## 46. §18 and the wide union-alias slice landed together
+
+§18's frame isolation (getDeclaredTypeOfTypeAlias resolves with no mapper:
+`get_declared_type_of_type_alias` sets the alias-evaluation frames aside for
+the resolution, so React's `type ReactNode = ReactChild | …` first reached
+under `ComponentType<P>`'s frame is published with its alias) and §10.1's
+wide union-alias slice (`is_union_alias_body` admits any constituents, so a
+generic union-bodied alias instance is its instantiated union carrying the
+alias, getUnionTypeEx's alias argument) were held for one
+deeplyNestedMappedTypes diagnostic that §45 now lands. Alone, the slice
+still loses ReactNode's alias (styledComponentsInstantiaionLimitNotReached)
+and HandlerRendererResult's (jsxComplexSignatureHasApplicabilityError):
+that is the frame leak, so the two go in one commit. Measured alone on
+`cfe2d4e5`: the slice +50 / −2 types; with the isolation +61 / 0.
+
+**Measured** (unfiltered against `56aba53c`): types **+50, 0 lost**
+(assignmentTypeNarrowing 9, jsxComplexSignatureHasApplicabilityError 8,
+typePredicateFreshLiteralWidening 4, discriminateWithOptionalProperty3 8,
+unionAndIntersectionInference1 4, awaitedType/awaitedTypeStrictNull 6,
+for-of58 3, and others); diagnostics **+4 cases, 0 lost**
+(coAndContraVariantInferences5, jsxElementTypeLiteralWithGeneric,
+typeAssignabilityErrorMessage, for-of58); jsTyping new_false 0 / lost_true
+0 (one native-absent error fewer); Ir gi 0.9999, dm **1.0012** (the union
+instances are built where the mint was a name).
+
+## 47. A mapped type's members are ordered as compareSymbols orders them
+
+**Forcing constraint.** setStructuredTypeMembers → getNamedMembers
+(`checker.go:22049`) sorts a members table with compareSymbols
+(`utilities.go:366`): symbols with declarations first, by their first
+declaration's position, then by name, then by id. A mapped symbol carries
+its modifiers property's declarations when resolveMappedTypeMembers links
+them. So `{ [K in 2 | 10 | 1]: 1 }` prints `{ 1: 1; 10: 1; 2: 1; }` (names
+compare as strings), and the §33 mapping over `Omit<Mappings, "foo"> &
+Partial<Pick<Mappings, "foo">>` prints `foo?` first, at its declaration in
+`Mappings` (mappedTypeIndexedAccessConstraint's five `mapper` rows, §33's
+residue). TSR kept key order, and an intersection member linked nothing.
+
+**Port.** The member producer sorts its table by `(no origin, the origin's
+first declaration position, name, creation order)`, reusing
+`compare_symbols_key`, and renumbers each mapped slot to its new table index.
+`intersection_modifier_member` now also answers the providing constituent's
+property (the captured slot's origin, or the property symbol), which the
+producer links like any other modifiers property. No state.
+
+The held r6-typesroots3 "mapped member names as native" patch (`afeaa2bce`
+on `box/r7-declared-held`) carries the same ordering over its own member
+pipeline; its name arm is partly §32's.
+
+**Measured** (unfiltered against `27c5925b`): types **+6, 0 lost**
+(mappedTypeIndexedAccessConstraint 5, deeplyNestedMappedTypes 1);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9999, dm
+1.0000.
+
+## 48. A mapped member's name is printed from its linked declarations
+
+**Forcing constraint.** getPropertyNameNodeForSymbolFromNameType
+(`nodebuilderimpl.go:2455`) names a mapped symbol from its name type and the
+declarations it links: a non-identifier name is a string literal when every
+linked declaration is string-named (single-quoted when they all are) or the
+name is not numeric; a negative numeric name is computed (`[-1]`); any other
+is classified (`classifyPropertyName`). So `{ [K in keyof S]: 1 }` over
+`{ 'a-b': 1; "12": 2; 3: 3 }` prints `{ 'a-b': 1; "12": 1; 3: 1; }`, and
+`{ [K in "12" | -1]: 1 }` (nothing linked) prints `{ [-1]: 1; 12: 1; }`.
+§32's rule quoted every non-identifier string key, and the `as`-clause arm
+quoted by the key's literal kind.
+
+**Port.** `mapped_property_printed_name` (the held r6-typesroots3 patch
+`afeaa2bce`'s, which reads the origin's declarations) replaces both arms;
+the origin is computed before the name. No state.
+
+**Measured** (unfiltered against `41565caf`): types 0 / 0, diagnostics 0 / 0,
+jsTyping 0 / 0, Ir gi 1.0001, dm 1.0002. Kept for its prints, which match
+native on every probe above; no corpus row has these shapes.

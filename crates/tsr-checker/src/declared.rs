@@ -654,7 +654,8 @@ impl<'a> Checker<'a, '_> {
                             let target = self.get_type_from_type_node(inner);
                             target != self.intrinsics.error
                                 && (matches!(inner, TypeNode::ThisTypeNode(_))
-                                    || !self.mentions_any_type_parameter(target, 4))
+                                    || !self.mentions_any_type_parameter(target, 4)
+                                    || self.keyof_operand_resolves_now(target))
                         })) =>
             {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
@@ -702,7 +703,8 @@ impl<'a> Checker<'a, '_> {
                     .flags
                     .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::NEVER)
                     && !self.unresolved_types.contains(&target)
-                    && !self.mentions_any_type_parameter(target, 4)
+                    && (!self.mentions_any_type_parameter(target, 4)
+                        || self.keyof_operand_resolves_now(target))
                     && let Some(keys) = self.resolved_keyof_type(target)
                 {
                     return keys;
@@ -8137,17 +8139,7 @@ impl<'a> Checker<'a, '_> {
         !arguments.is_empty()
             && self.local_type_parameters_of(symbol).len() == arguments.len()
             && !self.instantiation_expressions.union_alias_in_progress.contains(&symbol)
-            && union.types.iter().all(|&constituent| {
-                matches!(
-                    Self::skip_type_parentheses(constituent),
-                    Some(
-                        TypeNode::KeywordTypeNode(_)
-                            | TypeNode::LiteralTypeNode(_)
-                            | TypeNode::FunctionTypeNode(_)
-                            | TypeNode::ConstructorTypeNode(_)
-                    )
-                )
-            })
+            && !union.types.is_empty()
     }
 
     /// [`Checker::evaluate_alias_body`] for the indexed and union arms of
@@ -9440,7 +9432,24 @@ impl<'a> Checker<'a, '_> {
     /// The circularity guard is upstream\'s and is not optional: `type T = T`
     /// resolves through this function forever without it, and the corpus
     /// contains such cases deliberately.
+    /// getDeclaredTypeOfTypeAlias (checker.go:23837) resolves the body with
+    /// no mapper: a type alias's declared type is frame-independent. This
+    /// port reaches it from inside alias-body evaluations, whose
+    /// `alias_evaluation_bindings` frames bind another alias's parameters
+    /// (which the body cannot name) and switch off the body's own alias
+    /// naming (getAliasSymbolForTypeNode), so React's `type ReactNode =
+    /// ReactChild | ReactFragment | …` first resolved under
+    /// `ComponentType<P>`'s frame was published without its alias, and
+    /// every later `React.ReactNode` printed its constituents. The frames are
+    /// set aside for the resolution and restored after (r7-declared §18).
     fn get_declared_type_of_type_alias(&mut self, symbol: SymbolId) -> TypeId {
+        let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+        let declared = self.get_declared_type_of_type_alias_worker(symbol);
+        self.alias_evaluation_bindings = frames;
+        declared
+    }
+
+    fn get_declared_type_of_type_alias_worker(&mut self, symbol: SymbolId) -> TypeId {
         let error = self.intrinsics.error;
         // A generic alias keeps its own name in the printed form:
         // `type Tree<T> = T | { left: Tree<T> }` records `>Tree : Tree<T>`
@@ -10636,6 +10645,23 @@ impl<'a> Checker<'a, '_> {
                 .is_some_and(|length| simple_tuple_length(extends) == Some(length)),
             _ => false,
         }
+    }
+
+    /// getIndexTypeEx (checker.go:26684) defers only when
+    /// shouldDeferIndexType (`:26834`) holds; an object type that merely
+    /// mentions a type parameter is not deferred. A plain (non-union,
+    /// non-intersection) object operand that is not generic
+    /// (`is_generic_type`) has its keys now: `keyof Dictionary<T>` over
+    /// `interface Dictionary<T> { [key: string]: T }` is `string | number`
+    /// whatever `T` is. Unions and intersections keep the existing road,
+    /// which defers them on a mentioned parameter (r7-declared §21).
+    fn keyof_operand_resolves_now(&mut self, target: TypeId) -> bool {
+        self.store.get(target).flags.contains(TypeFlags::OBJECT)
+            && !matches!(
+                self.store.get(target).data,
+                crate::types::TypeData::Union { .. } | crate::types::TypeData::Intersection { .. }
+            )
+            && !self.is_generic_type(target)
     }
 
     /// isDeferredType (checker.go:24475): generic, or, under `check_tuples`, a
