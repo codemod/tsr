@@ -572,3 +572,30 @@ export = A.B;
     );
     assert_has(&lines, &["A.B : typeof import(\"./a\")"]);
 }
+
+/// r7-printer §52: a type parameter's written constraint is reused at the
+/// print site, its entity names re-spelled there (native-read line).
+#[test]
+fn a_written_constraint_is_spelled_at_the_site() {
+    let lines = assertions(
+        "probe/written_constraint_site",
+        r#"// @filename: react.d.ts
+declare module "react" {
+    export = React;
+    namespace React {
+        type State = any;
+        class Component<P, S> { p: P; s: S }
+        function create<P, T extends Component<P, State>>(p: P): T;
+    }
+}
+// @filename: index.ts
+import { create } from "react";
+"#,
+    );
+    assert_has(
+        &lines,
+        &[
+            "create : <P, T extends import(\"react\").Component<P, import(\"react\").State>>(p: P) => T",
+        ],
+    );
+}

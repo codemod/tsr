@@ -1842,3 +1842,23 @@ Left: `declarationEmitImportInExportAssignmentModule` wants
 standing for `m`. That would need the module-rooted spelling for longer
 chains, which here only §1's file-module arm writes, and that arm requires
 the leaf to keep its own name.
+
+## 52. A type parameter's written constraint is reused at the print site
+
+**Forcing constraint.** `jsxFragmentFactoryNoUnusedLocals`' `createElement`
+overloads: native prints
+`<P, T extends import("react").Component<P, import("react").ComponentState>, C extends import("react").ComponentClass<P>>`.
+The port printed the constraint as carried at the declaration,
+`T extends Component<P, any>`.
+
+**Cause.** `typeParameterToDeclaration` serializes the constraint through
+`typeToTypeNodeHelperWithPossibleReusableTypeNode`. That reuses the written
+constraint node at the print site, and `trackExistingEntityName` re-spells
+every entity name there. `type_parameter_constraint_text` (node_reuse.rs)
+answered the carried `written_constraint` text, a declaration-site spelling,
+before asking the site.
+
+**The port.** With a print site, `reused_constraint_text` (the visitor at the
+site, the path a parameter without a carried text already took) is asked
+first, and the carried text is the fallback when the visitor declines. No
+cache or table.

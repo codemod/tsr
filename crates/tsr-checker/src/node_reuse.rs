@@ -1570,10 +1570,23 @@ impl<'a> Checker<'a, '_> {
         reference: Option<NodeId>,
     ) -> Option<String> {
         if let Some(written) = &parameter.written_constraint {
-            if let Some(reference) = reference
-                && self.written_constraint_declares_taken_name(parameter, reference)
-            {
-                return None;
+            if let Some(reference) = reference {
+                if self.written_constraint_declares_taken_name(parameter, reference) {
+                    return None;
+                }
+                // r7-printer §52: `typeParameterToDeclaration` reuses the
+                // constraint node at the print site
+                // (`typeToTypeNodeHelperWithPossibleReusableTypeNode`), whose
+                // entity names `trackExistingEntityName` re-spells there:
+                // `T extends import("react").Component<P,
+                // import("react").ComponentState>` outside the module. The
+                // carried text is the declaration-site spelling.
+                if let Some(resolved) = parameter.resolved_type
+                    && let Some(text) =
+                        self.reused_constraint_text(resolved, constraint, Some(reference))
+                {
+                    return Some(text);
+                }
             }
             return Some(written.clone());
         }
