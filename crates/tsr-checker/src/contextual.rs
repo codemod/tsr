@@ -784,7 +784,7 @@ impl<'a> Checker<'a, '_> {
             current_context = self.apparent_contextual_type(outer_context);
         }
         let contextual = self
-            .discriminate_contextual_type_by_object_members(literal, contextual)
+            .discriminated_contextual_type(literal, contextual)
             .unwrap_or_else(|| self.discriminate_union_root(contextual, literal));
         let contextual = self.get_non_nullable_type(contextual);
         Some(self.widen_object_literal_freshness(contextual))
@@ -2814,7 +2814,7 @@ impl<'a> Checker<'a, '_> {
         // answer, `getTypeOfPropertyOfContextualType` maps over what remains
         // and no undiscriminated-walk guard applies. A decline keeps the
         // previous slice and its guard below.
-        let ported = self.discriminate_contextual_type_by_object_members(literal, contextual);
+        let ported = self.discriminated_contextual_type(literal, contextual);
         let discriminated =
             ported.unwrap_or_else(|| self.discriminate_union_root(contextual, literal));
         if discriminated != contextual
@@ -3018,9 +3018,8 @@ impl<'a> Checker<'a, '_> {
     /// discriminant in a syntactic const context (see
     /// [`Checker::context_free_discriminant_type`]); and a discriminant test,
     /// member read or relation this port cannot decide.
-    /// No state: native memoizes per `(node, type)` in
-    /// `discriminatedContextualTypes`; this recomputes per member read (the
-    /// cost is the literal's members times the union's constituents).
+    /// Callers go through [`Checker::discriminated_contextual_type`], native's
+    /// `discriminatedContextualTypes` memo (`r7-perf.md` §24).
     #[allow(
         clippy::too_many_lines,
         reason = "one native function: discriminator collection, then the \

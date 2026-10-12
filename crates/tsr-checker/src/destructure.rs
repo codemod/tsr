@@ -747,7 +747,21 @@ impl Checker<'_, '_> {
         let start = source;
         let mut first = true;
         let mut visited = Vec::new();
-        while let Some((symbol, arguments)) = self.type_reference_targets.get(&source).cloned() {
+        while let Some((symbol, arguments)) = self.type_reference_targets.get(&source) {
+            // `evaluate_alias_body` answers only for a type alias (both of its
+            // arms test `TYPE_ALIAS` first), so an interface or class
+            // reference such as `Array<string>` ends the walk before its
+            // arguments are cloned (`r7-perf.md` §23).
+            if !self
+                .binder
+                .symbols()
+                .get(*symbol)
+                .flags
+                .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            {
+                break;
+            }
+            let (symbol, arguments) = (*symbol, arguments.clone());
             if !first {
                 if source == start || visited.contains(&source) {
                     break;

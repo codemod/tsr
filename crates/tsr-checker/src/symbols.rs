@@ -966,6 +966,34 @@ impl<'a> Checker<'a, '_> {
         name: &str,
         meaning: SymbolFlags,
     ) -> Option<SymbolId> {
+        // `getResolvedSymbol` resolves an identifier once (`links.resolvedSymbol`);
+        // this port's per-identifier rules ask once per rule, so an identifier
+        // resolved under its own text is memoised (`r7-perf.md` §27).
+        let own_text = matches!(
+            self.node_map.get(start),
+            Some(Node::Identifier(identifier)) if identifier.text == name
+        );
+        if !own_text {
+            return self.resolve_name_with_export_alias_walk(start, name, meaning);
+        }
+        let key = (start, meaning.bits());
+        if let Some(&answer) = self.perf_links.resolved_export_alias_names.get(&key) {
+            return answer;
+        }
+        let publish = self.alias_resolving == 0;
+        let answer = self.resolve_name_with_export_alias_walk(start, name, meaning);
+        if publish && self.alias_resolving == 0 {
+            self.perf_links.resolved_export_alias_names.insert(key, answer);
+        }
+        answer
+    }
+
+    fn resolve_name_with_export_alias_walk(
+        &mut self,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
         let binder = self.binder;
         let nodes = self.nodes;
         let node_map = self.node_map;
@@ -5164,6 +5192,18 @@ impl<'a> Checker<'a, '_> {
                     // checks the ARGUMENTS, whose object-literal members
                     // walk back to this call — the cycle the first build hit
                     // as a stack overflow (`arrayToLocaleStringES2015`).
+                    // `getContextualTypeForArgumentAtIndex` (`checker.go:29783`)
+                    // does not resolve a call whose own resolution is running
+                    // (`resolvedSignature == resolvingSignature`). The argument
+                    // then has the contextual type that resolution pushed,
+                    // which is the general road a `None` here falls back to.
+                    // Re-resolving re-checked every nested literal once per
+                    // member (`r7-perf.md` §24).
+                    if self.perf_links.main_resolving_calls.contains(&holder)
+                        && !self.resolved_call_signatures.contains_key(&holder)
+                    {
+                        return None;
+                    }
                     if !self.narrow_value_stack.insert(holder) {
                         return None;
                     }

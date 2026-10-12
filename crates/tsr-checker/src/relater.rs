@@ -7335,13 +7335,12 @@ impl Relater<'_, '_, '_> {
             // which for a matched discriminated constituent can expand
             // recursive generic signatures without bound (`Either<L, (a: A)
             // => B>` in `varianceProblingAndZeroOrderIndexSignatureRelationsAlign`
-            // ran out of memory). Only the discriminated walk (the one caller
-            // with exclusions) stops early: on the other roads the skipped
-            // pairs' published results feed later relations
-            // (`arrayDestructuringInSwitch1`'s subtype reduction of `every`
-            // changed), a separate inconsistency recorded in
-            // `docs/parity/notes/r5-relater4.md` §1.
-            if !excluded.is_empty() && parts.last() == Some(&RelationResult::NotRelated) {
+            // ran out of memory). r5-relater4 §1 kept the full walk on the
+            // other roads because the skipped pairs' published results then
+            // fed `arrayDestructuringInSwitch1`. At main `6faf95a3` both
+            // corpus dumps are identical with the early return on every road,
+            // so it is native's everywhere (`r7-perf.md` §26).
+            if parts.last() == Some(&RelationResult::NotRelated) {
                 return RelationResult::NotRelated;
             }
             if excluded.contains(name) {
