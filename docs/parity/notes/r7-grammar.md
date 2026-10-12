@@ -1494,3 +1494,17 @@ now match (`derivedClassOverridesPrivates`,
 `clodulesDerivedClasses` keeps a relater chain difference (`typeof
 Path.Utils` names). `classExtendsNull2` keeps a missing TS2417, which the
 approximation declines (`extends null`).
+## §65 TS8023, an `@augments`/`@extends` name that does not match the `extends` clause (needs check.rs grant)
+
+`checkGrammarClassDeclarationHeritageClauses`'s `extends` arm
+(`grammarchecks.go:915`) walks the class's comments after the
+single-class test. For each `JSDocAugmentsTag`, when the tag's class name's
+identifier (`getIdentifierFromEntityNameExpression`: the name, or a property
+access's right side) differs from the written `extends` type's, it reports
+TS8023 at the tag's name with the tag name, both identifiers, and returns.
+check.rs's `check_grammar_heritage_clauses` had no such arm. It now calls
+`check_grammar_jsdoc_augments_name`. A tag written without a class name
+holds native's missing identifier: empty text, zero width where the tag name
+ends (the JSDoc parser's TS1003 is at the same place). Converted, checked
+with the CLI against `target/tsgo-pinned`: `extendsTagEmit`,
+`jsdocAugmentsMissingType`, `jsdocAugments_nameMismatch`.

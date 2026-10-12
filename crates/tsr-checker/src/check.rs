@@ -8917,6 +8917,11 @@ impl Checker<'_, '_> {
                             );
                             return;
                         }
+                        if let Some(target) = clause.types.first()
+                            && self.check_grammar_jsdoc_augments_name(typed, target)
+                        {
+                            return;
+                        }
                     }
                     seen_extends = true;
                 }
@@ -8937,6 +8942,68 @@ impl Checker<'_, '_> {
                 _ => {}
             }
         }
+    }
+
+    /// The `@augments`/`@extends` arm of `checkGrammarClassDeclarationHeritageClauses`
+    /// (`grammarchecks.go:915`): for each `JSDocAugmentsTag` of the class's
+    /// comments, TS8023 at the tag's class name when its identifier
+    /// (`getIdentifierFromEntityNameExpression`) differs from the written
+    /// `extends` type's. Returns whether it reported (r7-grammar §65).
+    fn check_grammar_jsdoc_augments_name(
+        &mut self,
+        typed: Node<'_>,
+        target: &tsr_ast::ExpressionWithTypeArguments<'_>,
+    ) -> bool {
+        fn identifier_of(
+            expression: Option<tsr_ast::Expression<'_>>,
+        ) -> Option<&tsr_ast::Identifier<'_>> {
+            match expression? {
+                tsr_ast::Expression::Identifier(identifier) => Some(identifier),
+                tsr_ast::Expression::PropertyAccessExpression(access) => match access.name {
+                    Some(tsr_ast::MemberName::Identifier(identifier)) => Some(identifier),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        let Some(class) = typed.node_id() else { return false };
+        let Some(target_name) = identifier_of(target.expression) else { return false };
+        let Some(docs) = self.jsdoc_entries.get(&class).copied() else { return false };
+        for doc in docs {
+            for tag in doc.tags {
+                let tsr_ast::JSDocTag::JSDocAugmentsTag(tag) = tag else { continue };
+                // A tag without a class name holds native's missing
+                // identifier: empty text, zero width where the tag name ends
+                // (where the JSDoc parser's TS1003 sits).
+                let (text, span) = if let Some(name) = tag.class_name {
+                    let Some(source_name) = identifier_of(name.expression) else { continue };
+                    let Some(at) = source_name.node_id else { continue };
+                    (source_name.text, self.error_span(at))
+                } else {
+                    let Some(tag_name) = tag.tag_name.node_id else { continue };
+                    let end = self.nodes.span(tag_name).end;
+                    ("", tsr_core::Span::new(end, end))
+                };
+                if text == target_name.text {
+                    continue;
+                }
+                let Some(file) = self.source_file_of_for_diagnostics(class) else { continue };
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::JSDOC_0_1_DOES_NOT_MATCH_THE_EXTENDS_2_CLAUSE,
+                        span,
+                        [
+                            tag.tag_name.text.to_string(),
+                            text.to_string(),
+                            target_name.text.to_string(),
+                        ],
+                    ),
+                );
+                return true;
+            }
+        }
+        false
     }
 
     /// `checkGrammarParameterList` (`grammarchecks.go:691`) — the arms beside
