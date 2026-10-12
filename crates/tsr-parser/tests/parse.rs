@@ -288,7 +288,7 @@ fn nodes_are_registered_with_kinds_and_spans() {
     assert!(result.nodes.len() > 3, "every node should be registered");
 
     let root = result.source_file;
-    let id = root.node_id.expect("the source file is registered");
+    let id = root.node_id().expect("the source file is registered");
     assert_eq!(result.nodes.kind(id), SyntaxKind::SourceFile);
     assert_eq!(result.nodes.span(id).start, 0);
 }
@@ -301,7 +301,7 @@ fn spans_cover_the_construct_they_describe() {
     let Statement::VariableStatement(statement) = result.source_file.statements[0] else {
         panic!()
     };
-    let id = statement.node_id.expect("registered");
+    let id = statement.node_id().expect("registered");
     let span = result.nodes.span(id);
     assert_eq!(span.start, 2, "the span starts after leading trivia");
     assert_eq!(&source[span.start as usize..span.end as usize], "const x = 1;");
@@ -941,8 +941,8 @@ fn keyword_tuple_labels_keep_native_name_and_rest_ownership() {
             assert_eq!(member.dot_dot_dot_token.is_some(), !prefix.is_empty());
             assert_eq!(member.question_token.is_some(), !suffix.is_empty());
             assert!(matches!(member.r#type, Some(TypeNode::ArrayTypeNode(_))));
-            assert_eq!(parsed.nodes.parent(name.node_id.unwrap()), member.node_id);
-            let span = parsed.nodes.span(member.node_id.unwrap());
+            assert_eq!(parsed.nodes.parent(name.node_id().unwrap()), member.node_id());
+            let span = parsed.nodes.span(member.node_id().unwrap());
             assert_eq!(&source[span.start as usize..span.end as usize], element);
         }
     }
@@ -1343,7 +1343,7 @@ fn a_declarations_annotation_is_reachable_through_the_map() {
         .declaration_list
         .and_then(|list| list.declarations.first().copied())
         .expect("one declaration");
-    let id = declaration.node_id.expect("registered");
+    let id = declaration.node_id().expect("registered");
 
     let Some(tsr_ast::Node::VariableDeclaration(found)) = parsed.node_map.get(id) else {
         panic!("expected a VariableDeclaration from the map");
@@ -1577,7 +1577,7 @@ fn a_trailing_comma_does_not_manufacture_a_variable_declaration() {
         assert!(
             parsed
                 .nodes
-                .flags(list.node_id.expect("the list is a node"))
+                .flags(list.node_id().expect("the list is a node"))
                 .contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA),
             "{source:?} must record the trailing comma; TS1009 is derived from it"
         );

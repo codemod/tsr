@@ -736,7 +736,7 @@ fn a_type_parameter_is_its_own_named_type() {
     let Statement::FunctionDeclaration(function) = parsed.source_file.statements[0] else {
         panic!("the fixture is a function declaration");
     };
-    let scope = function.node_id.expect("registered");
+    let scope = function.node_id().expect("registered");
     let symbol = bound.lookup_local(scope, "T").expect("the type parameter is in the function");
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_declared_type_of_symbol(symbol);
@@ -2320,7 +2320,7 @@ fn type_of_enum_member(source: &str, enum_name: &str, member_name: &str) -> Stri
     let symbol = declaration
         .members
         .iter()
-        .filter_map(|member| member.node_id.and_then(|id| bound.symbol_of(id)))
+        .filter_map(|member| member.node_id().and_then(|id| bound.symbol_of(id)))
         .find(|&symbol| bound.symbols().get(symbol).name == member_name)
         .unwrap_or_else(|| panic!("`{enum_name}.{member_name}` is declared"));
 

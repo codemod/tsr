@@ -80,7 +80,7 @@ pub fn analyze_with_options<'a>(
     options: AnalysisOptions,
 ) -> Vec<Diagnostic> {
     let javascript = file
-        .node_id
+        .node_id()
         .is_some_and(|id| nodes.flags(id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE));
     let commonjs = visibility::is_commonjs_module(file, javascript);
     let visible = visibility::visible_declarations(file, commonjs);

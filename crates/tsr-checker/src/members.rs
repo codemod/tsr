@@ -115,7 +115,7 @@ impl Checker<'_, '_> {
         // Direct public reads (including the property's name in a baseline)
         // share the expression's cached result. Rechecking an access after
         // its call exhausted the instantiation budget must not change it.
-        if let Some(id) = node.node_id
+        if let Some(id) = node.node_id()
             && let Some(&cached) = self.node_types.get(&id)
         {
             return cached;
@@ -135,7 +135,7 @@ impl Checker<'_, '_> {
         // `check_readonly_assignment_target`, the DIAGNOSTIC road. The type road
         // never consulted it — the eighteenth instance this session of a
         // capability present and a caller that does not reach for it.
-        if let Some(id) = node.node_id
+        if let Some(id) = node.node_id()
             && self.is_readonly_assignment_target(id)
         {
             return self.intrinsics.any;
@@ -242,7 +242,7 @@ impl Checker<'_, '_> {
         let mut lexical_private_class = None;
         let mut private_without_lexical_symbol = None;
         if let tsr_ast::MemberName::PrivateIdentifier(_) = member
-            && let Some(access_id) = node.node_id
+            && let Some(access_id) = node.node_id()
         {
             lexical_private_class = self.lexical_private_declaring_class(access_id, name);
             if lexical_private_class.is_none() {
@@ -299,14 +299,14 @@ impl Checker<'_, '_> {
                 // §14.1's split: a JS baseline prints upstream's errorType
                 // verbatim (`jsFileClassSelfReferencedProperty`'s
                 // `this.testStackOverflow.bind : error`).
-                if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+                if node.node_id().is_some_and(|id| self.in_js_file(id)) {
                     return error;
                 }
                 return self.intrinsics.any;
             }
             return error;
         }
-        let widen_receiver = node.node_id.is_some_and(|access| {
+        let widen_receiver = node.node_id().is_some_and(|access| {
             if self.assignment_target_kind(access) != crate::expressions::AssignmentTargetKind::None
             {
                 return true;
@@ -361,7 +361,7 @@ impl Checker<'_, '_> {
         // isAssignmentToReadonlyEntity's namespace-import branch (5b1047d
         // checker.go:27279). Reuse alias/declaration identity, not module shape;
         // the existing readonly diagnostic owner reports TS2540 separately.
-        if node.node_id.is_some_and(|id| {
+        if node.node_id().is_some_and(|id| {
             self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
         }) && self.receiver_alias_is_namespace_import(receiver) == Some(true)
             && self.get_property_of_type(stripped, name).is_some()
@@ -372,7 +372,7 @@ impl Checker<'_, '_> {
         // property as an assignment target answers upstream's `errorType`,
         // printed `any` (`checker-notes-narrow.md` §27).
         if node
-            .node_id
+            .node_id()
             .is_some_and(|id| {
                 self.assignment_target_kind(id)
                     != crate::expressions::AssignmentTargetKind::None
@@ -391,7 +391,7 @@ impl Checker<'_, '_> {
                 receiver,
                 tsr_ast::Expression::KeywordExpression(keyword)
                     if keyword.kind == tsr_ast::SyntaxKind::ThisKeyword
-            ) && node.node_id.is_some_and(|id| {
+            ) && node.node_id().is_some_and(|id| {
                 self.control_flow_container(id).is_some_and(|container| {
                     self.nodes.kind(container) == tsr_ast::SyntaxKind::Constructor
                 })
@@ -407,7 +407,7 @@ impl Checker<'_, '_> {
         // `isThisPropertyAccessInConstructor` (`checker.go:27328`): inside the
         // constructor that declares a this-property, the property reads as
         // `autoType` and `getFlowTypeOfAccessExpression` follows its flow.
-        if let Some(access) = node.node_id
+        if let Some(access) = node.node_id()
             && self.in_js_file(access)
             && let Some(constructor) = self.get_this_container(access, true)
             && self.nodes.kind(constructor) == tsr_ast::SyntaxKind::Constructor
@@ -425,7 +425,7 @@ impl Checker<'_, '_> {
             }
             return self.get_flow_type_of_property_symbol(access, None, property);
         }
-        let result = self.access_member_lookup(stripped, name, node.node_id);
+        let result = self.access_member_lookup(stripped, name, node.node_id());
         // checkPropertyAccessExpressionOrQualifiedName (`checker.go:11334`): a
         // miss on a JS literal receiver (`isJSLiteralType`) answers `anyType`.
         if result == error
@@ -447,7 +447,7 @@ impl Checker<'_, '_> {
         // (`getWriteTypeOfAccessors`, `checker.go:16447`), which differs from
         // the read type only for a divergent pair — `get x(): string` beside
         // `set x(v: string | number | boolean)`.
-        let is_definite_write = node.node_id.is_some_and(|id| {
+        let is_definite_write = node.node_id().is_some_and(|id| {
             self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite
         });
         let result = if is_definite_write
@@ -462,7 +462,7 @@ impl Checker<'_, '_> {
         } else {
             result
         };
-        self.propagate_optional_type_marker_at(node.node_id, result, non_optional != receiver_type)
+        self.propagate_optional_type_marker_at(node.node_id(), result, non_optional != receiver_type)
     }
 
     /// The §45 `Record<string, V>` read: `Some(V)` only for a reference to
@@ -713,7 +713,7 @@ impl Checker<'_, '_> {
             // it is correct, and it is the arm anyone reading this diagnosis
             // would go to first.
             tsr_ast::EntityName::Identifier(identifier) if identifier.text == "this" => {
-                match identifier.node_id {
+                match identifier.node_id() {
                     Some(id) => self.check_this_expression(id),
                     None => return error,
                 }
@@ -740,7 +740,7 @@ impl Checker<'_, '_> {
         if let Some(member) = self.type_only_module_member(stripped, right.text) {
             return self.get_type_of_symbol(member);
         }
-        self.access_member_lookup(stripped, right.text, node.node_id)
+        self.access_member_lookup(stripped, right.text, node.node_id())
     }
 
     /// `getPropertyOfTypeEx(apparentType, right, …, includeTypeOnlyMembers:
@@ -2089,17 +2089,17 @@ impl Checker<'_, '_> {
                     // native heritage reference. Reuse the existing supplier
                     // when the written entry has none (5b1047d getBaseTypes).
                     let arguments = if entry.type_arguments.is_empty()
-                        && entry.node_id.is_some_and(|node| self.in_js_file(node))
+                        && entry.node_id().is_some_and(|node| self.in_js_file(node))
                     {
                         entry
-                            .node_id
+                            .node_id()
                             .and_then(|node| self.jsdoc_augments_type_arguments(node))
                             .unwrap_or(entry.type_arguments)
                     } else {
                         entry.type_arguments
                     };
                     let Some(base_type) =
-                        self.instantiated_heritage_base(base, arguments, entry.node_id)
+                        self.instantiated_heritage_base(base, arguments, entry.node_id())
                     else {
                         continue;
                     };
@@ -2193,17 +2193,17 @@ impl Checker<'_, '_> {
                         continue;
                     }
                     let arguments = if entry.type_arguments.is_empty()
-                        && entry.node_id.is_some_and(|node| self.in_js_file(node))
+                        && entry.node_id().is_some_and(|node| self.in_js_file(node))
                     {
                         entry
-                            .node_id
+                            .node_id()
                             .and_then(|node| self.jsdoc_augments_type_arguments(node))
                             .unwrap_or(entry.type_arguments)
                     } else {
                         entry.type_arguments
                     };
                     let Some(base_type) =
-                        self.instantiated_heritage_base(base, arguments, entry.node_id)
+                        self.instantiated_heritage_base(base, arguments, entry.node_id())
                     else {
                         continue;
                     };
@@ -4375,7 +4375,7 @@ impl Checker<'_, '_> {
             tsr_ast::Expression::Identifier(name) => self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
-                name.node_id?,
+                name.node_id()?,
                 name.text,
                 meaning | SymbolFlags::ALIAS,
             )?,
@@ -5376,7 +5376,7 @@ function outer<X>() {{ type Local = [X, Local][]; let local!: Local; return loca
                 if let Node::VariableDeclaration(declaration) = node
                     && matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "local")
                 {
-                    break checker.binder.symbol_of(declaration.node_id.unwrap()).unwrap();
+                    break checker.binder.symbol_of(declaration.node_id().unwrap()).unwrap();
                 }
                 tsr_ast::push_children(node, &mut nodes);
             };

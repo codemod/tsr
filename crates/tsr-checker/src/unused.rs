@@ -399,7 +399,7 @@ impl Checker<'_, '_> {
         }
         let named = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => access.name.and_then(|n| n.node_id()),
-            Some(Node::QualifiedName(name)) => name.right.and_then(|n| n.node_id),
+            Some(Node::QualifiedName(name)) => name.right.and_then(|n| n.node_id()),
             // An element access whose index is a **literal union** names every
             // property the union can reach, and upstream marks each of them
             // inside the access resolution (`checker.go:27033`). Asking the
@@ -631,7 +631,7 @@ impl Checker<'_, '_> {
         let is = |slot: Option<NodeId>| slot == Some(node);
         match typed {
             Node::PropertyAccessExpression(n) => is(n.name.and_then(|n| n.node_id())),
-            Node::QualifiedName(n) => is(n.right.and_then(|n| n.node_id)),
+            Node::QualifiedName(n) => is(n.right.and_then(|n| n.node_id())),
             Node::PropertyAssignment(n) => is(n.name.node_id()),
             Node::PropertyDeclaration(n) => is(n.name.node_id()),
             Node::PropertySignatureDeclaration(n) => is(n.name.node_id()),
@@ -646,17 +646,17 @@ impl Checker<'_, '_> {
                 is(n.name.and_then(|n| n.node_id()))
                     || is(n.property_name.and_then(|n| n.node_id()))
             }
-            Node::TypeParameterDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::FunctionDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::FunctionExpression(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::ClassDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::ClassExpression(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::InterfaceDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::TypeAliasDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::EnumDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
+            Node::TypeParameterDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::FunctionDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::FunctionExpression(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::ClassDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::ClassExpression(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::InterfaceDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::TypeAliasDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::EnumDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
             Node::ModuleDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
-            Node::ImportClause(n) => is(n.name.and_then(|n| n.node_id)),
-            Node::NamespaceImport(n) => is(n.name.and_then(|n| n.node_id)),
+            Node::ImportClause(n) => is(n.name.and_then(|n| n.node_id())),
+            Node::NamespaceImport(n) => is(n.name.and_then(|n| n.node_id())),
             // **A property name names an export of another module.** It is not
             // a reference to anything in this file, so marking it can only
             // resolve by accident — `import { Member } …; import { Member as M }
@@ -665,9 +665,9 @@ impl Checker<'_, '_> {
             // `getResolvedSymbol`, which an import specifier's property name
             // does not go through. §702.
             Node::ImportSpecifier(n) => {
-                is(n.name.and_then(|n| n.node_id)) || is(n.property_name.and_then(|n| n.node_id()))
+                is(n.name.and_then(|n| n.node_id())) || is(n.property_name.and_then(|n| n.node_id()))
             }
-            Node::ImportEqualsDeclaration(n) => is(n.name.and_then(|n| n.node_id)),
+            Node::ImportEqualsDeclaration(n) => is(n.name.and_then(|n| n.node_id())),
             Node::NamespaceExport(n) => is(n.name.and_then(|n| n.node_id())),
             // **§702 mirrored.** An import specifier's *property name* is the
             // foreign one; an export specifier's *name* is. `export { x as y }`
@@ -679,7 +679,7 @@ impl Checker<'_, '_> {
             }
             // An attribute's name is never a variable.
             Node::JsxAttribute(n) => is(n.name.and_then(|n| n.node_id())),
-            Node::LabeledStatement(n) => is(n.label.and_then(|n| n.node_id)),
+            Node::LabeledStatement(n) => is(n.label.and_then(|n| n.node_id())),
             _ => false,
         }
     }
@@ -1183,7 +1183,7 @@ impl Checker<'_, '_> {
                         if !has_keyword(parameter.modifiers, SyntaxKind::PrivateKeyword) {
                             continue;
                         }
-                        let Some(id) = parameter.node_id else { continue };
+                        let Some(id) = parameter.node_id() else { continue };
                         let Some(name) = self.name_node_of(id) else { continue };
                         let Some(text) = self.identifier_text_of(name) else { continue };
                         if self.referenced_member_names.contains(text) {
@@ -1241,7 +1241,7 @@ impl Checker<'_, '_> {
     /// `checkUnusedInferTypeParameter` (`checker.go:7283`).
     fn check_unused_infer_type_parameter(&mut self, node: NodeId) {
         let Some(Node::InferTypeNode(infer)) = self.node_map.get(node) else { return };
-        let Some(parameter) = infer.type_parameter.and_then(|p| p.node_id) else { return };
+        let Some(parameter) = infer.type_parameter.and_then(|p| p.node_id()) else { return };
         if !self.is_unreferenced_type_parameter(parameter) {
             return;
         }
@@ -1394,19 +1394,19 @@ impl Checker<'_, '_> {
             Node::VariableDeclaration(n) => n.name.and_then(|n| n.node_id()),
             Node::ParameterDeclaration(n) => n.name.and_then(|n| n.node_id()),
             Node::BindingElement(n) => n.name.and_then(|n| n.node_id()),
-            Node::TypeParameterDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::FunctionDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::FunctionExpression(n) => n.name.and_then(|n| n.node_id),
-            Node::ClassDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::ClassExpression(n) => n.name.and_then(|n| n.node_id),
-            Node::InterfaceDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::TypeAliasDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::EnumDeclaration(n) => n.name.and_then(|n| n.node_id),
+            Node::TypeParameterDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::FunctionDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::FunctionExpression(n) => n.name.and_then(|n| n.node_id()),
+            Node::ClassDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::ClassExpression(n) => n.name.and_then(|n| n.node_id()),
+            Node::InterfaceDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::TypeAliasDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::EnumDeclaration(n) => n.name.and_then(|n| n.node_id()),
             Node::ModuleDeclaration(n) => n.name.and_then(|n| n.node_id()),
-            Node::ImportClause(n) => n.name.and_then(|n| n.node_id),
-            Node::NamespaceImport(n) => n.name.and_then(|n| n.node_id),
-            Node::ImportSpecifier(n) => n.name.and_then(|n| n.node_id),
-            Node::ImportEqualsDeclaration(n) => n.name.and_then(|n| n.node_id),
+            Node::ImportClause(n) => n.name.and_then(|n| n.node_id()),
+            Node::NamespaceImport(n) => n.name.and_then(|n| n.node_id()),
+            Node::ImportSpecifier(n) => n.name.and_then(|n| n.node_id()),
+            Node::ImportEqualsDeclaration(n) => n.name.and_then(|n| n.node_id()),
             Node::PropertyDeclaration(n) => n.name.node_id(),
             Node::MethodDeclaration(n) => n.name.node_id(),
             Node::GetAccessorDeclaration(n) => n.name.node_id(),
@@ -1440,7 +1440,7 @@ impl Checker<'_, '_> {
     fn binding_elements_of(&self, pattern: NodeId) -> Vec<NodeId> {
         match self.node_map.get(pattern) {
             Some(Node::BindingPattern(bindings)) => {
-                bindings.elements.iter().filter_map(|element| element.node_id).collect()
+                bindings.elements.iter().filter_map(|element| element.node_id()).collect()
             }
             _ => Vec::new(),
         }
@@ -1449,7 +1449,7 @@ impl Checker<'_, '_> {
     fn variable_declarations_of(&self, list: NodeId) -> Vec<NodeId> {
         match self.node_map.get(list) {
             Some(Node::VariableDeclarationList(declarations)) => {
-                declarations.declarations.iter().filter_map(|d| d.node_id).collect()
+                declarations.declarations.iter().filter_map(|d| d.node_id()).collect()
             }
             _ => Vec::new(),
         }
@@ -1457,7 +1457,7 @@ impl Checker<'_, '_> {
 
     pub(crate) fn parameters_of(&self, node: NodeId) -> Vec<NodeId> {
         let collect = |parameters: &[&tsr_ast::ParameterDeclaration<'_>]| -> Vec<NodeId> {
-            parameters.iter().filter_map(|p| p.node_id).collect()
+            parameters.iter().filter_map(|p| p.node_id()).collect()
         };
         match self.node_map.get(node) {
             Some(Node::FunctionDeclaration(n)) => collect(n.parameters),
@@ -1553,7 +1553,7 @@ impl Checker<'_, '_> {
         for host in hosts {
             for (hosted_kind, list) in self.jsdoc_template_lists(host) {
                 if hosted_kind == kind {
-                    return list.iter().filter_map(|parameter| parameter.node_id).collect();
+                    return list.iter().filter_map(|parameter| parameter.node_id()).collect();
                 }
             }
         }
@@ -1562,7 +1562,7 @@ impl Checker<'_, '_> {
 
     fn written_type_parameters_of(&self, node: NodeId) -> Vec<NodeId> {
         let collect = |parameters: &[&tsr_ast::TypeParameterDeclaration<'_>]| -> Vec<NodeId> {
-            parameters.iter().filter_map(|p| p.node_id).collect()
+            parameters.iter().filter_map(|p| p.node_id()).collect()
         };
         match self.node_map.get(node) {
             Some(Node::FunctionDeclaration(n)) => collect(n.type_parameters),

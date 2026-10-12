@@ -761,7 +761,7 @@ impl<'a> BindResult<'a> {
                 let Some(tsr_ast::Expression::Identifier(name)) = assignment.expression else {
                     return None;
                 };
-                self.resolve_name(nodes, node_map, name.node_id?, name.text, all)?
+                self.resolve_name(nodes, node_map, name.node_id()?, name.text, all)?
             }
             tsr_ast::Node::ExportSpecifier(specifier) => {
                 let export = nodes.parent(nodes.parent(declaration)?)?;
@@ -790,7 +790,7 @@ impl<'a> BindResult<'a> {
                     let tsr_ast::ModuleExportName::Identifier(local) = local else {
                         return None;
                     };
-                    self.resolve_name(nodes, node_map, local.node_id?, local.text, all)?
+                    self.resolve_name(nodes, node_map, local.node_id()?, local.text, all)?
                 }
             }
             tsr_ast::Node::ImportSpecifier(specifier) => {
@@ -842,7 +842,7 @@ impl<'a> BindResult<'a> {
                 tsr_ast::ModuleReference::Identifier(name) => self.resolve_name(
                     nodes,
                     node_map,
-                    name.node_id?,
+                    name.node_id()?,
                     name.text,
                     SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
                 )?,
@@ -859,7 +859,7 @@ impl<'a> BindResult<'a> {
                     let mut namespace = self.resolve_name(
                         nodes,
                         node_map,
-                        root.node_id?,
+                        root.node_id()?,
                         root.text,
                         SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
                     )?;

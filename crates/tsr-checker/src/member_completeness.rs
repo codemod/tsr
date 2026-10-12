@@ -691,7 +691,7 @@ mod tests {
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty());
-        let root = parsed.source_file.node_id.expect("registered file");
+        let root = parsed.source_file.node_id().expect("registered file");
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,
@@ -752,7 +752,7 @@ function read(qualified, replaced) { qualified.child.present; replaced.kept; }
             tsr_parser::ParseOptions::for_file("boundary.js"),
         );
         assert!(parsed.diagnostics.is_empty());
-        let root = parsed.source_file.node_id.expect("registered file");
+        let root = parsed.source_file.node_id().expect("registered file");
         parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
         let docs: Vec<_> = parsed.jsdoc.iter().collect();
         let bound = tsr_binder::bind_into_with_jsdoc(
@@ -802,7 +802,7 @@ function read(qualified, replaced) { qualified.child.present; replaced.kept; }
                         return false;
                     };
                     let body = match tag.type_expression {
-                        Some(tsr_ast::Node::TypeLiteralNode(literal)) => literal.node_id,
+                        Some(tsr_ast::Node::TypeLiteralNode(literal)) => literal.node_id(),
                         Some(tsr_ast::Node::JSDocTypeExpression(expression)) => {
                             expression.r#type.and_then(|ty| ty.node_id())
                         }

@@ -110,7 +110,7 @@ impl<'a> Checker<'a, '_> {
                     .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
                     .and_then(|clause| clause.types.first())
                     && element.type_arguments.is_empty()
-                    && let Some(id) = element.node_id
+                    && let Some(id) = element.node_id()
                 {
                     for &argument in self.jsdoc_augments_type_arguments(id).unwrap_or_default() {
                         push(Some(argument));
@@ -232,7 +232,7 @@ impl<'a> Checker<'a, '_> {
         // comments: a typedef's or callback's alias, or the documented
         // function or class.
         for (_, list) in self.jsdoc_template_lists(node) {
-            out.extend(list.iter().filter_map(|parameter| parameter.node_id));
+            out.extend(list.iter().filter_map(|parameter| parameter.node_id()));
         }
         out
     }
@@ -346,7 +346,7 @@ impl<'a> Checker<'a, '_> {
         }
         let host = *self.jsdoc_hosts.get(&root)?;
         self.jsdoc_template_lists(host).into_iter().find_map(|(kind, list)| {
-            list.iter().any(|candidate| candidate.node_id == Some(parameter)).then_some(kind)
+            list.iter().any(|candidate| candidate.node_id() == Some(parameter)).then_some(kind)
         })
     }
 }
@@ -393,7 +393,7 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(this_tag) = self.jsdoc_reparsed_function(function).this_tag else { return };
-        let Some(name) = this_tag.tag_name.node_id else { return };
+        let Some(name) = this_tag.tag_name.node_id() else { return };
         let Some(file) = self.source_file_of_for_diagnostics(function) else { return };
         let span = self.nodes.span(name);
         self.report(file, Diagnostic::new(message, span));

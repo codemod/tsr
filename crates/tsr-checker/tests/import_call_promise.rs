@@ -79,7 +79,7 @@ fn program<'a>(arena: &'a Arena, files: &[(&'static str, &str)]) -> Fixture<'a> 
     let mut host = Fixtures { files: Vec::new() };
     for (name, source, source_file) in parsed {
         let file_name: &'a str = arena.alloc_str(&format!("/{name}.ts"));
-        host.files.push((name, source_file.node_id.expect("a parsed file has an id")));
+        host.files.push((name, source_file.node_id().expect("a parsed file has an id")));
         bound = tsr_binder::bind_into(
             bound,
             arena,

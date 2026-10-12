@@ -60,12 +60,12 @@ fn check_group(
     );
     checker.apply_compiler_options(options);
     checker.set_checked_files(
-        program.root_and_referenced_files().iter().filter_map(|file| file.source_file().node_id),
+        program.root_and_referenced_files().iter().filter_map(|file| file.source_file().node_id()),
     );
     for &index in &group {
         let file = &program.source_files()[index];
         checker.check_source_file(
-            file.source_file().node_id.unwrap(),
+            file.source_file().node_id().unwrap(),
             tsr_checker::check::FileContext {
                 ambient: tsr_path::is_declaration_file_name(file.file_name()),
                 has_parse_errors: !file.diagnostics().is_empty(),
@@ -76,7 +76,7 @@ fn check_group(
     for &index in &group {
         let file = &program.source_files()[index];
         if let Some(symbol) =
-            program.binder().lookup_local(file.source_file().node_id.unwrap(), "probe")
+            program.binder().lookup_local(file.source_file().node_id().unwrap(), "probe")
         {
             let ty = checker.get_type_of_symbol(symbol);
             queries.push((file.file_name().to_owned(), checker.type_to_string(ty)));
@@ -139,13 +139,13 @@ fn rendered(
     let names: HashMap<_, _> = program
         .source_files()
         .iter()
-        .map(|file| (file.source_file().node_id.unwrap().as_u32(), file.file_name()))
+        .map(|file| (file.source_file().node_id().unwrap().as_u32(), file.file_name()))
         .collect();
     worker_diagnostics::normalize(&mut raw, |id| names[&id]);
     let mut output = String::new();
     for index in eligible_files(program, options) {
         let source = &program.source_files()[index];
-        let id = source.source_file().node_id.unwrap().as_u32();
+        let id = source.source_file().node_id().unwrap().as_u32();
         let file = DiagnosticFile::new(source.file_name(), source.text());
         let entries: Vec<_> = raw
             .iter()

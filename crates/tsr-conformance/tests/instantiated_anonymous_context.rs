@@ -16,7 +16,7 @@ fn field_member(source: &str, strict: bool, precheck: bool) -> String {
     let arena = Arena::new();
     let program = types_producer::program_for_case(&arena, &test);
     let file = program.source_file("fixture.ts").expect("fixture");
-    let file_id = file.source_file().node_id.expect("source id");
+    let file_id = file.source_file().node_id().expect("source id");
     let mut checker = types_producer::configured_checker(&program);
     checker.set_checked_files(vec![file_id]);
     if precheck {

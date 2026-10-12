@@ -276,7 +276,7 @@ fn program_units<'p, 'a>(test: &crate::TestCase, program: &'p Program<'a>) -> Ve
     let mut units = Vec::new();
     for unit in &test.files {
         let Some(file) = program.source_file(&unit.name) else { continue };
-        let Some(id) = file.source_file().node_id else { continue };
+        let Some(id) = file.source_file().node_id() else { continue };
         if !seen.insert(id) {
             continue;
         }
@@ -740,7 +740,7 @@ pub fn assignability_probe_for(test: &crate::TestCase) -> Vec<ProbedPosition> {
             continue;
         }
         if let Some(file) = program.source_file(&unit.name)
-            && let Some(id) = file.source_file().node_id
+            && let Some(id) = file.source_file().node_id()
         {
             own_files.push(id);
         }
@@ -753,7 +753,7 @@ pub fn assignability_probe_for(test: &crate::TestCase) -> Vec<ProbedPosition> {
             continue;
         }
         let Some(file) = program.source_file(&unit.name) else { continue };
-        let Some(id) = file.source_file().node_id else { continue };
+        let Some(id) = file.source_file().node_id() else { continue };
         let declaration_file = unit.name.ends_with(".d.ts")
             || unit.name.ends_with(".d.mts")
             || unit.name.ends_with(".d.cts");
@@ -809,7 +809,7 @@ pub fn node_kinds_by_position_for(
             continue;
         }
         let Some(file) = program.source_file(&unit.name) else { continue };
-        let Some(id) = file.source_file().node_id else { continue };
+        let Some(id) = file.source_file().node_id() else { continue };
         units.push((id, unit.name.clone(), file.text()));
     }
     let nodes = program.nodes();

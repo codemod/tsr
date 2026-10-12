@@ -53,7 +53,7 @@ fn lines_in(file: &str, source: &str, codes: &[u32]) -> Vec<usize> {
         &mut nodes,
         &mut map,
     );
-    let root = parsed.source_file.node_id.expect("registered source file");
+    let root = parsed.source_file.node_id().expect("registered source file");
     let bound = tsr_binder::bind_into(
         bound,
         &arena,

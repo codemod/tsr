@@ -10,7 +10,7 @@ fn effects_refusal_in_foreign_alias_frame_is_not_a_completed_negative() {
     let arena = tsr_core::Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty());
-    let root = parsed.source_file.node_id.unwrap();
+    let root = parsed.source_file.node_id().unwrap();
     let bound = tsr_binder::bind(
         &arena,
         parsed.source_file,
@@ -27,7 +27,7 @@ fn effects_refusal_in_foreign_alias_frame_is_not_a_completed_negative() {
     let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0] else {
         panic!("alias");
     };
-    let parameter = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+    let parameter = bound.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap();
     let call = (0..checker.nodes.len())
         .find_map(|index| {
             let id = tsr_ast::NodeId::new(u32::try_from(index).unwrap());

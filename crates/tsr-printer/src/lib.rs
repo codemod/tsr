@@ -644,14 +644,14 @@ impl<'t> Printer<'t> {
     /// (`internal/printer/printer.go`), which differ only in their list format.
     pub(crate) fn emit_binding_pattern(&mut self, pattern: &tsr_ast::BindingPattern<'_>) {
         // The `kind` field is the opening bracket token, not the pattern's kind.
-        let object = self.kind_of(pattern.node_id) == SyntaxKind::ObjectBindingPattern;
+        let object = self.kind_of(pattern.node_id()) == SyntaxKind::ObjectBindingPattern;
         let (format, open, close) = if object {
             (ListFormat::OBJECT_BINDING_PATTERN_ELEMENTS, "{", "}")
         } else {
             (ListFormat::ARRAY_BINDING_PATTERN_ELEMENTS, "[", "]")
         };
         self.write_punctuation(open);
-        let trailing_comma = pattern.node_id.is_some_and(|id| {
+        let trailing_comma = pattern.node_id().is_some_and(|id| {
             self.nodes.flags(id).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA)
         });
         self.emit_list_with_trailing_delimiter(

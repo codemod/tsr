@@ -32,7 +32,7 @@ fn bind_program<'a>(
     // uses and the order `bind_into` documents as the caller's responsibility.
     for (name, text) in files {
         let file = parse_into(arena, text, ParseOptions::for_file(name), nodes, node_map);
-        let root = file.source_file.node_id.expect("the source file is registered");
+        let root = file.source_file.node_id().expect("the source file is registered");
         result =
             tsr_binder::bind_into(result, arena, file.source_file, nodes, FileInfo { name, text });
         parsed.push(File { name, root, nodes: file.node_range });
@@ -384,7 +384,7 @@ fn a_file_bound_alone_resolves_exactly_as_it_always_did() {
         FileInfo { name: "a.ts", text: source },
     );
 
-    let root = parsed.source_file.node_id.expect("registered");
+    let root = parsed.source_file.node_id().expect("registered");
     let resolve = |name: &str| {
         result.resolve_name(&parsed.nodes, &parsed.node_map, root, name, SymbolFlags::VALUE)
     };

@@ -36,7 +36,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         pattern: &BindingPattern<'a>,
     ) -> Option<TypeId> {
-        match self.nodes.kind(pattern.node_id?) {
+        match self.nodes.kind(pattern.node_id()?) {
             SyntaxKind::ObjectBindingPattern => self.object_pattern_implied_type(pattern),
             SyntaxKind::ArrayBindingPattern => self.array_pattern_implied_type(pattern),
             _ => None,
@@ -147,7 +147,7 @@ impl<'a> Checker<'a, '_> {
             {
                 return None;
             }
-            let declaration = element.node_id?;
+            let declaration = element.node_id()?;
             let checked = self.check_expression(initializer);
             if checked == self.intrinsics.error {
                 return None;
@@ -220,7 +220,7 @@ impl<'a> Checker<'a, '_> {
         if self.nodes.kind(self.root_declaration_of(declaration)) != SyntaxKind::Parameter {
             return Some(source);
         }
-        match self.nodes.kind(pattern.node_id?) {
+        match self.nodes.kind(pattern.node_id()?) {
             SyntaxKind::ObjectBindingPattern if self.is_object_literal_type(source) => {
                 let mut missing = Vec::new();
                 for element in
@@ -336,7 +336,7 @@ impl<'a> Checker<'a, '_> {
                 !matches!(expression, Expression::ArrayLiteralExpression(_) | Expression::ObjectLiteralExpression(_))
                     && self.binding_default_pattern_context_available(pattern, expression)
             }),
-            Expression::ArrayLiteralExpression(literal) if pattern.node_id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ArrayBindingPattern) => {
+            Expression::ArrayLiteralExpression(literal) if pattern.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ArrayBindingPattern) => {
                 !pattern.elements.iter().any(|element| element.dot_dot_dot_token.is_some())
                     // Tuple shape is available, per-element pattern context is
                     // not. Missing slots still consume the native padding road.
@@ -344,7 +344,7 @@ impl<'a> Checker<'a, '_> {
                         pattern.elements.get(index).is_none_or(|element| element.initializer.is_none())
                     })
             },
-            Expression::ObjectLiteralExpression(literal) if pattern.node_id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ObjectBindingPattern) => literal.properties.iter().all(|property| {
+            Expression::ObjectLiteralExpression(literal) if pattern.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ObjectBindingPattern) => literal.properties.iter().all(|property| {
                 let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(property) = property else { return false };
                 let name = match property.name { PropertyName::Identifier(name) => name.text, PropertyName::StringLiteral(name) => name.text, _ => return false };
                 !pattern.elements.iter().any(|element| {
@@ -516,7 +516,7 @@ mod tests {
         let Node::FunctionDeclaration(function) = c.node_map.get(id).unwrap() else {
             panic!("function")
         };
-        function.parameters[0].node_id.unwrap()
+        function.parameters[0].node_id().unwrap()
     }
 
     #[test]

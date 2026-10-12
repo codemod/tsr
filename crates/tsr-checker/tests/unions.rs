@@ -77,8 +77,8 @@ fn declared_type_id(
     index: usize,
 ) -> TypeId {
     let node = match statements[index] {
-        Statement::TypeAliasDeclaration(node) => node.node_id,
-        Statement::EnumDeclaration(node) => node.node_id,
+        Statement::TypeAliasDeclaration(node) => node.node_id(),
+        Statement::EnumDeclaration(node) => node.node_id(),
         _ => panic!("statement {index} must declare a type"),
     }
     .expect("a registered node");
@@ -718,10 +718,10 @@ fn singleton_reduction_preserves_written_signature_aliases() {
             let Statement::FunctionDeclaration(function) = statements[4] else {
                 panic!("function")
             };
-            let symbol = bound.symbol_of(function.node_id.unwrap()).unwrap();
+            let symbol = bound.symbol_of(function.node_id().unwrap()).unwrap();
             let ty = checker.get_type_of_symbol(symbol);
             assert_eq!(
-                checker.type_to_string_at(ty, function.node_id.unwrap()).as_deref(),
+                checker.type_to_string_at(ty, function.node_id().unwrap()).as_deref(),
                 Some("(value: NumberUnion, item: LiteralIntersection) => ShapeUnion"),
             );
         },

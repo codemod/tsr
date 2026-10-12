@@ -38,7 +38,7 @@ impl Checker<'_, '_> {
         for attribute in attributes.properties {
             match attribute {
                 JsxAttributeLike::JsxAttribute(attribute) => {
-                    let Some(at) = attribute.node_id else { continue };
+                    let Some(at) = attribute.node_id() else { continue };
                     let name = match attribute.name {
                         Some(JsxAttributeName::Identifier(name)) => name.text.to_string(),
                         Some(JsxAttributeName::JsxNamespacedName(name)) => {
@@ -115,7 +115,7 @@ impl Checker<'_, '_> {
         else {
             return;
         };
-        if element.opening_element.and_then(|o| o.node_id) != Some(opening)
+        if element.opening_element.and_then(|o| o.node_id()) != Some(opening)
             || !element.children.iter().any(crate::jsx_intrinsic::semantic_jsx_child)
         {
             return;

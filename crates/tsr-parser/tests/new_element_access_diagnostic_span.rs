@@ -34,7 +34,7 @@ fn empty_constructor_index_diagnostic_precedes_trivia_without_moving_its_missing
             .and_then(|argument| argument.node_id())
             .expect("missing identifier");
         assert_eq!(parsed.nodes.span(missing_id), Span::at(missing_start), "{source:?}");
-        assert_eq!(parsed.nodes.parent(missing_id), index.node_id, "{source:?}");
+        assert_eq!(parsed.nodes.parent(missing_id), index.node_id(), "{source:?}");
     }
 }
 

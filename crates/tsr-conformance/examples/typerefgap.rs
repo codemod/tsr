@@ -266,7 +266,7 @@ fn classify<'a>(
             let EntityName::Identifier(root) = root else {
                 return ("malformed qualified name — root is not an identifier", argument_gaps);
             };
-            let Some(root_id) = root.node_id else {
+            let Some(root_id) = root.node_id() else {
                 return ("malformed qualified name — root has no node id", argument_gaps);
             };
             let resolves = binder
@@ -286,7 +286,7 @@ fn classify<'a>(
         Some(EntityName::Identifier(name)) => name,
     };
 
-    let Some(id) = name.node_id else {
+    let Some(id) = name.node_id() else {
         return ("the name has no node id — a parse shape", argument_gaps);
     };
     let Some(symbol) = binder.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE) else {

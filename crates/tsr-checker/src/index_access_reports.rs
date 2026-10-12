@@ -397,7 +397,7 @@ impl Checker<'_, '_> {
         if name.text.is_empty() {
             return;
         }
-        let Some(name_id) = name.node_id else { return };
+        let Some(name_id) = name.node_id() else { return };
         if self.identifier_in_non_emitting_heritage_clause(name_id) {
             return;
         }
@@ -880,21 +880,21 @@ impl Checker<'_, '_> {
                 (name, expression_id)
             }
             Some(tsr_ast::PropertyName::Identifier(name)) => {
-                let Some(id) = name.node_id else { return };
+                let Some(id) = name.node_id() else { return };
                 (name.text.to_string(), id)
             }
             Some(tsr_ast::PropertyName::StringLiteral(name)) => {
-                let Some(id) = name.node_id else { return };
+                let Some(id) = name.node_id() else { return };
                 (name.text.to_string(), id)
             }
             Some(tsr_ast::PropertyName::NumericLiteral(name)) => {
-                let Some(id) = name.node_id else { return };
+                let Some(id) = name.node_id() else { return };
                 (crate::printing::normalise_number(name.text), id)
             }
             Some(_) => return,
             None => {
                 let Some(tsr_ast::BindingName::Identifier(name)) = element.name else { return };
-                let Some(id) = name.node_id else { return };
+                let Some(id) = name.node_id() else { return };
                 (name.text.to_string(), id)
             }
         };
@@ -1032,15 +1032,15 @@ impl Checker<'_, '_> {
                     computed_keys.push((expression, expression_id, has_default));
                 }
                 tsr_ast::PropertyName::Identifier(name) => {
-                    let Some(id) = name.node_id else { continue };
+                    let Some(id) = name.node_id() else { continue };
                     literal_keys.push((name.text.to_string(), id, has_default));
                 }
                 tsr_ast::PropertyName::StringLiteral(name) => {
-                    let Some(id) = name.node_id else { continue };
+                    let Some(id) = name.node_id() else { continue };
                     literal_keys.push((name.text.to_string(), id, has_default));
                 }
                 tsr_ast::PropertyName::NumericLiteral(name) => {
-                    let Some(id) = name.node_id else { continue };
+                    let Some(id) = name.node_id() else { continue };
                     literal_keys.push((
                         crate::printing::normalise_number(name.text),
                         id,

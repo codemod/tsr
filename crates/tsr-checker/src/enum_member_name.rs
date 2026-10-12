@@ -100,7 +100,7 @@ impl Checker<'_, '_> {
         let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
         self.check_ambient_enum_member_initializer(node, member);
         let (at, numeric) = match member.name {
-            tsr_ast::PropertyName::BigIntLiteral(literal) => (literal.node_id, true),
+            tsr_ast::PropertyName::BigIntLiteral(literal) => (literal.node_id(), true),
             // **A numeric literal's name is always a numeric name.** Upstream
             // applies the predicate to `GetTextOfPropertyName`, which for a
             // numeric literal is the *normalised* text — and a normalised text
@@ -111,12 +111,12 @@ impl Checker<'_, '_> {
             // 100% and reprints from `text`). The predicate is upstream's; the
             // normalisation it assumes is not this tree's, so the conclusion is
             // taken directly. §671.
-            tsr_ast::PropertyName::NumericLiteral(literal) => (literal.node_id, true),
+            tsr_ast::PropertyName::NumericLiteral(literal) => (literal.node_id(), true),
             tsr_ast::PropertyName::StringLiteral(literal) => {
-                (literal.node_id, is_numeric_literal_name(literal.text))
+                (literal.node_id(), is_numeric_literal_name(literal.text))
             }
             tsr_ast::PropertyName::Identifier(name) => {
-                (name.node_id, is_numeric_literal_name(name.text))
+                (name.node_id(), is_numeric_literal_name(name.text))
             }
             // `ast.IsComputedNonLiteralName`: a computed name whose
             // expression is not a string or numeric literal is TS1164, and
@@ -124,14 +124,14 @@ impl Checker<'_, '_> {
             // visit the name). A literal one is named by its text.
             tsr_ast::PropertyName::ComputedPropertyName(computed) => match computed.expression {
                 Some(tsr_ast::Expression::StringLiteral(literal)) => {
-                    (computed.node_id, is_numeric_literal_name(literal.text))
+                    (computed.node_id(), is_numeric_literal_name(literal.text))
                 }
                 Some(tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal)) => {
-                    (computed.node_id, is_numeric_literal_name(literal.text))
+                    (computed.node_id(), is_numeric_literal_name(literal.text))
                 }
-                Some(tsr_ast::Expression::NumericLiteral(_)) => (computed.node_id, true),
+                Some(tsr_ast::Expression::NumericLiteral(_)) => (computed.node_id(), true),
                 _ => {
-                    let Some(at) = computed.node_id else { return };
+                    let Some(at) = computed.node_id() else { return };
                     let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
                     let span = self.error_span(at);
                     self.report(
@@ -201,7 +201,7 @@ impl Checker<'_, '_> {
                 seen_missing_initial_initializer = true;
                 continue;
             }
-            let Some(member) = first.node_id else { continue };
+            let Some(member) = first.node_id() else { continue };
             let Some(member_name) = self.declaration_name_of(member) else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(member_name) else { continue };
             let span = self.error_span(member_name);

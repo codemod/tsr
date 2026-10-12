@@ -42,7 +42,7 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         if class_or_interface
-            && node.node_id.and_then(|id| self.source_file_of(id)).is_some_and(|file| {
+            && node.node_id().and_then(|id| self.source_file_of(id)).is_some_and(|file| {
                 self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
             })
         {

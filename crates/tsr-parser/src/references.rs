@@ -155,7 +155,7 @@ pub fn collect_external_module_references(
 
 /// Whether the parser recorded `flag` on `file`'s source-file node.
 fn has_source_flag(file: &SourceFile<'_>, nodes: &NodeTable, flag: NodeFlags) -> bool {
-    file.node_id.is_some_and(|id| nodes.flags(id).contains(flag))
+    file.node_id().is_some_and(|id| nodes.flags(id).contains(flag))
 }
 
 /// §269: the specifiers JSDoc `@import` tags name, so the loader resolves

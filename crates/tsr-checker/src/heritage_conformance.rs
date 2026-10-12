@@ -193,7 +193,7 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(target) =
-                self.instantiated_heritage_base(implemented, entry.type_arguments, entry.node_id)
+                self.instantiated_heritage_base(implemented, entry.type_arguments, entry.node_id())
             else {
                 continue;
             };
@@ -431,7 +431,7 @@ impl Checker<'_, '_> {
             }
             if let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = member {
                 for parameter in constructor.parameters {
-                    let Some(parameter_id) = parameter.node_id else { continue };
+                    let Some(parameter_id) = parameter.node_id() else { continue };
                     if parameter.modifiers.iter().any(|modifier| {
                         matches!(
                             modifier,
@@ -662,7 +662,7 @@ impl Checker<'_, '_> {
     /// (`objectTypeHidingMembersOfExtendedObject`).
     fn check_interface_heritage_conformance(&mut self, node: NodeId) {
         let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
-        let Some(name) = interface.name.and_then(|n| n.node_id) else { return };
+        let Some(name) = interface.name.and_then(|n| n.node_id()) else { return };
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         let declarations = self.binder.symbols().get(symbol).declarations.clone();
@@ -968,7 +968,7 @@ fn instance_member_declarations<'a>(
                     let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else {
                         continue;
                     };
-                    let Some(at) = name.node_id else { continue };
+                    let Some(at) = name.node_id() else { continue };
                     let private =
                         tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PrivateKeyword);
                     out.push((name.text, PROPERTY, private, false, false, false, at));
@@ -981,7 +981,7 @@ fn instance_member_declarations<'a>(
             continue;
         }
         let tsr_ast::PropertyName::Identifier(identifier) = name else { continue };
-        let Some(at) = identifier.node_id else { continue };
+        let Some(at) = identifier.node_id() else { continue };
         out.push((
             identifier.text,
             kind,
@@ -1108,7 +1108,7 @@ impl Checker<'_, '_> {
         let Some(tsr_ast::Expression::Identifier(name)) = extends.types.first()?.expression else {
             return None;
         };
-        let at = name.node_id?;
+        let at = name.node_id()?;
         let symbol = self.binder.resolve_name(
             self.nodes,
             self.node_map,

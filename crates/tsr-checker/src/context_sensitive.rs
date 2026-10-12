@@ -71,7 +71,7 @@ impl<'a> Checker<'a, '_> {
             }
             Node::JsxAttributes(node) => {
                 pending.extend(node.properties.iter().copied().map(Node::from));
-                if let Some(opening) = node.node_id.and_then(|id| self.nodes.parent(id))
+                if let Some(opening) = node.node_id().and_then(|id| self.nodes.parent(id))
                     && self.nodes.kind(opening) == SyntaxKind::JsxOpeningElement
                     && let Some(parent) = self.nodes.parent(opening)
                     && let Some(Node::JsxElement(element)) = self.node_map.get(parent)

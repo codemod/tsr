@@ -82,11 +82,11 @@ fn checked_image(fs: &dyn FileSystem, options: LoadOptions) -> String {
     );
     checker.apply_compiler_options(&options.compiler_options);
     checker.set_checked_files(
-        program.root_and_referenced_files().iter().filter_map(|f| f.source_file().node_id),
+        program.root_and_referenced_files().iter().filter_map(|f| f.source_file().node_id()),
     );
     for file in program.root_and_referenced_files() {
         checker.check_source_file(
-            file.source_file().node_id.expect("parsed file root"),
+            file.source_file().node_id().expect("parsed file root"),
             tsr_checker::check::FileContext {
                 ambient: tsr_path::is_declaration_file_name(file.file_name()),
                 has_parse_errors: !file.diagnostics().is_empty(),

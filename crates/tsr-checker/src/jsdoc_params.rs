@@ -83,7 +83,7 @@ impl<'a> Checker<'a, '_> {
             if self.signature_array_element(ty).is_some() {
                 return;
             }
-            let Some(name_id) = name.node_id else { return };
+            let Some(name_id) = name.node_id() else { return };
             self.report_jsdoc_parameter(
                 node,
                 name_id,
@@ -104,7 +104,7 @@ impl<'a> Checker<'a, '_> {
                     if !is_js {
                         continue;
                     }
-                    let (Some(id), Some(left)) = (qualified.node_id, qualified.left) else {
+                    let (Some(id), Some(left)) = (qualified.node_id(), qualified.left) else {
                         continue;
                     };
                     self.report_jsdoc_parameter(
@@ -120,7 +120,7 @@ impl<'a> Checker<'a, '_> {
                     if tag.is_name_first || !is_js {
                         continue;
                     }
-                    let Some(id) = identifier.node_id else { continue };
+                    let Some(id) = identifier.node_id() else { continue };
                     self.report_jsdoc_parameter(
                         node,
                         id,
@@ -177,7 +177,7 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::ExpressionStatement => Some(parent),
             SyntaxKind::VariableDeclarationList => match self.node_map.get(parent) {
                 Some(Node::VariableDeclarationList(list))
-                    if list.declarations.first().and_then(|first| first.node_id) == Some(node) =>
+                    if list.declarations.first().and_then(|first| first.node_id()) == Some(node) =>
                 {
                     Some(parent)
                 }
@@ -222,22 +222,22 @@ impl<'a> Checker<'a, '_> {
             }
             Node::PropertyDeclaration(n) => {
                 if let tsr_ast::PropertyName::ComputedPropertyName(name) = n.name {
-                    return name.node_id.is_some_and(|id| self.visit_arguments_reference(id));
+                    return name.node_id().is_some_and(|id| self.visit_arguments_reference(id));
                 }
             }
             Node::MethodDeclaration(n) => {
                 if let tsr_ast::PropertyName::ComputedPropertyName(name) = n.name {
-                    return name.node_id.is_some_and(|id| self.visit_arguments_reference(id));
+                    return name.node_id().is_some_and(|id| self.visit_arguments_reference(id));
                 }
             }
             Node::GetAccessorDeclaration(n) => {
                 if let tsr_ast::PropertyName::ComputedPropertyName(name) = n.name {
-                    return name.node_id.is_some_and(|id| self.visit_arguments_reference(id));
+                    return name.node_id().is_some_and(|id| self.visit_arguments_reference(id));
                 }
             }
             Node::SetAccessorDeclaration(n) => {
                 if let tsr_ast::PropertyName::ComputedPropertyName(name) = n.name {
-                    return name.node_id.is_some_and(|id| self.visit_arguments_reference(id));
+                    return name.node_id().is_some_and(|id| self.visit_arguments_reference(id));
                 }
             }
             Node::PropertyAccessExpression(n) => {
@@ -433,7 +433,7 @@ impl<'a> Checker<'a, '_> {
                 .iter()
                 .map(|p| {
                     p.r#type.is_some()
-                        || p.node_id.is_some_and(|id| self.jsdoc_parameter_hosted_type(id).is_some())
+                        || p.node_id().is_some_and(|id| self.jsdoc_parameter_hosted_type(id).is_some())
                 })
                 .collect(),
             this: if parts.parameters.first().is_some_and(|p| {
@@ -541,7 +541,7 @@ impl<'a> Checker<'a, '_> {
     pub(crate) fn jsdoc_reparsed_parameter_question(&self, parameter: NodeId) -> bool {
         let Some(function) = self.nodes.parent(parameter) else { return false };
         let Some(parts) = self.function_like_parts(function) else { return false };
-        let Some(index) = parts.parameters.iter().position(|p| p.node_id == Some(parameter)) else {
+        let Some(index) = parts.parameters.iter().position(|p| p.node_id() == Some(parameter)) else {
             return false;
         };
         self.jsdoc_reparsed_function(function)
@@ -562,7 +562,7 @@ impl<'a> Checker<'a, '_> {
         }
         let function = self.nodes.parent(parameter)?;
         let parts = self.function_like_parts(function)?;
-        let index = parts.parameters.iter().position(|p| p.node_id == Some(parameter))?;
+        let index = parts.parameters.iter().position(|p| p.node_id() == Some(parameter))?;
         if parts.parameters[index].r#type.is_some() {
             return None;
         }
@@ -599,7 +599,7 @@ impl<'a> Checker<'a, '_> {
                 if value.r#type.is_some() {
                     return None;
                 }
-                self.jsdoc_reparsed_parameter_type(value.node_id?)
+                self.jsdoc_reparsed_parameter_type(value.node_id()?)
             }
             _ => None,
         }
@@ -644,7 +644,7 @@ impl<'a> Checker<'a, '_> {
                 else {
                     return None;
                 };
-                if declarations.declarations.first().and_then(|first| first.node_id) != Some(parent)
+                if declarations.declarations.first().and_then(|first| first.node_id()) != Some(parent)
                 {
                     return None;
                 }
@@ -903,7 +903,7 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::JSDocTemplateTag(template)) = self.node_map.get(tag) else {
             return None;
         };
-        if template.type_parameters.first()?.node_id != Some(parameter) {
+        if template.type_parameters.first()?.node_id() != Some(parameter) {
             return None;
         }
         match template.constraint? {

@@ -104,21 +104,21 @@ impl Checker<'_, '_> {
     /// `node.PropertyNameOrName()` for an alias declaration.
     fn property_name_or_name(&self, node: NodeId) -> Option<NodeId> {
         let export_name = |name: ModuleExportName<'_>| match name {
-            ModuleExportName::Identifier(identifier) => identifier.node_id,
-            ModuleExportName::StringLiteral(literal) => literal.node_id,
+            ModuleExportName::Identifier(identifier) => identifier.node_id(),
+            ModuleExportName::StringLiteral(literal) => literal.node_id(),
         };
         match self.node_map.get(node)? {
             Node::ImportSpecifier(specifier) => specifier
                 .property_name
                 .and_then(export_name)
-                .or_else(|| specifier.name.and_then(|name| name.node_id)),
+                .or_else(|| specifier.name.and_then(|name| name.node_id())),
             Node::ExportSpecifier(specifier) => {
                 specifier.property_name.or(specifier.name).and_then(export_name)
             }
-            Node::ImportClause(clause) => clause.name.and_then(|name| name.node_id),
-            Node::NamespaceImport(namespace) => namespace.name.and_then(|name| name.node_id),
+            Node::ImportClause(clause) => clause.name.and_then(|name| name.node_id()),
+            Node::NamespaceImport(namespace) => namespace.name.and_then(|name| name.node_id()),
             Node::ImportEqualsDeclaration(declaration) => {
-                declaration.name.and_then(|name| name.node_id)
+                declaration.name.and_then(|name| name.node_id())
             }
             _ => None,
         }

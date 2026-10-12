@@ -164,7 +164,7 @@ fn program<'a>(arena: &'a Arena, files: &[(&'static str, &str)]) -> Fixture<'a> 
         // this file's `SourceFile` node — the same id `source_file_of` reaches
         // by walking parents from any node inside it.
         let file_name: &'a str = arena.alloc_str(&format!("/{name}.ts"));
-        host.files.push((name, source_file.node_id.expect("a parsed file has an id")));
+        host.files.push((name, source_file.node_id().expect("a parsed file has an id")));
         bound = tsr_binder::bind_into(
             bound,
             arena,

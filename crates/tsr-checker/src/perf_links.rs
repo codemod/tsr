@@ -563,7 +563,7 @@ impl Checker<'_, '_> {
         &mut self,
         call: &tsr_ast::CallExpression<'_>,
     ) -> bool {
-        let Some(call_id) = call.node_id else { return false };
+        let Some(call_id) = call.node_id() else { return false };
         // The call's own resolution is running: native reads its
         // `resolvingSignature` sentinel here (`r6-checkperf.md` §2).
         if self.perf_links.main_resolving_calls.contains(&call_id) {

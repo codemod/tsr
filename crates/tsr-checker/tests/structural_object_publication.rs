@@ -13,7 +13,7 @@ fn completed_property_only_image_names_slots_at_each_cold_and_warm_viewer() {
     for reverse in [false, true] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,
@@ -35,7 +35,7 @@ fn completed_property_only_image_names_slots_at_each_cold_and_warm_viewer() {
                     _ => None,
                 };
                 if let Some(expected) = expected {
-                    sites.push((node.node_id.unwrap(), expected));
+                    sites.push((node.node_id().unwrap(), expected));
                 }
             }
             push_children(node, &mut nodes);
@@ -61,7 +61,7 @@ fn published_captured_object_and_fresh_expression_keep_distinct_recursive_images
     for reverse in [false, true] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,
@@ -75,7 +75,7 @@ fn published_captured_object_and_fresh_expression_keep_distinct_recursive_images
         let mut literal = None;
         while let Some(node) = nodes.pop() {
             match node {
-                Node::Identifier(node) if node.text == "x" => sites.push(node.node_id.unwrap()),
+                Node::Identifier(node) if node.text == "x" => sites.push(node.node_id().unwrap()),
                 Node::ObjectLiteralExpression(node) => literal = Some(node),
                 _ => {}
             }
@@ -98,7 +98,7 @@ fn published_captured_object_and_fresh_expression_keep_distinct_recursive_images
                     Some("{ value: number; recur: () => any; }")
                 );
                 assert_eq!(
-                    checker.type_to_string_at(fresh, literal.node_id.unwrap()).as_deref(),
+                    checker.type_to_string_at(fresh, literal.node_id().unwrap()).as_deref(),
                     Some("{ value: number; recur: () => { value: number; recur: () => any; }; }")
                 );
                 assert_eq!(checker.get_type_of_symbol(symbol), ty);
@@ -141,7 +141,7 @@ fn mixed_member_keys_accessor_pairs_and_surviving_duplicates_keep_query_order_id
     for reverse in [false, true] {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,
@@ -155,7 +155,7 @@ fn mixed_member_keys_accessor_pairs_and_surviving_duplicates_keep_query_order_id
             if let Node::Identifier(node) = node
                 && expected.iter().any(|(name, _)| *name == node.text)
             {
-                sites.insert(node.text, node.node_id.unwrap());
+                sites.insert(node.text, node.node_id().unwrap());
             }
             push_children(node, &mut nodes);
         }

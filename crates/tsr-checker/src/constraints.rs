@@ -723,7 +723,7 @@ impl Checker<'_, '_> {
             .zip(arguments)
             .filter_map(|(parameter, argument)| {
                 parameter
-                    .node_id
+                    .node_id()
                     .and_then(|id| self.binder.symbol_of(id))
                     .map(|symbol| (symbol, argument))
             })
@@ -738,7 +738,7 @@ impl Checker<'_, '_> {
                 tsr_ast::TypeNode::TypeReferenceNode(reference)
                     if body_type == self.intrinsics.error =>
                 {
-                    let target = reference.node_id.and_then(|id| {
+                    let target = reference.node_id().and_then(|id| {
                         let tsr_ast::EntityName::Identifier(name) = reference.type_name? else {
                             return None;
                         };
@@ -1144,7 +1144,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut parameters: Vec<ReferencedTypeParameter<'a>> = Vec::with_capacity(written.len());
         for declaration in written {
-            let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let parameter = declaration.node_id().and_then(|id| self.binder.symbol_of(id))?;
             let parameter = self.binder.merged_symbol(parameter);
             let ty = self.get_declared_type_of_symbol(parameter);
             if ty == self.intrinsics.error {
@@ -1362,7 +1362,7 @@ impl<'a> Checker<'a, '_> {
             TypeNode::MappedTypeNode(mapped) => {
                 let Some(parameter) = mapped
                     .type_parameter
-                    .and_then(|parameter| parameter.node_id)
+                    .and_then(|parameter| parameter.node_id())
                     .and_then(|id| self.binder.symbol_of(id))
                 else {
                     return;
@@ -1421,7 +1421,7 @@ mod tests {
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty());
-        let root = parsed.source_file.node_id.expect("registered file");
+        let root = parsed.source_file.node_id().expect("registered file");
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,

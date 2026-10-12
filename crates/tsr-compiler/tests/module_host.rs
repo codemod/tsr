@@ -44,7 +44,7 @@ fn file_id(program: &Program<'_>, name: &str) -> NodeId {
         .source_file(name)
         .expect("the file is in the program")
         .source_file()
-        .node_id
+        .node_id()
         .expect("a parsed file's SourceFile is registered")
 }
 

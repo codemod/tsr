@@ -19,7 +19,7 @@ fn variables<'a>(parsed: &ParsedSourceFile<'a>) -> Vec<&'a VariableDeclaration<'
             result.push(variable);
         }
     }
-    result.sort_by_key(|variable| parsed.nodes.span(variable.node_id.unwrap()).start);
+    result.sort_by_key(|variable| parsed.nodes.span(variable.node_id().unwrap()).start);
     result
 }
 
@@ -55,10 +55,10 @@ fn direct_first_later_and_for_head_documents_have_exact_owners_and_spans() {
         assert!(variable.r#type.is_none(), "no synthesized annotation on {name}");
         let span = parsed.nodes.span(variable.initializer.unwrap().node_id().unwrap());
         assert_eq!(&DIRECT[span.start as usize..span.end as usize], initializer);
-        let docs = parsed.jsdoc.get(variable.node_id.unwrap());
+        let docs = parsed.jsdoc.get(variable.node_id().unwrap());
         assert_eq!(docs.len(), expected_docs.len(), "host {name}");
         for (doc, (comment, ty)) in docs.iter().zip(expected_docs) {
-            let doc_id = doc.node_id.unwrap();
+            let doc_id = doc.node_id().unwrap();
             let span = parsed.nodes.span(doc_id);
             assert_eq!(span.start as usize, DIRECT.find(comment).unwrap());
             assert_eq!(&DIRECT[span.start as usize..span.end as usize], comment);
@@ -77,9 +77,9 @@ fn direct_first_later_and_for_head_documents_have_exact_owners_and_spans() {
     let statement = Node::from(parsed.source_file.statements[0]);
     let docs = parsed.jsdoc.get(statement.node_id().unwrap());
     assert_eq!(docs.len(), 1);
-    let span = parsed.nodes.span(docs[0].node_id.unwrap());
+    let span = parsed.nodes.span(docs[0].node_id().unwrap());
     assert_eq!(&DIRECT[span.start as usize..span.end as usize], "/** @type {string} statement */");
-    assert_eq!(parsed.nodes.parent(docs[0].node_id.unwrap()), None);
+    assert_eq!(parsed.nodes.parent(docs[0].node_id().unwrap()), None);
     for (host, _) in parsed.jsdoc.iter() {
         assert!(matches!(
             parsed.node_map.get(host),
@@ -111,7 +111,7 @@ fn written_annotations_and_disabled_or_absent_jsdoc_preserve_program_syntax() {
         assert!(variables[1].r#type.is_none());
         assert!(variables[2].r#type.is_none());
         assert_eq!(parsed.jsdoc.len(), usize::from(jsdoc));
-        assert_eq!(parsed.jsdoc.get(variables[0].node_id.unwrap()).len(), usize::from(jsdoc));
+        assert_eq!(parsed.jsdoc.get(variables[0].node_id().unwrap()).len(), usize::from(jsdoc));
     }
     let arena = Arena::new();
     let plain = tsr_parser::parse(&arena, "let /* ordinary */ x = 17, y = 23;");

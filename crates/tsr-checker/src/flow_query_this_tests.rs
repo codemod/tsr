@@ -9,7 +9,7 @@ fn with_checker(source: &str, test: impl Fn(&mut Checker<'_, '_>)) {
             let arena = tsr_core::Arena::new();
             let parsed = tsr_parser::parse(&arena, source);
             assert!(parsed.diagnostics.is_empty());
-            let root = parsed.source_file.node_id.expect("registered file");
+            let root = parsed.source_file.node_id().expect("registered file");
             let bound = tsr_binder::bind(
                 &arena,
                 parsed.source_file,
@@ -116,7 +116,7 @@ fn property_named_this_is_not_a_query_this_root_and_ordinary_matching_is_retaine
         let Some(Node::QualifiedName(qualified)) = checker.node_map.get(ordinary) else {
             unreachable!()
         };
-        let name = qualified.right.and_then(|name| name.node_id).expect("property name");
+        let name = qualified.right.and_then(|name| name.node_id()).expect("property name");
         assert!(!checker.is_this_in_type_query(name));
         let object = node(checker, source, SyntaxKind::Identifier, "obj");
         assert!(checker.is_constant_reference(object));

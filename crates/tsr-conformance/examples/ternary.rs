@@ -354,7 +354,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             let id = line_ids[position];
             let Some(Node::CallExpression(call)) = map.get(id) else { continue };
             let Some(tsr_ast::Expression::Identifier(callee)) = call.expression else { continue };
-            let Some(callee_id) = callee.node_id else { continue };
+            let Some(callee_id) = callee.node_id() else { continue };
             let Some(symbol) =
                 bound.resolve_name(nodes, map, callee_id, callee.text, SymbolFlags::VALUE)
             else {

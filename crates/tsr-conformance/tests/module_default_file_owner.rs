@@ -28,7 +28,7 @@ self.default.default(); self.def.default();
 "#;
 
 fn aliases(program: &tsr_compiler::Program<'_>, file: &str) -> Vec<(NodeId, SymbolId)> {
-    let file = program.source_file(file).expect("fixture file").source_file().node_id.unwrap();
+    let file = program.source_file(file).expect("fixture file").source_file().node_id().unwrap();
     (0..program.nodes().len())
         .filter_map(|index| {
             let id = NodeId::from_usize(index);
@@ -66,7 +66,7 @@ fn defaults_share_the_original_module_not_its_default_property() {
                     let arena = Arena::new();
                     let program = types_producer::program_for_case(&arena, &case);
                     let mut checker = types_producer::configured_checker(&program);
-                    let file = program.source_file("b.ts").unwrap().source_file().node_id.unwrap();
+                    let file = program.source_file("b.ts").unwrap().source_file().node_id().unwrap();
                     if precheck {
                         checker.check_source_file(
                             file,
@@ -79,13 +79,13 @@ fn defaults_share_the_original_module_not_its_default_property() {
                     let module = program
                         .binder()
                         .symbol_of(
-                            program.source_file("mod.ts").unwrap().source_file().node_id.unwrap(),
+                            program.source_file("mod.ts").unwrap().source_file().node_id().unwrap(),
                         )
                         .unwrap();
                     let wrapper = program
                         .binder()
                         .symbol_of(
-                            program.source_file("a.ts").unwrap().source_file().node_id.unwrap(),
+                            program.source_file("a.ts").unwrap().source_file().node_id().unwrap(),
                         )
                         .unwrap();
                     let immediate =
@@ -166,7 +166,7 @@ fn chains_past_the_naming_bound_still_resolve() {
         let mut checker = types_producer::configured_checker(&program);
         let module = program
             .binder()
-            .symbol_of(program.source_file("mod.ts").unwrap().source_file().node_id.unwrap())
+            .symbol_of(program.source_file("mod.ts").unwrap().source_file().node_id().unwrap())
             .unwrap();
         for _ in 0..2 {
             for (_, symbol) in aliases(&program, "use.ts") {
@@ -212,7 +212,7 @@ fn direct_real_defaults_still_name_the_callable() {
     let mut checker = types_producer::configured_checker(&program);
     let module = program
         .binder()
-        .symbol_of(program.source_file("mod.ts").unwrap().source_file().node_id.unwrap())
+        .symbol_of(program.source_file("mod.ts").unwrap().source_file().node_id().unwrap())
         .unwrap();
     let value = checker.get_type_of_symbol(module);
     let default = checker.get_type_of_property_of_type(value, "default").unwrap();
@@ -255,7 +255,7 @@ fn every_alias_shape_resolves_to_the_immediate_export_equals() {
             .source_file(&format!("wrapper.{suffix}"))
             .unwrap()
             .source_file()
-            .node_id
+            .node_id()
             .unwrap();
         let wrapper_module = program.binder().symbol_of(wrapper_file).unwrap();
         let immediate =

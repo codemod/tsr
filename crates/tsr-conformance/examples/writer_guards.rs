@@ -180,7 +180,7 @@ fn role_of(nodes: &NodeTable, map: &NodeMap<'_>, id: NodeId) -> &'static str {
             }
         }
         Some(Node::QualifiedName(n)) => {
-            if n.right.and_then(|right| right.node_id) == Some(id) {
+            if n.right.and_then(|right| right.node_id()) == Some(id) {
                 "qualified name: the right `B` of `A.B`"
             } else {
                 "qualified name: the left `A` of `A.B`"
@@ -229,7 +229,7 @@ fn is_label_name(nodes: &NodeTable, map: &NodeMap, id: NodeId) -> bool {
         Some(Node::ContinueStatement(n)) => n.label,
         _ => return false,
     };
-    label.and_then(|label| label.node_id) == Some(id)
+    label.and_then(|label| label.node_id()) == Some(id)
 }
 
 /// `ast.IsGlobalScopeAugmentation` (`internal/ast/utilities.go:1690`): a module
@@ -242,11 +242,11 @@ fn is_global_scope_augmentation(map: &NodeMap, parent: NodeId) -> bool {
 fn is_import_statement_name(map: &NodeMap, parent: NodeId, id: NodeId) -> bool {
     match map.get(parent) {
         Some(Node::ImportSpecifier(n)) => {
-            n.name.and_then(|name| name.node_id) == Some(id)
+            n.name.and_then(|name| name.node_id()) == Some(id)
                 || n.property_name.and_then(|name| name.node_id()) == Some(id)
         }
-        Some(Node::ImportClause(n)) => n.name.and_then(|name| name.node_id) == Some(id),
-        Some(Node::ImportEqualsDeclaration(n)) => n.name.and_then(|name| name.node_id) == Some(id),
+        Some(Node::ImportClause(n)) => n.name.and_then(|name| name.node_id()) == Some(id),
+        Some(Node::ImportEqualsDeclaration(n)) => n.name.and_then(|name| name.node_id()) == Some(id),
         _ => false,
     }
 }

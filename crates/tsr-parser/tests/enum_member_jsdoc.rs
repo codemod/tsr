@@ -11,8 +11,8 @@ fn enum_member_keeps_its_concrete_documentation_host() {
     let Statement::EnumDeclaration(enumeration) = parsed.source_file.statements[0] else {
         panic!("expected enum")
     };
-    let first = enumeration.members[0].node_id.unwrap();
-    let second = enumeration.members[1].node_id.unwrap();
+    let first = enumeration.members[0].node_id().unwrap();
+    let second = enumeration.members[1].node_id().unwrap();
     assert!(matches!(parsed.jsdoc.get(first)[0].tags[0], tsr_ast::JSDocTag::JSDocDeprecatedTag(_)));
     assert!(matches!(parsed.jsdoc.get(second)[0].tags[0], tsr_ast::JSDocTag::JSDocSeeTag(_)));
     assert_ne!(first, second);

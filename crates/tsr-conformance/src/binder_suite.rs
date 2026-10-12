@@ -300,7 +300,7 @@ impl Suite for BinderSymbols {
                         else {
                             continue;
                         };
-                        if let Some(id) = assignment.node_id {
+                        if let Some(id) = assignment.node_id() {
                             names_by_declaration.entry(id).or_default().push(identifier.text);
                         }
                     }
@@ -467,7 +467,7 @@ impl Suite for BinderSymbols {
                                 // the name node is still on the declaration.
                                 let node = program.node_map().get(*declaration)?;
                                 declared_property_name(node).and_then(|name| match name {
-                                    tsr_ast::PropertyName::ComputedPropertyName(c) => c.node_id,
+                                    tsr_ast::PropertyName::ComputedPropertyName(c) => c.node_id(),
                                     _ => None,
                                 })
                             });
@@ -707,7 +707,7 @@ impl Suite for BinderSymbols {
                             else {
                                 return None;
                             };
-                            signature.node_id
+                            signature.node_id()
                         })
                     });
                     let Some(index_signature) = index_signature else { continue };
@@ -806,7 +806,7 @@ impl Suite for BinderSymbols {
                         let tsr_ast::PropertyName::Identifier(name) = assignment.name else {
                             return None;
                         };
-                        (name.text == member.text).then_some(assignment.node_id).flatten()
+                        (name.text == member.text).then_some(assignment.node_id()).flatten()
                     });
                     let Some(member_id) = member_id else { continue };
                     let span = nodes.span(member_id);
@@ -1432,11 +1432,11 @@ fn declared_with_an_escape(
     let Some(node) = program.node_map().get(declaration) else { return false };
     let name_id = match node {
         tsr_ast::Node::ParameterDeclaration(n) => match n.name {
-            Some(tsr_ast::BindingName::Identifier(identifier)) => identifier.node_id,
+            Some(tsr_ast::BindingName::Identifier(identifier)) => identifier.node_id(),
             _ => None,
         },
         _ => declared_property_name(node).and_then(|name| match name {
-            tsr_ast::PropertyName::Identifier(identifier) => identifier.node_id,
+            tsr_ast::PropertyName::Identifier(identifier) => identifier.node_id(),
             _ => None,
         }),
     };
@@ -1490,7 +1490,7 @@ fn written_name_spellings(
         // (`ambientExternalModuleWithRelativeModuleName`).
         if let tsr_ast::Node::ModuleDeclaration(module) = node
             && let Some(tsr_ast::ModuleName::StringLiteral(literal)) = module.name
-            && let Some(id) = literal.node_id
+            && let Some(id) = literal.node_id()
         {
             let span = nodes.span(id);
             if let Some(source_text) = source.get(span.start as usize..span.end as usize) {
@@ -1516,7 +1516,7 @@ fn written_name_spellings(
             // while the symbol's name is the cooked value
             // (`objectLiteralGettersAndSetters`).
             tsr_ast::PropertyName::StringLiteral(literal) => {
-                let Some(id) = literal.node_id else { continue };
+                let Some(id) = literal.node_id() else { continue };
                 let span = nodes.span(id);
                 let Some(source_text) = source.get(span.start as usize..span.end as usize) else {
                     continue;
@@ -1609,7 +1609,7 @@ fn namespace_import_target(
             return Some(found);
         }
     }
-    let root = resolve_specifier(program, importing_unit, specifier.text)?.source_file().node_id?;
+    let root = resolve_specifier(program, importing_unit, specifier.text)?.source_file().node_id()?;
     bound.symbol_of(root)
 }
 
@@ -1660,7 +1660,7 @@ fn import_specifier_target(
             .then_some(found)
     } else {
         resolve_specifier(program, importing_unit, spec.text)
-            .and_then(|target| target.source_file().node_id)
+            .and_then(|target| target.source_file().node_id())
             .and_then(|root| bound.symbol_of(root))
     }?;
     let exported = *bound.symbols().get(module).exports.get(imported)?;
@@ -1724,7 +1724,7 @@ fn expanded_module_exports<'a>(
     let owning = program
         .source_files()
         .iter()
-        .find(|candidate| candidate.source_file().node_id == Some(file_root));
+        .find(|candidate| candidate.source_file().node_id() == Some(file_root));
     let Some(owning) = owning else { return out };
     // `export * from "spec"` in this file.
     for statement in owning.source_file().statements {
@@ -1738,7 +1738,7 @@ fn expanded_module_exports<'a>(
         let Some(target) = resolve_specifier(program, owning.file_name(), spec.text) else {
             continue;
         };
-        let Some(root) = target.source_file().node_id else { continue };
+        let Some(root) = target.source_file().node_id() else { continue };
         let Some(target_symbol) = bound.symbol_of(root) else { continue };
         out.extend(expanded_module_exports(program, bound, nodes, target_symbol, depth - 1));
     }
@@ -1752,10 +1752,10 @@ fn expanded_module_exports<'a>(
             let Some(target) = resolve_specifier(program, other.file_name(), spec.text) else {
                 continue;
             };
-            if target.source_file().node_id != Some(file_root) {
+            if target.source_file().node_id() != Some(file_root) {
                 continue;
             }
-            let Some(id) = module_decl.node_id else { continue };
+            let Some(id) = module_decl.node_id() else { continue };
             let Some(augmentation) = bound.symbol_of(id) else { continue };
             let augmentation = bound.symbols().get(bound.merged_symbol(augmentation));
             for (name, member) in augmentation.exports.iter().chain(augmentation.members.iter()) {
@@ -1828,10 +1828,10 @@ fn resolve_import_equals_target_at(
             let importing = program
                 .source_files()
                 .iter()
-                .find(|f| f.source_file().node_id.is_some_and(&in_file))
+                .find(|f| f.source_file().node_id().is_some_and(&in_file))
                 .map_or("", |f| f.file_name());
             let target = resolve_specifier(program, importing, literal.text)?;
-            let root = target.source_file().node_id?;
+            let root = target.source_file().node_id()?;
             return bound.symbol_of(root);
         }
     };

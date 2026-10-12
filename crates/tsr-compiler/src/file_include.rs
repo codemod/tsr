@@ -459,7 +459,7 @@ pub fn reason_related_info(
 #[must_use]
 pub fn explain_implied_format(program: &Program<'_>, file_index: usize) -> Vec<Diagnostic> {
     let file = &program.source_files()[file_index];
-    let Some(node) = file.source_file().node_id else { return Vec::new() };
+    let Some(node) = file.source_file().node_id() else { return Vec::new() };
     // `ast.IsExternalOrCommonJSModule`: the binder gives a module's
     // `SourceFile` a symbol and a script none (`checkSourceFile`'s test in
     // `tsr-checker`'s `unused.rs`).

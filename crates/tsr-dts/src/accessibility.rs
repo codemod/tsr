@@ -514,7 +514,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
             None => false,
             Some(BindingName::BindingPattern(pattern)) => {
                 let elements: Vec<NodeId> =
-                    pattern.elements.iter().filter_map(|element| element.node_id).collect();
+                    pattern.elements.iter().filter_map(|element| element.node_id()).collect();
                 elements.into_iter().any(|element| self.binding_name_visible(element))
             }
             Some(BindingName::Identifier(_)) => self.resolver.is_declaration_visible(id),
@@ -551,7 +551,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
             Some(Node::InterfaceDeclaration(interface)) => {
                 self.visit_type_parameters(interface.type_parameters);
                 for clause in interface.heritage_clauses {
-                    self.visit_opt(clause.node_id);
+                    self.visit_opt(clause.node_id());
                 }
                 for member in interface.members {
                     self.visit_opt(type_element_id(member));
@@ -569,7 +569,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
                 // `transformVariableStatement` (`transform.go:2207`).
                 let declarations: Vec<NodeId> = statement
                     .declaration_list
-                    .map(|list| list.declarations.iter().filter_map(|d| d.node_id).collect())
+                    .map(|list| list.declarations.iter().filter_map(|d| d.node_id()).collect())
                     .unwrap_or_default();
                 if declarations.iter().any(|&d| self.binding_name_visible(d)) {
                     for declaration in declarations {
@@ -593,7 +593,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
                 }
                 self.transform_late_painted_statements();
             }
-            Some(ModuleBody::ModuleDeclaration(inner)) => self.visit_opt(inner.node_id),
+            Some(ModuleBody::ModuleDeclaration(inner)) => self.visit_opt(inner.node_id()),
             None => {}
         }
     }
@@ -606,7 +606,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         // `tx.state.errorNameNode = input.Name()` and the class pushed as the
         // fallback node (`transform.go:1983`). Native does not restore
         // `errorNameNode` afterwards; every later reader sets its own.
-        self.error_name_node = class.name.and_then(|name| name.node_id);
+        self.error_name_node = class.name.and_then(|name| name.node_id());
         self.fallback.push(id);
         self.ensure_type_params(id, class.type_parameters);
         // Parameter properties first.
@@ -617,7 +617,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         if let Some(ctor) = constructor {
             let previous_context = self.context;
             for parameter in ctor.parameters {
-                let Some(param) = parameter.node_id else { continue };
+                let Some(param) = parameter.node_id() else { continue };
                 if !has_parameter_property_modifier(parameter.modifiers) {
                     continue;
                 }
@@ -643,7 +643,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
             self.track_inferred_type(base);
         }
         for clause in class.heritage_clauses {
-            self.visit_opt(clause.node_id);
+            self.visit_opt(clause.node_id());
         }
         self.fallback.pop();
         self.enclosing = previous_enclosing;
@@ -662,7 +662,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         {
             return None;
         }
-        base.node_id
+        base.node_id()
     }
 
     /// `transformImportDeclaration` (`transform.go:2471`), for the one error
@@ -683,12 +683,12 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
             return;
         };
         if clause.name.is_some()
-            && let Some(clause_id) = clause.node_id
+            && let Some(clause_id) = clause.node_id()
             && self.resolver.is_declaration_visible(clause_id)
         {
             return;
         }
-        let elements: Vec<NodeId> = named.elements.iter().filter_map(|e| e.node_id).collect();
+        let elements: Vec<NodeId> = named.elements.iter().filter_map(|e| e.node_id()).collect();
         if elements.into_iter().any(|element| self.resolver.is_declaration_visible(element)) {
             return;
         }
@@ -738,7 +738,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         }
         if let Some(Node::HeritageClause(clause)) = self.map.get(id)
             && (clause.types.is_empty()
-                || (clause.types.len() == 1 && clause.types[0].node_id.is_none()))
+                || (clause.types.len() == 1 && clause.types[0].node_id().is_none()))
         {
             return;
         }
@@ -770,7 +770,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         let Some(node) = self.map.get(id) else { return };
         match node {
             Node::MappedTypeNode(mapped) => {
-                self.visit_opt(mapped.type_parameter.and_then(|t| t.node_id));
+                self.visit_opt(mapped.type_parameter.and_then(|t| t.node_id()));
                 self.visit_opt(mapped.name_type.and_then(|t| t.node_id()));
                 self.visit_opt(mapped.r#type.and_then(|t| t.node_id()));
             }
@@ -787,7 +787,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
                                     && e.node_id().is_some_and(|e| self.kind(e) == K::NullKeyword))
                         })
                     })
-                    .filter_map(|t| t.node_id)
+                    .filter_map(|t| t.node_id())
                     .collect();
                 for t in retained {
                     self.visit(t);
@@ -956,7 +956,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
 
     fn visit_type_parameters(&mut self, parameters: &[&tsr_ast::TypeParameterDeclaration<'a>]) {
         for parameter in parameters {
-            self.visit_opt(parameter.node_id);
+            self.visit_opt(parameter.node_id());
         }
     }
 
@@ -984,7 +984,7 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
             return;
         }
         for parameter in parameters {
-            if let Some(id) = parameter.node_id {
+            if let Some(id) = parameter.node_id() {
                 self.ensure_parameter(id);
             }
         }
@@ -1004,13 +1004,13 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
         let this_parameter = parameters.first().filter(
             |p| matches!(p.name, Some(BindingName::Identifier(name)) if name.text == "this"),
         );
-        if let Some(this) = this_parameter.and_then(|p| p.node_id) {
+        if let Some(this) = this_parameter.and_then(|p| p.node_id()) {
             self.ensure_parameter(this);
         }
         if setter {
             let value =
                 if this_parameter.is_some() { parameters.get(1) } else { parameters.first() };
-            if let Some(value) = value.and_then(|p| p.node_id) {
+            if let Some(value) = value.and_then(|p| p.node_id()) {
                 self.ensure_parameter(value);
             }
         }
@@ -1164,12 +1164,12 @@ impl<'a, R: AccessibilityResolver> Walk<'a, '_, '_, R> {
             Node::MethodSignatureDeclaration(n) => n.name.node_id(),
             Node::GetAccessorDeclaration(n) => n.name.node_id(),
             Node::SetAccessorDeclaration(n) => n.name.node_id(),
-            Node::FunctionDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::ClassDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::InterfaceDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::TypeAliasDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::TypeParameterDeclaration(n) => n.name.and_then(|n| n.node_id),
-            Node::ImportEqualsDeclaration(n) => n.name.and_then(|n| n.node_id),
+            Node::FunctionDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::ClassDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::InterfaceDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::TypeAliasDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::TypeParameterDeclaration(n) => n.name.and_then(|n| n.node_id()),
+            Node::ImportEqualsDeclaration(n) => n.name.and_then(|n| n.node_id()),
             _ => None,
         }
     }

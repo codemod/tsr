@@ -37,7 +37,7 @@ fn is_module(name: &str, text: &str, options: CompilerOptions) -> bool {
         },
     );
     let file = program.source_file(name).expect("the root is loaded");
-    let id = file.source_file().node_id.expect("a parsed file has an id");
+    let id = file.source_file().node_id().expect("a parsed file has an id");
     program.binder().symbol_of(id).is_some()
 }
 

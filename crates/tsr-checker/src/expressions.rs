@@ -146,7 +146,7 @@ impl Checker<'_, '_> {
         // escapes too, so this is position, not escape validity; an invalid
         // escape's cooked value being undefined upstream is the same answer
         // by a different road).
-        let tagged = node.node_id.is_some_and(|id| {
+        let tagged = node.node_id().is_some_and(|id| {
             self.nodes
                 .parent(id)
                 .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::TaggedTemplateExpression)
@@ -160,7 +160,7 @@ impl Checker<'_, '_> {
         let folded = if untyped_span {
             None
         } else {
-            node.node_id.and_then(|location| {
+            node.node_id().and_then(|location| {
                 self.evaluate_template_constant(&Expression::TemplateExpression(node), location)
             })
         };
@@ -175,7 +175,7 @@ impl Checker<'_, '_> {
         // pattern from semantic span types after the constant-value fast path:
         // a const context, a template-literal context, or a contextual type
         // with a string-literal/template constituent.
-        if node.node_id.is_some_and(|id| {
+        if node.node_id().is_some_and(|id| {
             self.is_const_context(id)
                 || self.literal_in_const_type_variable_context(id)
                 || self.is_template_literal_context(id)
@@ -509,12 +509,12 @@ impl Checker<'_, '_> {
         if !constituents.iter().all(|t| self.tuple_element_lists.contains_key(t))
             || parameters
                 .iter()
-                .filter_map(|parameter| parameter.node_id)
+                .filter_map(|parameter| parameter.node_id())
                 .any(|parameter| self.is_some_symbol_assigned(parameter))
         {
             return None;
         }
-        let index = parameters.iter().position(|p| p.node_id == Some(declaration))?
+        let index = parameters.iter().position(|p| p.node_id() == Some(declaration))?
             - usize::from(parameters.first().is_some_and(|parameter| {
                 matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name))
                     if name.text == "this")
@@ -570,11 +570,11 @@ impl Checker<'_, '_> {
             ),
             Expression::KeywordExpression(node) => match node.kind {
                 SyntaxKind::ThisKeyword => {
-                    node.node_id.map_or(self.intrinsics.error, |id| self.check_this_expression(id))
+                    node.node_id().map_or(self.intrinsics.error, |id| self.check_this_expression(id))
                 }
                 // `checkSuperExpression` (`checker.go:7854`).
                 SyntaxKind::SuperKeyword => {
-                    node.node_id.map_or(self.intrinsics.error, |id| self.check_super_expression(id))
+                    node.node_id().map_or(self.intrinsics.error, |id| self.check_super_expression(id))
                 }
                 SyntaxKind::TrueKeyword => self.intrinsics.true_type,
                 SyntaxKind::FalseKeyword => self.intrinsics.false_type,
@@ -598,7 +598,7 @@ impl Checker<'_, '_> {
             // union, so that is not a narrowing gap however much it looks like
             // one (`bd tsr-4sc.11`).
             Expression::Identifier(node) => {
-                let Some(id) = node.node_id else { return self.intrinsics.error };
+                let Some(id) = node.node_id() else { return self.intrinsics.error };
                 // checkIdentifier's first branch: the query's leftmost `this`
                 // identifier is a receiver read, not value-name resolution.
                 if self.is_this_in_type_query(id) {
@@ -678,7 +678,7 @@ impl Checker<'_, '_> {
                         // narrowing one anyway would answer a question upstream
                         // does not ask.
                         if self.is_narrowable_symbol(symbol) {
-                            let node_id = node.node_id.expect("checked above");
+                            let node_id = node.node_id().expect("checked above");
                             let target_kind = self.assignment_target_kind(node_id);
                             // `checker.go:11102`: assigning to a readonly
                             // symbol reports and answers `errorType` — whose
@@ -972,7 +972,7 @@ impl Checker<'_, '_> {
                 // type is the tag's, in regular form as an assertion answers.
                 // A tag type that does not compute falls through to the
                 // transparent-paren road, keeping the gap.
-                if let Some(id) = node.node_id
+                if let Some(id) = node.node_id()
                     && self.in_js_file(id)
                     && let Some(annotation) = self.jsdoc_cast_annotation(id)
                 {
@@ -1011,10 +1011,10 @@ impl Checker<'_, '_> {
             // construct, and `const` is recognised before the type node is
             // resolved — see [`crate::assertions`].
             Expression::AsExpression(node) => {
-                node.node_id.map_or(self.intrinsics.error, |id| self.check_assertion(id))
+                node.node_id().map_or(self.intrinsics.error, |id| self.check_assertion(id))
             }
             Expression::TypeAssertion(node) => {
-                node.node_id.map_or(self.intrinsics.error, |id| self.check_assertion(id))
+                node.node_id().map_or(self.intrinsics.error, |id| self.check_assertion(id))
             }
             // `checkFunctionExpressionOrObjectLiteralMethod` (`checker.go:9077`).
             // Both kinds answer through the function's own symbol, which is the
@@ -1022,10 +1022,10 @@ impl Checker<'_, '_> {
             // [`Checker::get_type_of_function_expression`] for the one place that
             // is not safe, an unannotated parameter under a contextual type.
             Expression::FunctionExpression(node) => node
-                .node_id
+                .node_id()
                 .map_or(self.intrinsics.error, |id| self.get_type_of_function_expression(id)),
             Expression::ArrowFunction(node) => node
-                .node_id
+                .node_id()
                 .map_or(self.intrinsics.error, |id| self.get_type_of_function_expression(id)),
             // `checkTypeOfExpression` (`checker.go:10617`). The operand's type is
             // irrelevant to the answer — see below.
@@ -1061,7 +1061,7 @@ impl Checker<'_, '_> {
                 // Which `!` is a chain link is NOT "the spine has `?.`" — see
                 // [`Checker::non_null_is_optional_chain`], where the asymmetry
                 // between an inner and a trailing `!` is owned.
-                let Some(id) = node.node_id else { return self.get_non_nullable_type(checked) };
+                let Some(id) = node.node_id() else { return self.get_non_nullable_type(checked) };
                 if !self.non_null_is_optional_chain(id) {
                     return self.get_non_nullable_type(checked);
                 }
@@ -1073,7 +1073,7 @@ impl Checker<'_, '_> {
                     self.get_optional_expression_type(checked, operand.node_id(), false);
                 let result = self.get_non_nullable_type(non_optional);
                 self.propagate_optional_type_marker_at(
-                    node.node_id,
+                    node.node_id(),
                     result,
                     non_optional != checked,
                 )
@@ -1099,9 +1099,9 @@ impl Checker<'_, '_> {
             // export. Sized at 759 forecast lines with the bar in
             // `checker-notes-jsx.md`; when `JSX` or `Element` is absent the
             // arm gaps — that refusal is the bar's registered falsifier.
-            Expression::JsxElement(node) => self.check_jsx_element(node.node_id),
-            Expression::JsxSelfClosingElement(node) => self.check_jsx_element(node.node_id),
-            Expression::JsxFragment(node) => self.check_jsx_element(node.node_id),
+            Expression::JsxElement(node) => self.check_jsx_element(node.node_id()),
+            Expression::JsxSelfClosingElement(node) => self.check_jsx_element(node.node_id()),
+            Expression::JsxFragment(node) => self.check_jsx_element(node.node_id()),
             Expression::JsxExpression(node) => node
                 .expression
                 .map_or(self.intrinsics.error, |expression| self.check_expression(expression)),
@@ -1136,10 +1136,10 @@ impl Checker<'_, '_> {
             // refuses there, exactly as this guard refused here.
             Expression::MetaProperty(node) => self.check_meta_property_type(node),
             Expression::ExpressionWithTypeArguments(node) => node
-                .node_id
+                .node_id()
                 .map_or(self.intrinsics.error, |id| self.check_expression_with_type_arguments(id)),
             Expression::ClassExpression(node) => {
-                let Some(id) = node.node_id else { return self.intrinsics.error };
+                let Some(id) = node.node_id() else { return self.intrinsics.error };
                 let Some(symbol) = self.binder.symbol_of(id) else {
                     return self.intrinsics.error;
                 };
@@ -1194,7 +1194,7 @@ impl Checker<'_, '_> {
         // `() => any` correctly — probed with
         // `declare const a: any; class C { m() { return a; } }`.
         let opening = match self.node_map.get(id) {
-            Some(Node::JsxElement(node)) => node.opening_element.and_then(|node| node.node_id),
+            Some(Node::JsxElement(node)) => node.opening_element.and_then(|node| node.node_id()),
             Some(Node::JsxSelfClosingElement(_)) => Some(id),
             _ => None,
         };
@@ -1887,7 +1887,7 @@ impl Checker<'_, '_> {
         // getThisTypeOfSignature reads the parameter symbol's type. Its
         // canonical resolution stack detects `this: typeof this` before
         // entering the annotation again; a direct type-node read bypasses it.
-        let resolved = if let Some(symbol) = first.node_id.and_then(|id| self.binder.symbol_of(id))
+        let resolved = if let Some(symbol) = first.node_id().and_then(|id| self.binder.symbol_of(id))
         {
             self.get_type_of_symbol(symbol)
         } else {
@@ -2225,7 +2225,7 @@ impl Checker<'_, '_> {
         };
         members.iter().find_map(|member| match member {
             tsr_ast::ClassElement::ConstructorDeclaration(constructor) => {
-                constructor.body.and(constructor.node_id)
+                constructor.body.and(constructor.node_id())
             }
             _ => None,
         })
@@ -2441,7 +2441,7 @@ impl Checker<'_, '_> {
             let candidates = self.reorder_candidates(candidates);
             // `resolveCall`'s overload failure when the written type
             // arguments fit no candidate (`getCandidateForOverloadFailure`).
-            if let Some(call) = node.node_id
+            if let Some(call) = node.node_id()
                 && let Some(failure) = self.written_type_argument_arity_failure(
                     &candidates,
                     call,
@@ -2458,12 +2458,12 @@ impl Checker<'_, '_> {
                     &candidates,
                     node.arguments,
                     !node.type_arguments.is_empty(),
-                    node.node_id,
+                    node.node_id(),
                 ),
             };
             if let Some(signature) = selected {
                 if signature.type_parameters.is_empty() {
-                    if let Some(call) = node.node_id {
+                    if let Some(call) = node.node_id() {
                         self.resolved_call_signatures.insert(call, signature.clone());
                     }
                     bump(&COUNTERS.new_resolved);
@@ -2472,12 +2472,12 @@ impl Checker<'_, '_> {
                 let mut instantiated = None;
                 let answer = self.check_generic_call_with(
                     &signature,
-                    node.node_id,
+                    node.node_id(),
                     node.arguments,
                     Some(&mut instantiated),
                 );
                 if answer != error {
-                    if let Some(call) = node.node_id
+                    if let Some(call) = node.node_id()
                         && let Some(signature) = instantiated
                     {
                         self.resolved_call_signatures.insert(call, signature);
@@ -2643,7 +2643,7 @@ impl Checker<'_, '_> {
             {
                 // Re-fetch through node_map for the checker-lifetime view
                 // of the written argument nodes.
-                let Some(written_nodes) = node.node_id.and_then(|id| match self.node_map.get(id) {
+                let Some(written_nodes) = node.node_id().and_then(|id| match self.node_map.get(id) {
                     Some(Node::NewExpression(fetched)) => Some(fetched.type_arguments),
                     _ => None,
                 }) else {
@@ -2786,7 +2786,7 @@ impl Checker<'_, '_> {
                     .members
                     .iter()
                     .filter_map(|member| match member {
-                        tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
+                        tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id(),
                         _ => None,
                     })
                     .collect(),
@@ -2794,7 +2794,7 @@ impl Checker<'_, '_> {
                     .members
                     .iter()
                     .filter_map(|member| match member {
-                        tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id,
+                        tsr_ast::ClassElement::ConstructorDeclaration(ctor) => ctor.node_id(),
                         _ => None,
                     })
                     .collect(),
@@ -2816,7 +2816,7 @@ impl Checker<'_, '_> {
                     .iter()
                     .map(|parameter| {
                         parameter
-                            .node_id
+                            .node_id()
                             .and_then(|id| self.binder.symbol_of(id))
                             .map(|s| self.get_declared_type_of_symbol(s))
                     })
@@ -2832,12 +2832,12 @@ impl Checker<'_, '_> {
                     let mut instantiated = None;
                     let answer = self.check_generic_call_with(
                         &signature,
-                        node.node_id,
+                        node.node_id(),
                         node.arguments,
                         Some(&mut instantiated),
                     );
                     if answer != error {
-                        if let Some(call) = node.node_id
+                        if let Some(call) = node.node_id()
                             && let Some(signature) = instantiated
                         {
                             self.resolved_call_signatures.insert(call, signature);
@@ -2867,7 +2867,7 @@ impl Checker<'_, '_> {
             // move as [`Self::this_parameter_type`], and its comment explains
             // why the map is copied out first.
             let map = self.node_map;
-            let written = match node.node_id.and_then(|id| map.get(id)) {
+            let written = match node.node_id().and_then(|id| map.get(id)) {
                 Some(Node::NewExpression(from_map)) => from_map.type_arguments,
                 _ => &[],
             };
@@ -2967,7 +2967,7 @@ impl Checker<'_, '_> {
                 // (`genericDefaultsJs` wants `f0_v0 : any` for a `.d.ts`
                 // class newed from `main.js` — the site's file decides, not
                 // the declaration's).
-                let fallback = if node.node_id.is_some_and(|id| self.in_js_file(id)) {
+                let fallback = if node.node_id().is_some_and(|id| self.in_js_file(id)) {
                     self.intrinsics.any
                 } else {
                     self.intrinsics.unknown
@@ -3180,7 +3180,7 @@ impl Checker<'_, '_> {
                 && let Some(check) = conditional.check_type
                 && let Some(parameter) = self.distributive_conditional_parameter(check)
                 && alias.type_parameters.first().is_some_and(|parameter_node| {
-                    parameter_node.node_id.and_then(|node| self.binder.symbol_of(node))
+                    parameter_node.node_id().and_then(|node| self.binder.symbol_of(node))
                         == Some(parameter)
                 })
             {
@@ -3692,7 +3692,7 @@ impl Checker<'_, '_> {
         if let Some(operand) = node.expression {
             self.check_expression(operand);
         }
-        let Some(id) = node.node_id else { return error };
+        let Some(id) = node.node_id() else { return error };
         let Some(container) = self.containing_function(id) else {
             // `fn == nil` — a `yield` at the top level.
             return any;

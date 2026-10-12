@@ -63,7 +63,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::SourceFile,
             start,
         );
-        self.nodes.add_flags(file.node_id.unwrap(), tsr_ast::NodeFlags::JSON_FILE);
+        self.nodes.add_flags(file.node_id().unwrap(), tsr_ast::NodeFlags::JSON_FILE);
         if let Some(Statement::ExpressionStatement(statement)) = statements.first() {
             self.validate_json_value(statement.expression);
         }

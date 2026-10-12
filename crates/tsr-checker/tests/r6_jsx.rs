@@ -30,7 +30,7 @@ fn codes(source: &str) -> Vec<(u32, u32, String)> {
         &mut node_map,
     );
     assert!(file.diagnostics.is_empty(), "fixture must parse");
-    let root = file.source_file.node_id.expect("a parsed file has an id");
+    let root = file.source_file.node_id().expect("a parsed file has an id");
     let bound = tsr_binder::bind_into(
         BindResult::empty(),
         &arena,

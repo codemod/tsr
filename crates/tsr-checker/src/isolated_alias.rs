@@ -198,7 +198,7 @@ impl Checker<'_, '_> {
             && self.verbatim_module_syntax
             && self.alias_emit_module_format_of_file(file) == tsr_core::ModuleKind::CommonJS;
         if let Some(tsr_ast::Expression::Identifier(identifier)) = assignment.expression
-            && let Some(id) = identifier.node_id
+            && let Some(id) = identifier.node_id()
         {
             let text = identifier.text.to_string();
             // `getExportSymbolOfValueSymbolIfExported(resolveEntityName(id,
@@ -549,7 +549,7 @@ impl Checker<'_, '_> {
         // `checkDecorators`' entry guard (`checker.go:6024`).
         let Some(modifiers) = crate::check::modifiers_of(typed) else { return };
         let Some(first_decorator) = modifiers.iter().find_map(|modifier| match modifier {
-            tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id,
+            tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id(),
             tsr_ast::ModifierLike::Token(_) => None,
         }) else {
             return;

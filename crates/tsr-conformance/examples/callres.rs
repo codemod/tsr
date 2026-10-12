@@ -835,7 +835,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 continue;
             };
             let Some(Node::Identifier(identifier)) = map.get(terminal) else { continue };
-            let symbol = identifier.node_id.and_then(|n| {
+            let symbol = identifier.node_id().and_then(|n| {
                 bound.resolve_name(nodes, map, n, identifier.text, SymbolFlags::VALUE)
             });
             let Some(symbol) = symbol.filter(|s| blocked_symbols.contains(s)) else { continue };
@@ -882,7 +882,7 @@ fn symbol_of_line(
     }
     let Some(Node::Identifier(identifier)) = map.get(id) else { return None };
     identifier
-        .node_id
+        .node_id()
         .and_then(|n| bound.resolve_name(nodes, map, n, identifier.text, SymbolFlags::VALUE))
 }
 

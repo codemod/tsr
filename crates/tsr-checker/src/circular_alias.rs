@@ -113,7 +113,7 @@ impl Checker<'_, '_> {
                     return self.binder.resolve_name(
                         self.nodes,
                         self.node_map,
-                        name.node_id?,
+                        name.node_id()?,
                         name.text,
                         SymbolFlags::NAMESPACE,
                     );
@@ -145,7 +145,7 @@ impl Checker<'_, '_> {
                         return self.binder.resolve_name_with_export_alias(
                             self.nodes,
                             self.node_map,
-                            name.node_id?,
+                            name.node_id()?,
                             name.text,
                             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
                             |_, _| Some(true),

@@ -849,7 +849,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     let Some(tsr_ast::BindingName::Identifier(binding)) = parameter.name else {
                         continue;
                     };
-                    let Some(name_id) = binding.node_id else { continue };
+                    let Some(name_id) = binding.node_id() else { continue };
                     let Some(&at) = position_of.get(&name_id) else { continue };
                     let Some(ours_line) = our_file.get(at) else { continue };
                     let param_outcome = if expected_file

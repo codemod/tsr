@@ -20,7 +20,7 @@ fn check(source: &str) -> (Vec<String>, Vec<String>) {
         &mut node_map,
     );
     assert!(file.diagnostics.is_empty(), "fixture must parse");
-    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
+    let root: NodeId = file.source_file.node_id().expect("a parsed file has an id");
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
         &arena,

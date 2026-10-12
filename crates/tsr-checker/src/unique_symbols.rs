@@ -176,7 +176,7 @@ impl Checker<'_, '_> {
                 .declarations
                 .iter()
                 .find(|declaration| declaration.r#type.is_none())
-                .and_then(|declaration| declaration.node_id),
+                .and_then(|declaration| declaration.node_id()),
             _ => Some(host),
         }
     }

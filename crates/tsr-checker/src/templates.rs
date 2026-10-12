@@ -53,7 +53,7 @@ impl Checker<'_, '_> {
         let bindings = alias
             .type_parameters
             .iter()
-            .filter_map(|p| p.node_id)
+            .filter_map(|p| p.node_id())
             .filter_map(|id| self.binder.symbol_of(id))
             .zip(arguments.iter().copied())
             .collect();
@@ -399,7 +399,7 @@ mod tests {
                 let tsr_ast::Statement::TypeAliasDeclaration(alias) = statement else {
                     panic!("alias fixture");
                 };
-                bound.symbol_of(alias.node_id.unwrap()).unwrap()
+                bound.symbol_of(alias.node_id().unwrap()).unwrap()
             })
             .collect();
         for reverse in [false, true] {
@@ -469,8 +469,8 @@ mod tests {
         else {
             panic!("template alias fixture");
         };
-        let owner = bound.symbol_of(alias.node_id.unwrap()).unwrap();
-        let parameter = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+        let owner = bound.symbol_of(alias.node_id().unwrap()).unwrap();
+        let parameter = bound.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let argument = checker.store.intern_literal(
             TypeFlags::STRING_LITERAL,

@@ -77,7 +77,7 @@ impl Checker<'_, '_> {
         };
         let mut seen_self = false;
         for candidate in parameters {
-            let Some(id) = candidate.node_id else { continue };
+            let Some(id) = candidate.node_id() else { continue };
             if id == parameter {
                 seen_self = true;
                 continue;

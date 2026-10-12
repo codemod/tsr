@@ -213,7 +213,7 @@ impl Checker<'_, '_> {
             && self.type_of(right_type).flags.intersects(TypeFlags::BOOLEAN_LIKE)
             && let Some(suggested) = suggested_boolean_operator(operator)
         {
-            if let Some(at) = operator_token.node_id
+            if let Some(at) = operator_token.node_id()
                 && let Some(file) = self.source_file_of_for_diagnostics(node)
             {
                 let span = self.nodes.span(at);
@@ -895,7 +895,7 @@ impl Checker<'_, '_> {
         if identifier.text != "NaN" {
             return false;
         }
-        let Some(id) = identifier.node_id else { return false };
+        let Some(id) = identifier.node_id() else { return false };
         let Some(global) = self.binder.globals().get("NaN").copied() else { return false };
         if !self.binder.symbols().get(global).flags.intersects(SymbolFlags::VALUE) {
             return false;

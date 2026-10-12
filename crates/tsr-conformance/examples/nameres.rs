@@ -630,7 +630,7 @@ fn symbol_of_line(
     }
     let Some(Node::Identifier(identifier)) = map.get(id) else { return None };
     identifier
-        .node_id
+        .node_id()
         .and_then(|n| bound.resolve_name(nodes, map, n, identifier.text, SymbolFlags::VALUE))
 }
 
@@ -1026,7 +1026,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             // C5: does a wider meaning find it? A non-zero count would make part
             // of this row a meaning bug rather than a declaration bug.
             if identifier
-                .node_id
+                .node_id()
                 .and_then(|n| {
                     bound.resolve_name(nodes, map, n, identifier.text, SymbolFlags::all())
                 })
@@ -2334,7 +2334,7 @@ fn local_alias_target(
     let Some(Node::ImportEqualsDeclaration(node)) = map.get(declaration) else { return None };
     let tsr_ast::ModuleReference::Identifier(name) = node.module_reference? else { return None };
     bound
-        .resolve_name(nodes, map, name.node_id?, name.text, SymbolFlags::all())
+        .resolve_name(nodes, map, name.node_id()?, name.text, SymbolFlags::all())
         .map(|found| bound.merged_symbol(found))
 }
 

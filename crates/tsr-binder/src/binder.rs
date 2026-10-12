@@ -417,7 +417,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             "invalid file node range"
         );
         assert!(
-            file.node_id.is_some_and(|id| range.contains(&id.as_u32())),
+            file.node_id().is_some_and(|id| range.contains(&id.as_u32())),
             "source file is outside its node range"
         );
         let mut binder = Self::resuming_with_names(
@@ -430,7 +430,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         .forcing_module(force_module)
         .bind_file_body(file, info, jsdoc);
         assert!(binder.global_exports.is_empty(), "UMD alias declarations require ordered binding");
-        let root = file.node_id.expect("registered source file");
+        let root = file.node_id().expect("registered source file");
         let node_base = binder.node_base;
         let is_module = binder.is_module;
         let commonjs_module = binder.commonjs_module;
@@ -719,7 +719,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
     ) -> BindResult<'a> {
         self.bind_file_body(file, info, jsdoc)
-            .finish_file(file.node_id.expect("registered source file"))
+            .finish_file(file.node_id().expect("registered source file"))
     }
 
     fn bind_file_body(
@@ -1500,7 +1500,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 self.module_augmentations.push(crate::ModuleAugmentation {
                     symbol,
                     file: self.file_node,
-                    name: name.node_id.expect("a module name is registered"),
+                    name: name.node_id().expect("a module name is registered"),
                     text: name.text,
                     nested: matches!(
                         self.ancestors.iter().rev().nth(1),
@@ -2376,7 +2376,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             fallthrough = self.current_flow;
             if !self.flow.flags(self.current_flow).contains(FlowFlags::UNREACHABLE)
                 && index != clauses.len() - 1
-                && let Some(clause_id) = clause.node_id
+                && let Some(clause_id) = clause.node_id()
             {
                 self.fallthrough_flow.insert(clause_id, self.current_flow);
             }
@@ -2425,7 +2425,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.bind_statement(statement.statement);
         let active = self.active_labels.pop().expect("pushed just above");
         if !active.referenced
-            && let Some(label_id) = label.node_id
+            && let Some(label_id) = label.node_id()
         {
             // Recorded, not reported: whether an unused label is an error
             // depends on compiler options the binder does not have.
@@ -2698,7 +2698,7 @@ impl<'a, 'n> Binder<'a, 'n> {
     fn bind_initialized_variable_flow(&mut self, name: Option<BindingName<'a>>, id: NodeId) {
         if let Some(BindingName::BindingPattern(pattern)) = name {
             for element in pattern.elements {
-                let Some(element_id) = element.node_id else { continue };
+                let Some(element_id) = element.node_id() else { continue };
                 self.bind_initialized_variable_flow(element.name, element_id);
             }
         } else {
@@ -3523,7 +3523,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         use tsr_ast::JSDocTag;
         for (host, docs) in jsdoc {
             for doc in *docs {
-                if let Some(doc_id) = doc.node_id {
+                if let Some(doc_id) = doc.node_id() {
                     self.jsdoc_hosts.insert(doc_id, *host);
                 }
                 // Native reparents the gathered template nodes under a
@@ -3537,17 +3537,17 @@ impl<'a, 'n> Binder<'a, 'n> {
                 let declares_alias = doc.tags.iter().any(|tag| {
                     matches!(tag, JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_))
                 });
-                let template_scope = if declares_alias { doc.node_id } else { None };
+                let template_scope = if declares_alias { doc.node_id() } else { None };
                 for tag in doc.tags {
                     match tag {
                         JSDocTag::JSDocTypedefTag(typedef) => {
                             let (name, name_node) = match typedef.name {
                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
-                                    (identifier.text, identifier.node_id)
+                                    (identifier.text, identifier.node_id())
                                 }
                                 _ => continue,
                             };
-                            let Some(id) = typedef.node_id else { continue };
+                            let Some(id) = typedef.node_id() else { continue };
                             let scope = self.jsdoc_alias_scope(*host, root);
                             self.declare_jsdoc_type_alias(scope, root, name, name_node, id);
                             // The tag's type expression is parsed syntax — a
@@ -3570,11 +3570,11 @@ impl<'a, 'n> Binder<'a, 'n> {
                         // `@typedef` arm above is the precedent).
                         JSDocTag::JSDocImportTag(import) => {
                             let Some(clause) = import.import_clause else { continue };
-                            if let (Some(name), Some(id)) = (clause.name, clause.node_id) {
+                            if let (Some(name), Some(id)) = (clause.name, clause.node_id()) {
                                 self.declare_jsdoc_import_binding(
                                     root,
                                     name.text,
-                                    name.node_id,
+                                    name.node_id(),
                                     id,
                                 );
                             }
@@ -3582,12 +3582,12 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
                                     for specifier in named.elements {
                                         if let (Some(name), Some(id)) =
-                                            (specifier.name, specifier.node_id)
+                                            (specifier.name, specifier.node_id())
                                         {
                                             self.declare_jsdoc_import_binding(
                                                 root,
                                                 name.text,
-                                                name.node_id,
+                                                name.node_id(),
                                                 id,
                                             );
                                         }
@@ -3601,12 +3601,12 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 // line exactly that way. `bd tsr-e2u`'s fence.
                                 Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) => {
                                     if let (Some(name), Some(id)) =
-                                        (namespace.name, namespace.node_id)
+                                        (namespace.name, namespace.node_id())
                                     {
                                         self.declare_jsdoc_import_binding(
                                             root,
                                             name.text,
-                                            name.node_id,
+                                            name.node_id(),
                                             id,
                                         );
                                     }
@@ -3617,11 +3617,11 @@ impl<'a, 'n> Binder<'a, 'n> {
                         JSDocTag::JSDocCallbackTag(callback) => {
                             let (name, name_node) = match callback.name {
                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
-                                    (identifier.text, identifier.node_id)
+                                    (identifier.text, identifier.node_id())
                                 }
                                 _ => continue,
                             };
-                            let Some(id) = callback.node_id else { continue };
+                            let Some(id) = callback.node_id() else { continue };
                             let scope = self.jsdoc_alias_scope(*host, root);
                             self.declare_jsdoc_type_alias(scope, root, name, name_node, id);
                             if let Some(expression) = callback.type_expression {
@@ -3637,7 +3637,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                             }
                             for parameter in template.type_parameters {
                                 let Some(name) = parameter.name else { continue };
-                                let Some(id) = parameter.node_id else { continue };
+                                let Some(id) = parameter.node_id() else { continue };
                                 self.declare_jsdoc_symbol(
                                     template_scope.unwrap_or(root),
                                     name.text,
@@ -3652,7 +3652,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                             if let Some(expression) = property.type_expression {
                                 self.bind(tsr_ast::Node::from(expression));
                             }
-                            if self.nodes.kind(property.node_id.unwrap_or(NodeId::ZERO))
+                            if self.nodes.kind(property.node_id().unwrap_or(NodeId::ZERO))
                                 != SyntaxKind::JSDocPropertyTag
                             {
                                 continue;
@@ -3663,7 +3663,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 }
                                 _ => continue,
                             };
-                            let Some(id) = property.node_id else { continue };
+                            let Some(id) = property.node_id() else { continue };
                             let symbol = self.symbols.create(name, SymbolFlags::PROPERTY);
                             self.symbols.get_mut(symbol).declarations.push(id);
                             self.node_symbols[id.index() - self.node_base] = Some(symbol);
@@ -3679,7 +3679,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                             // `this` reference resolves to a symbol displayed
                             // `(Missing)` declared at the tag (`thisTag1`:
                             // `>this : Symbol((Missing), Decl(a.js, 0, 5))`).
-                            if let Some(id) = this_tag.node_id {
+                            if let Some(id) = this_tag.node_id() {
                                 let symbol =
                                     self.symbols.create(INTERNAL_MISSING, SymbolFlags::VARIABLE);
                                 self.symbols.get_mut(symbol).declarations.push(id);
@@ -3730,7 +3730,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                         // reads. Its parameters bind like a written
                         // signature's.
                         JSDocTag::JSDocOverloadTag(overload) => {
-                            let Some(id) = overload.node_id else { continue };
+                            let Some(id) = overload.node_id() else { continue };
                             if !self.jsdoc_hosts_overloads(*host) {
                                 continue;
                             }
@@ -4599,7 +4599,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 self.symbols.get_mut(symbol).value_declaration = Some(id);
             }
             self.node_symbols[id.index() - self.node_base] = Some(symbol);
-            if let Some(computed_id) = computed.node_id {
+            if let Some(computed_id) = computed.node_id() {
                 self.computed_names.insert(id, computed_id);
             }
             return Some(symbol);
@@ -4767,7 +4767,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         // `{ ['a']: 1 }` declares `a` statically, but it was still *written* as a
         // computed name, and upstream prints it back the way it was written.
         if let Some(computed) = computed_property_name(node)
-            && let Some(computed_id) = computed.node_id
+            && let Some(computed_id) = computed.node_id()
         {
             self.computed_names.insert(id, computed_id);
         }
@@ -5545,7 +5545,7 @@ pub fn is_external_module(file: &SourceFile<'_>) -> bool {
 #[must_use]
 pub fn is_external_module_in(file: &SourceFile<'_>, nodes: &NodeTable) -> bool {
     is_external_module(file)
-        || file.node_id.is_some_and(|id| {
+        || file.node_id().is_some_and(|id| {
             nodes.flags(id).contains(tsr_ast::NodeFlags::POSSIBLY_CONTAINS_IMPORT_META)
         }) && contains_import_meta(file)
 }
@@ -5980,16 +5980,16 @@ fn name_node_of(node: Node<'_>) -> Option<NodeId> {
     use tsr_ast::PropertyName;
     let property = |name: &PropertyName<'_>| name.node_id();
     match node {
-        Node::FunctionDeclaration(n) => n.name.and_then(|i| i.node_id),
-        Node::ClassDeclaration(n) => n.name.and_then(|i| i.node_id),
-        Node::ClassExpression(n) => n.name.and_then(|i| i.node_id),
-        Node::InterfaceDeclaration(n) => n.name.and_then(|i| i.node_id),
-        Node::TypeAliasDeclaration(n) => n.name.and_then(|i| i.node_id),
-        Node::EnumDeclaration(n) => n.name.and_then(|i| i.node_id),
-        Node::ImportEqualsDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::FunctionDeclaration(n) => n.name.and_then(|i| i.node_id()),
+        Node::ClassDeclaration(n) => n.name.and_then(|i| i.node_id()),
+        Node::ClassExpression(n) => n.name.and_then(|i| i.node_id()),
+        Node::InterfaceDeclaration(n) => n.name.and_then(|i| i.node_id()),
+        Node::TypeAliasDeclaration(n) => n.name.and_then(|i| i.node_id()),
+        Node::EnumDeclaration(n) => n.name.and_then(|i| i.node_id()),
+        Node::ImportEqualsDeclaration(n) => n.name.and_then(|i| i.node_id()),
         Node::ModuleDeclaration(n) => match n.name {
-            Some(tsr_ast::ModuleName::Identifier(i)) => i.node_id,
-            Some(tsr_ast::ModuleName::StringLiteral(l)) => l.node_id,
+            Some(tsr_ast::ModuleName::Identifier(i)) => i.node_id(),
+            Some(tsr_ast::ModuleName::StringLiteral(l)) => l.node_id(),
             None => None,
         },
         Node::VariableDeclaration(n) => n.name.as_ref().and_then(tsr_ast::BindingName::node_id),
@@ -6009,18 +6009,18 @@ fn name_node_of(node: Node<'_>) -> Option<NodeId> {
         // (`ast/utilities.go:1461`). Every redeclaration diagnostic is
         // positioned here, so a kind missing from this list reports at the
         // declaration's first token instead of its name.
-        Node::ImportSpecifier(n) => n.name.and_then(|i| i.node_id),
+        Node::ImportSpecifier(n) => n.name.and_then(|i| i.node_id()),
         Node::ExportSpecifier(n) => n.name.and_then(|n| n.node_id()),
-        Node::ImportClause(n) => n.name.and_then(|i| i.node_id),
-        Node::NamespaceImport(n) => n.name.and_then(|i| i.node_id),
+        Node::ImportClause(n) => n.name.and_then(|i| i.node_id()),
+        Node::NamespaceImport(n) => n.name.and_then(|i| i.node_id()),
         Node::NamespaceExport(n) => n.name.and_then(|n| n.node_id()),
-        Node::TypeParameterDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::TypeParameterDeclaration(n) => n.name.and_then(|i| i.node_id()),
         // Upstream's one special case that reaches this port: the
         // **expression**, and only when it is an identifier
         // (`ast/utilities.go:1476`). `export = server` reports at `server`,
         // column 10 — not at the `export` keyword, column 1.
         Node::ExportAssignment(n) => match n.expression {
-            Some(tsr_ast::Expression::Identifier(i)) => i.node_id,
+            Some(tsr_ast::Expression::Identifier(i)) => i.node_id(),
             _ => None,
         },
         _ => None,
@@ -6200,8 +6200,8 @@ fn jsx_attribute_name<'a>(
         // range they span, which is a borrow rather than the concatenation
         // upstream builds.
         tsr_ast::JsxAttributeName::JsxNamespacedName(namespaced) => {
-            let start = nodes.span(namespaced.namespace?.node_id?).start;
-            let end = nodes.span(namespaced.name?.node_id?).end;
+            let start = nodes.span(namespaced.namespace?.node_id()?).start;
+            let end = nodes.span(namespaced.name?.node_id()?).end;
             source.get(start as usize..end as usize)
         }
     }

@@ -178,7 +178,7 @@ impl<'a> Checker<'a, '_> {
                 });
                 let index = declarations
                     .iter()
-                    .position(|parameter| parameter.node_id == Some(declaration))
+                    .position(|parameter| parameter.node_id() == Some(declaration))
                     .ok_or(())?;
                 if has_this && index == 0 {
                     return Ok(None);

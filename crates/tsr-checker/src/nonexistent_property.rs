@@ -85,7 +85,7 @@ impl Checker<'_, '_> {
                 if name.text.is_empty() {
                     return;
                 }
-                let Some(name_id) = name.node_id else { return };
+                let Some(name_id) = name.node_id() else { return };
                 // Native `IsPartOfTypeNode` excludes interface extends and
                 // implements from checked value property accesses. Use the
                 // name slot so nested `typeof` type arguments stay distinct.
@@ -1478,7 +1478,7 @@ impl Checker<'_, '_> {
             for entry in clause.types {
                 // An unresolvable `extends X` is native's errorType base.
                 if let Some(tsr_ast::Expression::Identifier(identifier)) = entry.expression
-                    && let Some(id) = identifier.node_id
+                    && let Some(id) = identifier.node_id()
                     && self
                         .binder
                         .resolve_name(

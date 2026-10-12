@@ -34,7 +34,7 @@ impl Checker<'_, '_> {
     /// [`Checker::check_new_target_meta_property_type`].
     pub(crate) fn check_meta_property_type(&mut self, node: &tsr_ast::MetaProperty<'_>) -> TypeId {
         if node.keyword_token.kind == SyntaxKind::NewKeyword {
-            return match node.node_id {
+            return match node.node_id() {
                 Some(id) => self.check_new_target_meta_property_type(id),
                 None => self.intrinsics.error,
             };
@@ -133,7 +133,7 @@ impl Checker<'_, '_> {
             }
             return;
         }
-        let Some(name_id) = name.node_id else { return };
+        let Some(name_id) = name.node_id() else { return };
         let span = self.error_span(name_id);
         let diagnostic = if keyword == SyntaxKind::ImportKeyword && is_callee {
             Diagnostic::with_args(

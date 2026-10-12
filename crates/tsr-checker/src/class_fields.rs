@@ -224,7 +224,7 @@ impl Checker<'_, '_> {
                 let parts: Vec<String> = pattern
                     .elements
                     .iter()
-                    .filter_map(|element| element.node_id)
+                    .filter_map(|element| element.node_id())
                     .map(|element| self.binding_element_text(element))
                     .collect();
                 if self.nodes.kind(name) == SyntaxKind::ObjectBindingPattern {
@@ -401,18 +401,18 @@ impl Checker<'_, '_> {
     fn declares_collision_checked_name(&self, declaration: NodeId, name: NodeId) -> bool {
         let named = |slot: Option<NodeId>| slot == Some(name);
         match self.node_map.get(declaration) {
-            Some(Node::FunctionDeclaration(n)) => named(n.name.and_then(|n| n.node_id)),
-            Some(Node::FunctionExpression(n)) => named(n.name.and_then(|n| n.node_id)),
-            Some(Node::ClassDeclaration(n)) => named(n.name.and_then(|n| n.node_id)),
-            Some(Node::ClassExpression(n)) => named(n.name.and_then(|n| n.node_id)),
-            Some(Node::EnumDeclaration(n)) => named(n.name.and_then(|n| n.node_id)),
+            Some(Node::FunctionDeclaration(n)) => named(n.name.and_then(|n| n.node_id())),
+            Some(Node::FunctionExpression(n)) => named(n.name.and_then(|n| n.node_id())),
+            Some(Node::ClassDeclaration(n)) => named(n.name.and_then(|n| n.node_id())),
+            Some(Node::ClassExpression(n)) => named(n.name.and_then(|n| n.node_id())),
+            Some(Node::EnumDeclaration(n)) => named(n.name.and_then(|n| n.node_id())),
             Some(Node::ModuleDeclaration(n)) => {
                 n.name.and_then(|n| Node::from(n).node_id()) == Some(name)
             }
-            Some(Node::ImportClause(n)) => named(n.name.and_then(|n| n.node_id)),
-            Some(Node::NamespaceImport(n)) => named(n.name.and_then(|n| n.node_id)),
-            Some(Node::ImportSpecifier(n)) => named(n.name.and_then(|n| n.node_id)),
-            Some(Node::ImportEqualsDeclaration(n)) => named(n.name.and_then(|n| n.node_id)),
+            Some(Node::ImportClause(n)) => named(n.name.and_then(|n| n.node_id())),
+            Some(Node::NamespaceImport(n)) => named(n.name.and_then(|n| n.node_id())),
+            Some(Node::ImportSpecifier(n)) => named(n.name.and_then(|n| n.node_id())),
+            Some(Node::ImportEqualsDeclaration(n)) => named(n.name.and_then(|n| n.node_id())),
             Some(Node::VariableDeclaration(n)) => {
                 n.name.and_then(|n| Node::from(n).node_id()) == Some(name)
             }
@@ -610,12 +610,12 @@ impl Checker<'_, '_> {
                     | SyntaxKind::OverrideKeyword
             ))
         });
-        let Some(id) = parameter.node_id else { return };
+        let Some(id) = parameter.node_id() else { return };
         let in_constructor = self
             .nodes
             .parent(id)
             .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::Constructor);
-        let Some(name_id) = name.node_id else { return };
+        let Some(name_id) = name.node_id() else { return };
         if !is_property || !in_constructor {
             return;
         }

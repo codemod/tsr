@@ -67,7 +67,7 @@ fn type_of_reference(source: &str, index: usize) -> String {
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let mut references = Vec::new();
-    let root = parsed.source_file.node_id.expect("the file has a node id");
+    let root = parsed.source_file.node_id().expect("the file has a node id");
     type_references(&parsed.node_map, root, &mut references);
     let id = *references.get(index).expect("that many type references");
     let Some(Node::TypeReferenceNode(reference)) = parsed.node_map.get(id) else {

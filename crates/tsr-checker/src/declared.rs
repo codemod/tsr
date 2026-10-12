@@ -317,7 +317,7 @@ impl<'a> Checker<'a, '_> {
             | TypeNode::ConstructorTypeNode(_)
             | TypeNode::MappedTypeNode(_) => true,
             TypeNode::ArrayTypeNode(array) => {
-                self.is_deferred_type_reference_node(array.node_id, false, |checker| {
+                self.is_deferred_type_reference_node(array.node_id(), false, |checker| {
                     array
                         .element_type
                         .is_some_and(|element| checker.may_resolve_type_alias(element))
@@ -336,7 +336,7 @@ impl<'a> Checker<'a, '_> {
                 false
             }
             TypeNode::TupleTypeNode(tuple) => {
-                self.is_deferred_type_reference_node(tuple.node_id, false, |checker| {
+                self.is_deferred_type_reference_node(tuple.node_id(), false, |checker| {
                     tuple.elements.iter().any(|&element| checker.may_resolve_type_alias(element))
                 })
             }
@@ -366,7 +366,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 let has_default_type_arguments = reference.type_arguments.len() != parameters;
                 self.is_deferred_type_reference_node(
-                    reference.node_id,
+                    reference.node_id(),
                     has_default_type_arguments,
                     |checker| {
                         reference
@@ -583,7 +583,7 @@ impl<'a> Checker<'a, '_> {
             // getTypeFromInferTypeNode reads the declared parameter identity.
             TypeNode::InferTypeNode(node) => node
                 .type_parameter
-                .and_then(|parameter| parameter.node_id)
+                .and_then(|parameter| parameter.node_id())
                 .and_then(|id| self.binder.symbol_of(id))
                 .map_or(self.intrinsics.error, |symbol| self.get_declared_type_of_symbol(symbol)),
             // `getTypeFromTypeNodeWorker`'s `ast.KindTypePredicate` case
@@ -625,7 +625,7 @@ impl<'a> Checker<'a, '_> {
                 {
                     return self.intrinsics.error;
                 }
-                node.node_id.map_or(self.intrinsics.error, |id| {
+                node.node_id().map_or(self.intrinsics.error, |id| {
                     self.get_es_symbol_like_type_for_type_operator(id)
                 })
             }
@@ -882,10 +882,10 @@ impl<'a> Checker<'a, '_> {
                             // root without branches, the state the comment
                             // below already allows (`r7-perf.md` §30).
                             && conditional
-                                .node_id
+                                .node_id()
                                 .is_none_or(|declaration| !self.eager_branch_conditionals.contains(&declaration))
                         {
-                            let guard = conditional.node_id;
+                            let guard = conditional.node_id();
                             if let Some(declaration) = guard {
                                 self.eager_branch_conditionals.insert(declaration);
                             }
@@ -901,7 +901,7 @@ impl<'a> Checker<'a, '_> {
                             // is not yet computable. Re-evaluate it only after
                             // substituting the check operand (getConditionalTypeInstantiation).
                             if let (Some(declaration), Some(check), Some(extends)) = (
-                                conditional.node_id,
+                                conditional.node_id(),
                                 conditional.check_type,
                                 conditional.extends_type,
                             ) {
@@ -922,7 +922,7 @@ impl<'a> Checker<'a, '_> {
                                 self.eager_branch_conditionals.remove(&declaration);
                             }
                         } else if let TypeNode::ConditionalTypeNode(conditional) = node
-                            && let Some(declaration) = conditional.node_id
+                            && let Some(declaration) = conditional.node_id()
                         {
                             let bindings = self.flattened_alias_bindings().into_iter().collect();
                             self.conditional_inference_nodes
@@ -1042,7 +1042,7 @@ impl<'a> Checker<'a, '_> {
                         // signature reuses the written operator node. Keep that
                         // spelling in the existing node-reuse channel instead
                         // of baking it into the semantic union/intersection.
-                        if let Some(id) = node.node_id {
+                        if let Some(id) = node.node_id() {
                             let written = format!(
                                 "keyof ({})",
                                 written_operands
@@ -1064,7 +1064,7 @@ impl<'a> Checker<'a, '_> {
                             .type_name
                             .and_then(|name| match name {
                                 tsr_ast::EntityName::Identifier(identifier) => {
-                                    identifier.node_id.and_then(|id| {
+                                    identifier.node_id().and_then(|id| {
                                         self.binder.resolve_name(
                                             self.nodes,
                                             self.node_map,
@@ -1182,7 +1182,7 @@ impl<'a> Checker<'a, '_> {
                             && let crate::types::TypeData::Union { types, .. } =
                                 self.store.get(t).data.clone()
                             && let Some(alias) =
-                                node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+                                node.node_id().and_then(|id| self.alias_symbol_for_type_node(id))
                             && self.alias_evaluation_bindings.is_empty()
                             && self.local_type_parameters_of(alias).is_empty()
                         {
@@ -1375,7 +1375,7 @@ impl<'a> Checker<'a, '_> {
                                     // `bigintWithLib` and
                                     // `readonlyFloat32ArrayAssignableWithFloat32Array`.
                                     let alias = node
-                                        .node_id
+                                        .node_id()
                                         .and_then(|id| self.alias_symbol_for_type_node(id));
                                     match alias {
                                         Some(alias)
@@ -1404,7 +1404,7 @@ impl<'a> Checker<'a, '_> {
                             .type_name
                             .and_then(|name| match name {
                                 tsr_ast::EntityName::Identifier(identifier) => {
-                                    identifier.node_id.and_then(|id| {
+                                    identifier.node_id().and_then(|id| {
                                         self.binder.resolve_name(
                                             self.nodes,
                                             self.node_map,
@@ -1489,7 +1489,7 @@ impl<'a> Checker<'a, '_> {
                             .type_name
                             .and_then(|name| match name {
                                 tsr_ast::EntityName::Identifier(identifier) => {
-                                    identifier.node_id.and_then(|id| {
+                                    identifier.node_id().and_then(|id| {
                                         self.binder.resolve_name(
                                             self.nodes,
                                             self.node_map,
@@ -1574,7 +1574,7 @@ impl<'a> Checker<'a, '_> {
         name: Option<tsr_ast::EntityName<'a>>,
     ) -> bool {
         let Some(tsr_ast::EntityName::Identifier(identifier)) = name else { return false };
-        let Some(id) = identifier.node_id else { return false };
+        let Some(id) = identifier.node_id() else { return false };
         let Some(symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
@@ -1638,12 +1638,12 @@ impl<'a> Checker<'a, '_> {
             // through checkThisExpression, retaining its original flow location
             // and receiver identity rather than resolving a value named "this".
             tsr_ast::EntityName::Identifier(identifier) if identifier.text == "this" => {
-                let Some(location) = identifier.node_id else { return error };
+                let Some(location) = identifier.node_id() else { return error };
                 self.check_this_expression(location)
             }
             tsr_ast::EntityName::Identifier(identifier) => {
                 if self.typeof_is_parameter_projection(node)
-                    && let Some(location) = identifier.node_id
+                    && let Some(location) = identifier.node_id()
                     && let Some(symbol) = self.binder.resolve_name(
                         self.nodes,
                         self.node_map,
@@ -1658,7 +1658,7 @@ impl<'a> Checker<'a, '_> {
             }
             tsr_ast::EntityName::QualifiedName(qualified) => self.check_qualified_name(qualified),
         };
-        let id = node.node_id.map_or(id, |query| self.get_instantiation_expression_type(id, query));
+        let id = node.node_id().map_or(id, |query| self.get_instantiation_expression_type(id, query));
         // getTypeFromTypeQueryNode widens before regularizing. Native seeds
         // the global undefined symbol with undefinedWideningType; this port
         // shares its ordinary undefined identity, so retain that provenance
@@ -1667,7 +1667,7 @@ impl<'a> Checker<'a, '_> {
         if !self.strict_null_checks
             && id == self.intrinsics.undefined
             && let tsr_ast::EntityName::Identifier(identifier) = name
-            && let Some(location) = identifier.node_id
+            && let Some(location) = identifier.node_id()
             && let Some(symbol) = self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
@@ -1698,7 +1698,7 @@ impl<'a> Checker<'a, '_> {
                 .resolve_name(
                     self.nodes,
                     self.node_map,
-                    name.node_id?,
+                    name.node_id()?,
                     name.text,
                     SymbolFlags::TYPE,
                 )
@@ -1711,7 +1711,7 @@ impl<'a> Checker<'a, '_> {
                     if matches!(keyword.kind, SyntaxKind::AnyKeyword | SyntaxKind::VoidKeyword))
         };
         (|| {
-            let id = query.node_id?;
+            let id = query.node_id()?;
             let Node::TypeReferenceNode(application) = self.node_map.get(self.nodes.parent(id)?)?
             else {
                 return None;
@@ -1719,7 +1719,7 @@ impl<'a> Checker<'a, '_> {
             let [TypeNode::TypeQueryNode(argument)] = application.type_arguments else {
                 return None;
             };
-            if argument.node_id != Some(id) {
+            if argument.node_id() != Some(id) {
                 return None;
             }
             let tsr_ast::EntityName::Identifier(name) = application.type_name? else {
@@ -1728,7 +1728,7 @@ impl<'a> Checker<'a, '_> {
             let alias = self.binder.merged_symbol(self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
-                name.node_id?,
+                name.node_id()?,
                 name.text,
                 SymbolFlags::TYPE,
             )?);
@@ -1751,7 +1751,7 @@ impl<'a> Checker<'a, '_> {
                 return None;
             };
             let TypeNode::TypeReferenceNode(check) = conditional.check_type? else { return None };
-            let parameter_symbol = self.binder.symbol_of(parameter.node_id?)?;
+            let parameter_symbol = self.binder.symbol_of(parameter.node_id()?)?;
             if referenced_symbol(check) != Some(parameter_symbol) {
                 return None;
             }
@@ -1772,7 +1772,7 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
             let TypeNode::TypeReferenceNode(yes) = conditional.true_type? else { return None };
-            let inferred_symbol = self.binder.symbol_of(inferred.node_id?)?;
+            let inferred_symbol = self.binder.symbol_of(inferred.node_id()?)?;
             if referenced_symbol(yes) != Some(inferred_symbol)
                 || !matches!(conditional.false_type, Some(TypeNode::KeywordTypeNode(keyword))
                     if keyword.kind == SyntaxKind::NeverKeyword)
@@ -1901,7 +1901,7 @@ impl<'a> Checker<'a, '_> {
                     root = left;
                 }
                 let tsr_ast::EntityName::Identifier(root) = root else { return error };
-                let Some(root_id) = root.node_id else { return error };
+                let Some(root_id) = root.node_id() else { return error };
                 let Some(namespace) =
                     self.resolve_name_with_export_alias(root_id, root.text, SymbolFlags::NAMESPACE)
                 else {
@@ -1911,7 +1911,7 @@ impl<'a> Checker<'a, '_> {
             }
             None => return error,
         };
-        let Some(id) = name.node_id else { return error };
+        let Some(id) = name.node_id() else { return error };
         // `getTypeFromTypeReference` (`checker.go:23003`) asks
         // `getIntendedTypeFromJSDocTypeReference` before resolving the name.
         if let Some(intended) =
@@ -2432,7 +2432,7 @@ impl<'a> Checker<'a, '_> {
                         && let Some(tsr_ast::EntityName::Identifier(identifier)) =
                             reference.type_name
                         && identifier.text == name
-                        && let Some(id) = identifier.node_id
+                        && let Some(id) = identifier.node_id()
                         && self.binder.resolve_name(
                             self.nodes,
                             self.node_map,
@@ -2455,7 +2455,7 @@ impl<'a> Checker<'a, '_> {
                     if identifier.text == "this" {
                         return true;
                     }
-                    let Some(id) = identifier.node_id else { return true };
+                    let Some(id) = identifier.node_id() else { return true };
                     // getResolvedSymbol: the unknown symbol has no declarations.
                     let resolved = self.binder.resolve_name(
                         self.nodes,
@@ -2487,14 +2487,14 @@ impl<'a> Checker<'a, '_> {
                     if method.r#type.is_none() && method.body.is_some() {
                         return true;
                     }
-                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id));
-                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id()));
+                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id()));
                     stack.extend(method.r#type.and_then(|t| t.node_id()));
                     continue;
                 }
                 Node::MethodSignatureDeclaration(method) => {
-                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id));
-                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id()));
+                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id()));
                     stack.extend(method.r#type.and_then(|t| t.node_id()));
                     continue;
                 }
@@ -2528,7 +2528,7 @@ impl<'a> Checker<'a, '_> {
         else {
             return None;
         };
-        let literal_node = literal.node_id?;
+        let literal_node = literal.node_id()?;
         if self.instantiation_expressions.eager_indexed_literals.contains(&literal_node) {
             return None;
         }
@@ -2628,7 +2628,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     fn get_type_from_type_literal(&mut self, node: &tsr_ast::TypeLiteralNode<'a>) -> TypeId {
-        let Some(node_id) = node.node_id else { return self.build_type_literal(node) };
+        let Some(node_id) = node.node_id() else { return self.build_type_literal(node) };
         let key = self.type_literal_key(node_id);
         if let Some(&ty) = self.type_literal_types.get(&key) {
             return ty;
@@ -2797,7 +2797,7 @@ impl<'a> Checker<'a, '_> {
                 let tsr_ast::TypeElement::MethodSignatureDeclaration(method) = member else {
                     return false;
                 };
-                let Some(symbol) = method.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                let Some(symbol) = method.node_id().and_then(|id| self.binder.symbol_of(id)) else {
                     return false;
                 };
                 let printed = if let tsr_ast::PropertyName::ComputedPropertyName(computed) =
@@ -2909,8 +2909,8 @@ impl<'a> Checker<'a, '_> {
         ] = node.members
         {
             let member_id = match node.members[0] {
-                tsr_ast::TypeElement::CallSignatureDeclaration(member) => member.node_id,
-                tsr_ast::TypeElement::ConstructSignatureDeclaration(member) => member.node_id,
+                tsr_ast::TypeElement::CallSignatureDeclaration(member) => member.node_id(),
+                tsr_ast::TypeElement::ConstructSignatureDeclaration(member) => member.node_id(),
                 _ => unreachable!(),
             };
             let Some(member_id) = member_id else { return error };
@@ -2921,7 +2921,7 @@ impl<'a> Checker<'a, '_> {
             // before the anonymous-object collapse: a literal that is a type
             // alias's body prints the alias name, exactly as the multi-member
             // path below does through the same `getAliasForTypeNode` lookup.
-            let alias = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id));
+            let alias = node.node_id().and_then(|id| self.alias_symbol_for_type_node(id));
             let text = match alias {
                 None => self.signature_to_string(&signature),
                 Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
@@ -2929,7 +2929,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 Some(_) => return error,
             };
-            let Some(symbol) = node.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+            let Some(symbol) = node.node_id().and_then(|id| self.binder.symbol_of(id)) else {
                 return error;
             };
             let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
@@ -3053,7 +3053,7 @@ impl<'a> Checker<'a, '_> {
                                         let optional = method.postfix_token.is_some_and(|token| {
                                             token.kind == SyntaxKind::QuestionToken
                                         });
-                                        let Some(id) = method.node_id else { return error };
+                                        let Some(id) = method.node_id() else { return error };
                                         let Some(method_type) =
                                             self.type_literal_computed_method_type(id, optional)
                                         else {
@@ -3091,17 +3091,17 @@ impl<'a> Checker<'a, '_> {
                         name
                     };
                     // A method groups with the properties: see the doc comment.
-                    Some((method.node_id, Some(name), "", true))
+                    Some((method.node_id(), Some(name), "", true))
                 }
                 tsr_ast::TypeElement::CallSignatureDeclaration(call) => {
-                    Some((call.node_id, None, "", false))
+                    Some((call.node_id(), None, "", false))
                 }
                 // No `"new "` here: it comes from the signature's
                 // [`crate::signatures::SignatureKind`] inside
                 // `signature_member_text`, so a construct signature member and
                 // a `new () => T` type node take their prefix from one place.
                 tsr_ast::TypeElement::ConstructSignatureDeclaration(construct) => {
-                    Some((construct.node_id, None, "", false))
+                    Some((construct.node_id(), None, "", false))
                 }
                 _ => None,
             };
@@ -3454,7 +3454,7 @@ impl<'a> Checker<'a, '_> {
                 let printed = reused.unwrap_or_else(|| self.type_to_string(member_type));
                 (member_type, printed)
             };
-            if let Some(symbol) = property.node_id.and_then(|id| self.binder.symbol_of(id)) {
+            if let Some(symbol) = property.node_id().and_then(|id| self.binder.symbol_of(id)) {
                 // declareSymbolEx (binder.go:152): `PropertyExcludes` is
                 // empty, so same-named property signatures of one literal
                 // MERGE into one member symbol, and resolveAnonymousTypeMembers
@@ -3548,7 +3548,7 @@ impl<'a> Checker<'a, '_> {
             });
         }
         if merged_duplicate
-            && let Some(id) = node.node_id
+            && let Some(id) = node.node_id()
             && let Some(text) =
                 crate::signatures::written_type_literal_text(node, &mut false, &mut false)
         {
@@ -3580,7 +3580,7 @@ impl<'a> Checker<'a, '_> {
         // real instantiation, this arm is what stops `type A<T> = { x: T }` from
         // printing a bare `A` with its arguments silently dropped, and the union
         // arm it mirrors would otherwise be the only one guarding that.
-        let printed = match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+        let printed = match node.node_id().and_then(|id| self.alias_symbol_for_type_node(id)) {
             // Shared with `checkObjectLiteral`, so the two structural renderers
             // cannot drift apart — see `crate::objects::render_object_type`.
             // §77.1 (`checker-notes-narrow.md`): a literal whose subtree holds
@@ -3605,7 +3605,7 @@ impl<'a> Checker<'a, '_> {
         };
         // The binder gives a type literal its own anonymous `__type` symbol,
         // whose members table is where a property access on this type looks.
-        let owner = node.node_id.and_then(|id| self.binder.symbol_of(id));
+        let owner = node.node_id().and_then(|id| self.binder.symbol_of(id));
         let structural = printed.starts_with('{');
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, owner);
         if structural {
@@ -3673,7 +3673,7 @@ impl<'a> Checker<'a, '_> {
         if !self.alias_evaluation_bindings.is_empty() {
             return self.get_union_type(&types);
         }
-        match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+        match node.node_id().and_then(|id| self.alias_symbol_for_type_node(id)) {
             None => self.get_union_type(&types),
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
                 self.get_named_union_type(&types, TypeFlags::empty(), alias)
@@ -3709,7 +3709,7 @@ impl<'a> Checker<'a, '_> {
         let TypeNode::UnionTypeNode(union) = node else {
             return self.get_type_from_type_node(node);
         };
-        if union.node_id.and_then(|id| self.alias_symbol_for_type_node(id)).is_some() {
+        if union.node_id().and_then(|id| self.alias_symbol_for_type_node(id)).is_some() {
             return self.get_type_from_type_node(node);
         }
         let types = union
@@ -3766,12 +3766,12 @@ impl<'a> Checker<'a, '_> {
             // alias arguments change, even for Brand<T> = number & {}
             // (native checker.go:22104,22244). Do not reselect a source flag
             // from the substituted operands of NonNullable<T> = T & {}.
-            let reconstructed_alias = node.node_id
+            let reconstructed_alias = node.node_id()
                 .and_then(|id| self.type_alias_host_for_type_node(id))
                 .and_then(|id| self.node_map.get(id))
                 .is_some_and(|host| matches!(host, Node::TypeAliasDeclaration(alias)
                     if alias.type_parameters.iter().any(|parameter| {
-                        let Some(symbol) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else { return false };
+                        let Some(symbol) = parameter.node_id().and_then(|id| self.binder.symbol_of(id)) else { return false };
                         self.alias_evaluation_bindings.iter().rev()
                             .find_map(|frame| frame.get(&symbol))
                             .is_some_and(|value| self.declared_types.get(&symbol) != Some(value))
@@ -3832,7 +3832,7 @@ impl<'a> Checker<'a, '_> {
                 !no_supertype_reduction,
             );
         }
-        match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+        match node.node_id().and_then(|id| self.alias_symbol_for_type_node(id)) {
             None => self.get_intersection_type_with_reduction(
                 &types,
                 None,
@@ -3855,7 +3855,7 @@ impl<'a> Checker<'a, '_> {
                 if self
                     .intersection_alias_body(alias)
                     .and_then(|body| Node::from(body).node_id())
-                    == node.node_id =>
+                    == node.node_id() =>
             {
                 let reduced = self.get_intersection_type_with_reduction(
                     &types,
@@ -3879,7 +3879,7 @@ impl<'a> Checker<'a, '_> {
         let local = self.local_type_parameters_of(symbol);
         let mut parameters = Vec::with_capacity(local.len());
         for parameter in local.iter() {
-            let owner = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let owner = parameter.node_id().and_then(|id| self.binder.symbol_of(id))?;
             parameters.push(self.get_declared_type_of_symbol(owner));
         }
         Some(parameters)
@@ -4008,7 +4008,7 @@ impl<'a> Checker<'a, '_> {
                 let symbol = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
-                    name.node_id?,
+                    name.node_id()?,
                     name.text,
                     SymbolFlags::TYPE,
                 )?;
@@ -4036,7 +4036,7 @@ impl<'a> Checker<'a, '_> {
                 for (parameter, &argument) in
                     alias.type_parameters.iter().zip(reference.type_arguments)
                 {
-                    let symbol = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+                    let symbol = parameter.node_id().and_then(|id| self.binder.symbol_of(id))?;
                     projected.push((symbol, recurse(argument)));
                 }
                 let mut aliases = aliases.to_vec();
@@ -4092,7 +4092,7 @@ impl<'a> Checker<'a, '_> {
             return error;
         }
         let readonly = node
-            .node_id
+            .node_id()
             .and_then(|id| self.nodes.parent(id))
             .is_some_and(|parent| self.is_readonly_type_operator(parent));
         let target = if readonly { "ReadonlyArray" } else { "Array" };
@@ -4101,7 +4101,7 @@ impl<'a> Checker<'a, '_> {
         // getTypeFromArrayOrTupleTypeNode (checker.go:24115): an array node
         // that IS an alias body takes the deferred arm and carries the alias
         // (`type T10 = string[]` records `>T10 : T10`).
-        self.deferred_alias_reference(node.node_id, reference)
+        self.deferred_alias_reference(node.node_id(), reference)
     }
 
     /// The reference an alias-carrying deferred copy was made from (the
@@ -4198,7 +4198,7 @@ impl<'a> Checker<'a, '_> {
         // §79 structural prints replaced prior `error` gaps at every
         // alias-wanting position). The named copy carries the element list
         // and optional mask so contexts and index reads work through it.
-        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+        if let Some(alias) = node.node_id().and_then(|id| self.alias_symbol_for_type_node(id))
             && self.local_type_parameters_of(alias).is_empty()
             && !node.elements.is_empty()
         // §956: the REST exclusion is gone. §40 added it because a
@@ -4250,7 +4250,7 @@ impl<'a> Checker<'a, '_> {
                 && !self.variadic_tuple_elements.contains_key(&structural)
                 && self.type_reference_targets.contains_key(&structural)
             {
-                return self.deferred_alias_reference(node.node_id, structural);
+                return self.deferred_alias_reference(node.node_id(), structural);
             }
             let name = self.binder.symbols().get(alias).name.to_string();
             let named = self.store.new_named(TypeFlags::OBJECT, name, None);
@@ -4560,7 +4560,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut frame = rustc_hash::FxHashMap::default();
         for (parameter, &argument) in parameters.iter().zip(arguments) {
-            let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let parameter = parameter.node_id().and_then(|id| self.binder.symbol_of(id))?;
             frame.insert(parameter, argument);
         }
         self.instantiation_depth += 1;
@@ -4808,14 +4808,14 @@ impl<'a> Checker<'a, '_> {
                 // operands before positional normalization. Reuse the existing
                 // semantic normalizer's cross-product bound and branch order.
                 let readonly = node
-                    .node_id
+                    .node_id()
                     .and_then(|id| self.nodes.parent(id))
                     .is_some_and(|parent| self.is_readonly_type_operator(parent));
                 return self.normalize_variadic_tuple(resolved_elements, readonly);
             }
             if let Some(flat) = spliced {
                 let readonly = node
-                    .node_id
+                    .node_id()
                     .and_then(|id| self.nodes.parent(id))
                     .is_some_and(|parent| self.is_readonly_type_operator(parent));
                 let mut seen_optional = false;
@@ -4893,7 +4893,7 @@ impl<'a> Checker<'a, '_> {
                 if every_operand_is_an_array && !element_types.is_empty() {
                     let element = self.get_union_type(&element_types);
                     let readonly = node
-                        .node_id
+                        .node_id()
                         .and_then(|id| self.nodes.parent(id))
                         .is_some_and(|parent| self.is_readonly_type_operator(parent));
                     let target = if readonly { "ReadonlyArray" } else { "Array" };
@@ -4903,7 +4903,7 @@ impl<'a> Checker<'a, '_> {
                 }
             }
             let readonly = node
-                .node_id
+                .node_id()
                 .and_then(|id| self.nodes.parent(id))
                 .is_some_and(|parent| self.is_readonly_type_operator(parent));
             let text =
@@ -4917,7 +4917,7 @@ impl<'a> Checker<'a, '_> {
             // path above and produces a real tuple, which is upstream's
             // normalisation. The binding is `alias_evaluation_bindings`, so
             // nothing here needs to know how to substitute.
-            if let Some(id) = node.node_id {
+            if let Some(id) = node.node_id() {
                 self.variadic_tuple_nodes.insert(minted, id);
             }
             // §87 (`checker-notes-narrow.md`): a variadic whose ONLY rest is
@@ -4929,7 +4929,7 @@ impl<'a> Checker<'a, '_> {
             if let [prefix @ .., rest] = node.elements
                 && !prefix.iter().any(Self::tuple_element_is_rest)
                 && matches!(Self::tuple_rest_operand(rest), Some(TypeNode::ArrayTypeNode(_)))
-                && let Some(id) = node.node_id
+                && let Some(id) = node.node_id()
             {
                 self.tuple_rest_tails.insert(minted, id);
             }
@@ -4998,14 +4998,14 @@ impl<'a> Checker<'a, '_> {
         }
         if any_marked {
             let readonly = node
-                .node_id
+                .node_id()
                 .and_then(|id| self.nodes.parent(id))
                 .is_some_and(|parent| self.is_readonly_type_operator(parent));
             return self.create_optional_tuple_type(&elements, &labels, readonly);
         }
         let elements: Vec<TypeId> = elements.into_iter().map(|(t, _)| t).collect();
         let readonly = node
-            .node_id
+            .node_id()
             .and_then(|id| self.nodes.parent(id))
             .is_some_and(|parent| self.is_readonly_type_operator(parent));
         self.create_tuple_type(elements, readonly)
@@ -5145,7 +5145,7 @@ impl<'a> Checker<'a, '_> {
     /// walk. A class annotation shares the identity used by this expressions.
     fn get_type_from_this_type_node(&mut self, node: &tsr_ast::ThisTypeNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
-        let Some(original) = node.node_id else { return error };
+        let Some(original) = node.node_id() else { return error };
         let mut current = self.nodes.parent(original);
         while let Some(container) = current {
             let kind = self.nodes.kind(container);
@@ -5389,9 +5389,9 @@ impl<'a> Checker<'a, '_> {
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type.and_then(Self::skip_type_parentheses)
             && let [parameter_declaration] = *self.local_type_parameters_of(symbol)
-            && let Some(parameter_owner) = parameter_declaration.node_id.and_then(|id| self.binder.symbol_of(id))
+            && let Some(parameter_owner) = parameter_declaration.node_id().and_then(|id| self.binder.symbol_of(id))
             && let Some(mapped_parameter) = mapped.type_parameter
-            && let Some(key_owner) = mapped_parameter.node_id.and_then(|id| self.binder.symbol_of(id))
+            && let Some(key_owner) = mapped_parameter.node_id().and_then(|id| self.binder.symbol_of(id))
             // The constraint must be `keyof T` for the alias's own parameter —
             // upstream's `isHomomorphicMappedType` test, syntactically.
             && let Some(TypeNode::TypeOperatorNode(operator)) = mapped_parameter.constraint.and_then(Self::skip_type_parentheses)
@@ -5880,7 +5880,7 @@ impl<'a> Checker<'a, '_> {
         // pick it up. It became reachable at §933: until `WeakKey` resolved,
         // these references errored and never printed.
         if node.type_arguments.is_empty()
-            && let Some(id) = node.node_id
+            && let Some(id) = node.node_id()
             && let Some(text) = Self::entity_name_text(node.type_name)
         {
             self.qualified_written_text.entry(id).or_insert(text);
@@ -5929,7 +5929,7 @@ impl<'a> Checker<'a, '_> {
                 .intersects(tsr_binder::SymbolFlags::CLASS | tsr_binder::SymbolFlags::INTERFACE)
             // `ast.IsInJSFile(node)`: the file flag, reached through the
             // JSDoc host edge for a reference written in a JSDoc comment.
-            && node.node_id.and_then(|id| self.source_file_of(id)).is_some_and(|file| {
+            && node.node_id().and_then(|id| self.source_file_of(id)).is_some_and(|file| {
                 self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
             });
         let fillable = partially_written || bare_and_fully_defaulted || js_fill;
@@ -5962,7 +5962,7 @@ impl<'a> Checker<'a, '_> {
         // `Readonly<Float32Array<ArrayBuffer>>`. Only registered when some
         // argument actually carries a written spelling, so nothing else changes.
         if !node.type_arguments.is_empty()
-            && let Some(id) = node.node_id
+            && let Some(id) = node.node_id()
             && let Some(base) = Self::entity_name_text(node.type_name)
         {
             let mut spelled = Vec::with_capacity(arguments.len());
@@ -6071,7 +6071,7 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) = self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_)))
-            && self.in_alias_declared_position(node.node_id)
+            && self.in_alias_declared_position(node.node_id())
         {
             // §92.1: §91's evaluator now answers the computable slice of
             // this decline (extends-never conditionals over concrete
@@ -6079,7 +6079,7 @@ impl<'a> Checker<'a, '_> {
             if let Some(evaluated) = self.evaluate_conditional_alias(
                 symbol,
                 &arguments,
-                node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)),
+                node.node_id().and_then(|id| self.alias_symbol_for_type_node(id)),
             ) {
                 return evaluated;
             }
@@ -6106,11 +6106,11 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) = self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && matches!(alias.r#type, Some(TypeNode::TypeReferenceNode(_)))
-            && self.in_alias_declared_position(node.node_id)
+            && self.in_alias_declared_position(node.node_id())
             && let Some(evaluated) = self.evaluate_conditional_alias(
                 symbol,
                 &arguments,
-                node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)),
+                node.node_id().and_then(|id| self.alias_symbol_for_type_node(id)),
             )
         {
             return evaluated;
@@ -6160,7 +6160,7 @@ impl<'a> Checker<'a, '_> {
             let parameter_symbols: Vec<tsr_binder::SymbolId> = self
                 .local_type_parameters_of(symbol)
                 .iter()
-                .filter_map(|parameter| parameter.node_id)
+                .filter_map(|parameter| parameter.node_id())
                 .filter_map(|id| self.binder.symbol_of(id))
                 .collect();
             let signatures =
@@ -6184,7 +6184,7 @@ impl<'a> Checker<'a, '_> {
                     // The name survives: this is an alias-NAMED bake.
                     self.alias_named_signature_types.insert(built);
                     if let Some(alias) =
-                        node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+                        node.node_id().and_then(|id| self.alias_symbol_for_type_node(id))
                     {
                         return self.new_alias_instantiation(built, symbol, alias);
                     }
@@ -6208,7 +6208,7 @@ impl<'a> Checker<'a, '_> {
                 let parameter_symbols: Vec<_> = alias
                     .type_parameters
                     .iter()
-                    .filter_map(|parameter| parameter.node_id)
+                    .filter_map(|parameter| parameter.node_id())
                     .filter_map(|id| self.binder.symbol_of(id))
                     .collect();
                 let parameters: Vec<_> = parameter_symbols
@@ -6326,7 +6326,7 @@ impl<'a> Checker<'a, '_> {
         if !node.type_arguments.is_empty()
             && (self.type_parameter_body_index(symbol).is_some()
                 || self.alias_free_generic_alias_body(symbol).is_some())
-            && let Some(id) = node.node_id
+            && let Some(id) = node.node_id()
             && !self.qualified_written_text.contains_key(&id)
             && let Some(base) = Self::entity_name_text(node.type_name)
         {
@@ -6348,13 +6348,13 @@ impl<'a> Checker<'a, '_> {
             .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
             && !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
         {
-            return self.deferred_alias_reference(node.node_id, result);
+            return self.deferred_alias_reference(node.node_id(), result);
         }
         // getTypeAliasInstantiation supplies the enclosing alias to
         // mapTypeWithAlias. A distributed mapped union keeps that alias,
         // unlike a normalized array/tuple which has its structural display.
         if let crate::types::TypeData::Union { types, .. } = &self.store.get(result).data
-            && let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && let Some(alias) = node.node_id().and_then(|id| self.alias_symbol_for_type_node(id))
             && self.local_type_parameters_of(alias).is_empty()
             && self.type_alias_declaration_of(symbol)
                 .and_then(|id| self.node_map.get(id))
@@ -6372,7 +6372,7 @@ impl<'a> Checker<'a, '_> {
         if let crate::types::TypeData::Union { types, symbol: Some(owner), .. } =
             self.store.get(result).data.clone()
             && owner == symbol
-            && let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && let Some(alias) = node.node_id().and_then(|id| self.alias_symbol_for_type_node(id))
             && self.local_type_parameters_of(alias).is_empty()
             && (self.alias_body_is_indexed_access(symbol, 0)
                 || matches!(
@@ -6382,17 +6382,17 @@ impl<'a> Checker<'a, '_> {
         {
             return self.get_named_union_type(&types, TypeFlags::empty(), alias);
         }
-        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+        if let Some(alias) = node.node_id().and_then(|id| self.alias_symbol_for_type_node(id))
             && let Some(image) = self.new_alias_intersection_instantiation(result, symbol, alias)
         {
             return image;
         }
-        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+        if let Some(alias) = node.node_id().and_then(|id| self.alias_symbol_for_type_node(id))
             && let Some(image) = self.new_alias_union_instantiation(result, symbol, alias)
         {
             return image;
         }
-        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+        if let Some(alias) = node.node_id().and_then(|id| self.alias_symbol_for_type_node(id)) {
             return self.new_alias_instantiation(result, symbol, alias);
         }
         result
@@ -6783,7 +6783,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut frame = rustc_hash::FxHashMap::default();
         for (parameter, &argument) in parameters.iter().zip(arguments) {
-            let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let parameter = parameter.node_id().and_then(|id| self.binder.symbol_of(id))?;
             frame.insert(parameter, argument);
         }
         let next = match body {
@@ -6991,7 +6991,7 @@ impl<'a> Checker<'a, '_> {
         // `"AA"`), so printing the written call is a wrong line; deferred
         // arguments (type parameters, mints) keep the written print.
         if matches!(text.as_str(), "Uppercase" | "Lowercase" | "Capitalize" | "Uncapitalize")
-            && self.in_alias_declared_position(node.node_id)
+            && self.in_alias_declared_position(node.node_id())
         {
             // Upstream EVALUATES string mappings in alias-declared positions
             // whatever the argument — including through patterns and even
@@ -7090,7 +7090,7 @@ impl<'a> Checker<'a, '_> {
             return error;
         }
         let Some(qualifier) = node.qualifier else { return error };
-        let Some(site) = node.node_id else { return error };
+        let Some(site) = node.node_id() else { return error };
         let Some(TypeNode::LiteralTypeNode(literal)) = node.argument else { return error };
         let Some(specifier) = literal.literal.and_then(|l| l.node_id()) else { return error };
         let Some(module) = self.resolve_external_module_name(site, specifier) else {
@@ -7257,7 +7257,7 @@ impl<'a> Checker<'a, '_> {
         // wins arrive through imported namespaces.
         let in_alias_cycle =
             self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
-                && node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)).is_some_and(
+                && node.node_id().and_then(|id| self.alias_symbol_for_type_node(id)).is_some_and(
                     |alias| {
                         self.resolutions
                             .on_stack(alias, crate::resolution::PropertyName::DeclaredType)
@@ -7325,7 +7325,7 @@ impl<'a> Checker<'a, '_> {
         if node.type_arguments.is_empty() {
             // A generic target written without its required arguments is
             // upstream's `errorType` (`qualified_reference_arity.rs`).
-            if self.argument_less_reference_is_error(resolved, node.node_id) {
+            if self.argument_less_reference_is_error(resolved, node.node_id()) {
                 return self.intrinsics.native_error;
             }
             if let Some(filled) = self.defaulted_qualified_reference(node, name, resolved) {
@@ -7362,7 +7362,7 @@ impl<'a> Checker<'a, '_> {
             let Some(written) = Self::entity_name_text(node.type_name) else { return error };
             let text = match self.qualification_free_name(name, resolved) {
                 Some(bare) => {
-                    if let Some(id) = node.node_id {
+                    if let Some(id) = node.node_id() {
                         self.qualified_written_text.insert(id, written);
                     }
                     bare
@@ -7390,7 +7390,7 @@ impl<'a> Checker<'a, '_> {
                 && !self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM_MEMBER)
             {
                 let declared = self.get_declared_type_of_symbol(resolved);
-                let printed = match node.node_id {
+                let printed = match node.node_id() {
                     Some(site) => self.type_to_string_at(declared, site),
                     None => None,
                 };
@@ -7402,7 +7402,7 @@ impl<'a> Checker<'a, '_> {
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
                 return existing;
             }
-            if let Some(twin) = self.qualified_declared_type_twin(resolved, &text, node.node_id) {
+            if let Some(twin) = self.qualified_declared_type_twin(resolved, &text, node.node_id()) {
                 self.qualified_reference_types.insert(key, twin);
                 return twin;
             }
@@ -7464,7 +7464,7 @@ impl<'a> Checker<'a, '_> {
             for (argument, printed) in node.type_arguments.iter().zip(&printed_arguments) {
                 let spelled = match argument {
                     tsr_ast::TypeNode::TypeReferenceNode(reference) => reference
-                        .node_id
+                        .node_id()
                         .and_then(|id| self.qualified_written_text.get(&id))
                         .cloned(),
                     _ => None,
@@ -7478,7 +7478,7 @@ impl<'a> Checker<'a, '_> {
             );
             let written_text = format!("{written}<{}>", written_arguments.join(", "));
             if printed_text != written_text
-                && let Some(id) = node.node_id
+                && let Some(id) = node.node_id()
             {
                 self.qualified_written_text.insert(id, written_text);
             }
@@ -7535,7 +7535,7 @@ impl<'a> Checker<'a, '_> {
         let written_text = format!("{base}<{}>", printed.join(", "));
         printed.extend(defaults.iter().map(|&default| self.type_to_string(default)));
         let text = format!("{base}<{}>", printed.join(", "));
-        if let Some(id) = node.node_id {
+        if let Some(id) = node.node_id() {
             self.qualified_written_text.entry(id).or_insert(written_text);
         }
         let minted = self.store.new_named(TypeFlags::ANY, text, None);
@@ -7615,7 +7615,7 @@ impl<'a> Checker<'a, '_> {
             arguments.iter().map(|&argument| self.type_to_string(argument)).collect();
         let text =
             format!("{}<{}>", base.as_deref().unwrap_or(written.as_str()), printed.join(", "));
-        if let Some(id) = node.node_id {
+        if let Some(id) = node.node_id() {
             self.qualified_written_text.entry(id).or_insert(written);
         }
         let key = (text.clone(), resolved, arguments.clone());
@@ -7774,7 +7774,7 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::EntityName::Identifier(identifier) => self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
-                identifier.node_id?,
+                identifier.node_id()?,
                 identifier.text,
                 meaning,
             ),
@@ -7825,7 +7825,7 @@ impl<'a> Checker<'a, '_> {
         let mut symbol = match name {
             tsr_ast::EntityName::Identifier(identifier) => {
                 let found = self.resolve_name_with_export_alias(
-                    identifier.node_id?,
+                    identifier.node_id()?,
                     identifier.text,
                     meaning,
                 )?;
@@ -8022,7 +8022,7 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<String> {
         let tsr_ast::EntityName::QualifiedName(qualified) = name else { return None };
         let right = qualified.right?;
-        let site = right.node_id?;
+        let site = right.node_id()?;
         let wanted = self.binder.merged_symbol(resolved);
 
         // The written path, leftmost first: `A.B.C.T` is `["A", "B", "C", "T"]`.
@@ -8106,7 +8106,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let TypeNode::TypeLiteralNode(literal) = self.type_alias_body(symbol)? else { return None };
-        self.binder.symbol_of(literal.node_id?)
+        self.binder.symbol_of(literal.node_id()?)
     }
 
     /// §823: the member table of the branch a CONDITIONAL alias body chooses
@@ -8214,7 +8214,7 @@ impl<'a> Checker<'a, '_> {
         let parameters: Option<Vec<_>> = alias
             .type_parameters
             .iter()
-            .map(|parameter| parameter.node_id.and_then(|node| self.binder.symbol_of(node)))
+            .map(|parameter| parameter.node_id().and_then(|node| self.binder.symbol_of(node)))
             .collect();
         let Some(parameters) = parameters else { return false };
         parameters.len() == arguments.len()
@@ -8239,7 +8239,7 @@ impl<'a> Checker<'a, '_> {
                 let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
                     return false;
                 };
-                name.node_id
+                name.node_id()
                     .and_then(|node| {
                         self.binder.resolve_name(
                             self.nodes,
@@ -8468,7 +8468,7 @@ impl<'a> Checker<'a, '_> {
             let mut parameters = Vec::with_capacity(local.len());
             let mut parameter_names = Vec::with_capacity(local.len());
             for parameter in local.iter() {
-                let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                let Some(owner) = parameter.node_id().and_then(|id| self.binder.symbol_of(id)) else {
                     return self.intrinsics.error;
                 };
                 let Some(name) = parameter.name else { return self.intrinsics.error };
@@ -8836,7 +8836,7 @@ impl<'a> Checker<'a, '_> {
         };
         let mut frame = captured.bindings;
         for (parameter, &argument) in self.local_type_parameters_of(alias).iter().zip(arguments) {
-            frame.insert(parameter.node_id.and_then(|id| self.binder.symbol_of(id))?, argument);
+            frame.insert(parameter.node_id().and_then(|id| self.binder.symbol_of(id))?, argument);
         }
         if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
             return None;
@@ -8861,7 +8861,7 @@ impl<'a> Checker<'a, '_> {
             if let Node::TypeReferenceNode(reference) = node
                 && let Some(tsr_ast::EntityName::Identifier(identifier)) = reference.type_name
                 && identifier.text == &*name
-                && let Some(site) = identifier.node_id
+                && let Some(site) = identifier.node_id()
                 && self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
@@ -9152,7 +9152,7 @@ impl<'a> Checker<'a, '_> {
                     node.members
                         .iter()
                         .filter(|member| {
-                            member.node_id.and_then(|id| self.binder.symbol_of(id)).is_some()
+                            member.node_id().and_then(|id| self.binder.symbol_of(id)).is_some()
                         })
                         .count(),
                 ),
@@ -9185,7 +9185,7 @@ impl<'a> Checker<'a, '_> {
                 // `hasBindableName` (`checker.go:23879`), asked of the binder: a
                 // member the binder gave no symbol to is one whose name is a
                 // non-literal computed expression, and upstream skips it too.
-                let Some(member_symbol) = member.node_id.and_then(|id| self.binder.symbol_of(id))
+                let Some(member_symbol) = member.node_id().and_then(|id| self.binder.symbol_of(id))
                 else {
                     continue;
                 };
@@ -9249,7 +9249,7 @@ impl<'a> Checker<'a, '_> {
                     // `computeConstantEnumMemberValue` (`checker.go:23994`):
                     // the checker's symbol-aware evaluator, with the member
                     // as `location`.
-                    Some(ref expr) => match (expr.node_id(), member.node_id) {
+                    Some(ref expr) => match (expr.node_id(), member.node_id()) {
                         (Some(at), Some(location)) => {
                             self.evaluate_enum_initializer(at, location).map(|value| match value {
                                 crate::enum_initializer::EnumConstant::Number(n) => {
@@ -9506,7 +9506,7 @@ impl<'a> Checker<'a, '_> {
             // name-with-parameters mint below.
             if let Some(index) = self.type_parameter_body_index(symbol) {
                 let parameter = self.local_type_parameters_of(symbol)[index];
-                if let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                if let Some(owner) = parameter.node_id().and_then(|id| self.binder.symbol_of(id)) {
                     return self.get_declared_type_of_symbol(owner);
                 }
             }
@@ -9588,7 +9588,7 @@ impl<'a> Checker<'a, '_> {
                         let mut arguments = Vec::with_capacity(local.len());
                         for parameter in local.iter() {
                             let Some(owner) =
-                                parameter.node_id.and_then(|id| self.binder.symbol_of(id))
+                                parameter.node_id().and_then(|id| self.binder.symbol_of(id))
                             else {
                                 return error;
                             };
@@ -10008,7 +10008,7 @@ impl<'a> Checker<'a, '_> {
         }
         let owner = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
         alias.type_parameters.iter().position(|parameter| {
-            parameter.node_id.and_then(|node| self.binder.symbol_of(node)) == Some(owner)
+            parameter.node_id().and_then(|node| self.binder.symbol_of(node)) == Some(owner)
         })
     }
 
@@ -10035,7 +10035,7 @@ impl<'a> Checker<'a, '_> {
         };
         if alias.type_parameters.is_empty()
             || !alias.type_parameters.iter().all(|parameter| {
-                let Some(node) = parameter.node_id else { return false };
+                let Some(node) = parameter.node_id() else { return false };
                 let Some(owner) = self.binder.symbol_of(node) else { return false };
                 let parameter = self.binder.symbols().get(owner);
                 parameter.flags.contains(SymbolFlags::TYPE_PARAMETER)
@@ -10186,7 +10186,7 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::Node::Identifier(identifier) if identifier.text.is_empty() => {
                     Some("(Missing)".to_string())
                 }
-                tsr_ast::Node::Identifier(identifier) => Some(match identifier.node_id {
+                tsr_ast::Node::Identifier(identifier) => Some(match identifier.node_id() {
                     Some(id) => self.identifier_text_as_written(id, identifier.text),
                     None => identifier.text.to_string(),
                 }),
@@ -10237,7 +10237,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut frame = rustc_hash::FxHashMap::default();
         for (parameter, &argument) in parameters.iter().zip(arguments) {
-            let Some(symbol) = parameter.node_id.and_then(|node| self.binder.symbol_of(node))
+            let Some(symbol) = parameter.node_id().and_then(|node| self.binder.symbol_of(node))
             else {
                 return;
             };
@@ -10252,7 +10252,7 @@ impl<'a> Checker<'a, '_> {
             && let Some(constraint) = self.base_constraint_of_type(argument)
             && constraint != argument
             && let Some(position) = parameters.iter().position(|parameter| {
-                parameter.node_id.and_then(|node| self.binder.symbol_of(node)) == Some(check)
+                parameter.node_id().and_then(|node| self.binder.symbol_of(node)) == Some(check)
             })
         {
             let mut constrained_arguments = arguments.to_vec();
@@ -10445,7 +10445,7 @@ impl<'a> Checker<'a, '_> {
         // Stated divergence: an `infer` root tests the INFERRED extends type,
         // which only the evaluator's inference road builds. No extra is added
         // for it, which is what this port did before `forConstraint` existed.
-        if conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+        if conditional.node_id().and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
             locals.values().any(|&symbol| {
                 self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
             })
@@ -10526,7 +10526,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut frame = rustc_hash::FxHashMap::default();
         for (parameter, &argument) in parameters.iter().zip(arguments) {
-            let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let parameter = parameter.node_id().and_then(|id| self.binder.symbol_of(id))?;
             frame.insert(parameter, argument);
         }
         // instantiateTypeWithAlias' guard (checker.go:22111), the same one
@@ -10612,7 +10612,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut frame = rustc_hash::FxHashMap::default();
         for (parameter, &argument) in parameters.iter().zip(arguments) {
-            let Some(parameter) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+            let Some(parameter) = parameter.node_id().and_then(|id| self.binder.symbol_of(id)) else {
                 return false;
             };
             frame.insert(parameter, argument);
@@ -10622,7 +10622,7 @@ impl<'a> Checker<'a, '_> {
         // the inference mapper, which this test cannot form; only the check
         // type is asked then.
         let has_infer_parameters =
-            conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+            conditional.node_id().and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
                 locals.values().any(|&symbol| {
                     self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
                 })
@@ -10677,7 +10677,7 @@ impl<'a> Checker<'a, '_> {
             return false;
         };
         let has_infer_parameters =
-            conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+            conditional.node_id().and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
                 locals.values().any(|&symbol| {
                     self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
                 })
@@ -10691,7 +10691,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut frame = rustc_hash::FxHashMap::default();
         for (parameter, &argument) in parameters.iter().zip(arguments) {
-            let Some(parameter) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+            let Some(parameter) = parameter.node_id().and_then(|id| self.binder.symbol_of(id)) else {
                 return false;
             };
             frame.insert(parameter, argument);
@@ -10854,7 +10854,7 @@ impl<'a> Checker<'a, '_> {
                     let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
                         return false;
                     };
-                    let Some(target) = name.node_id.and_then(|id| {
+                    let Some(target) = name.node_id().and_then(|id| {
                         self.binder.resolve_name(
                             self.nodes,
                             self.node_map,
@@ -10918,7 +10918,7 @@ impl<'a> Checker<'a, '_> {
         if complete && arguments.len() < declarations.len() {
             let mut defaults = rustc_hash::FxHashMap::default();
             for (declaration, &argument) in declarations.iter().zip(&arguments) {
-                match declaration.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                match declaration.node_id().and_then(|id| self.binder.symbol_of(id)) {
                     Some(parameter) => {
                         defaults.insert(parameter, argument);
                     }
@@ -10928,7 +10928,7 @@ impl<'a> Checker<'a, '_> {
             for declaration in &declarations[arguments.len()..] {
                 let (Some(default), Some(parameter), true) = (
                     declaration.default_type,
-                    declaration.node_id.and_then(|id| self.binder.symbol_of(id)),
+                    declaration.node_id().and_then(|id| self.binder.symbol_of(id)),
                     complete,
                 ) else {
                     complete = false;
@@ -11047,7 +11047,7 @@ impl<'a> Checker<'a, '_> {
             let mut bindings = rustc_hash::FxHashMap::default();
             for (parameter, argument) in parameters.iter().zip(arguments) {
                 bindings.insert(
-                    parameter.node_id.and_then(|node| self.binder.symbol_of(node))?,
+                    parameter.node_id().and_then(|node| self.binder.symbol_of(node))?,
                     argument,
                 );
             }
@@ -11067,7 +11067,7 @@ impl<'a> Checker<'a, '_> {
                 let symbol = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
-                    name.node_id?,
+                    name.node_id()?,
                     name.text,
                     SymbolFlags::TYPE,
                 )?;
@@ -11116,7 +11116,7 @@ impl<'a> Checker<'a, '_> {
                 // concrete check has already inferred against extends, and a
                 // second read can resolve a recursive infer target again.
                 if node
-                    .node_id
+                    .node_id()
                     .and_then(|id| checker.binder.locals(id))
                     .is_some_and(|locals| !locals.is_empty())
                 {
@@ -11243,7 +11243,7 @@ impl<'a> Checker<'a, '_> {
         let error = self.intrinsics.error;
         let mut result = None;
         let has_infer_parameters =
-            conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+            conditional.node_id().and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
                 locals.values().any(|&symbol| {
                     self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
                 })
@@ -11898,7 +11898,7 @@ impl<'a> Checker<'a, '_> {
         self.binder.resolve_name(
             self.nodes,
             self.node_map,
-            name.node_id?,
+            name.node_id()?,
             name.text,
             SymbolFlags::TYPE_PARAMETER,
         )
@@ -11934,7 +11934,7 @@ impl<'a> Checker<'a, '_> {
         }
         let symbols: Vec<_> = self
             .binder
-            .locals(conditional.node_id?)?
+            .locals(conditional.node_id()?)?
             .values()
             .copied()
             .filter(|&symbol| {
@@ -12111,7 +12111,7 @@ impl<'a> Checker<'a, '_> {
                 let mut frame = rustc_hash::FxHashMap::default();
                 let mut complete = true;
                 for (parameter, &argument) in parameters.iter().zip(arguments) {
-                    match parameter.node_id.and_then(|id| self.binder.symbol_of(id)) {
+                    match parameter.node_id().and_then(|id| self.binder.symbol_of(id)) {
                         Some(parameter) => {
                             frame.insert(parameter, argument);
                         }
@@ -12798,7 +12798,7 @@ impl<'a> Checker<'a, '_> {
             Some(declaration) => LocalTypeParametersLink::Declared(declaration),
             None if result.is_empty() => LocalTypeParametersLink::Empty,
             None => LocalTypeParametersLink::Merged(
-                result.iter().filter_map(|parameter| parameter.node_id).collect(),
+                result.iter().filter_map(|parameter| parameter.node_id()).collect(),
             ),
         }
     }
@@ -12890,7 +12890,7 @@ impl<'a> Checker<'a, '_> {
         }
         let symbol = |parameter: &tsr_ast::TypeParameterDeclaration<'a>| {
             parameter
-                .node_id
+                .node_id()
                 .and_then(|id| self.binder.symbol_of(id))
                 .map(|symbol| self.binder.merged_symbol(symbol))
         };
@@ -12920,7 +12920,7 @@ impl<'a> Checker<'a, '_> {
     /// (`internal/checker/emitresolver.go:128-135`).
     fn is_visible_jsdoc_type_alias(&self, symbol: SymbolId) -> bool {
         let Some(doc) = self.jsdoc_alias_doc(symbol) else { return false };
-        let Some(doc_id) = doc.node_id else { return false };
+        let Some(doc_id) = doc.node_id() else { return false };
         let Some(&host) = self.jsdoc_hosts.get(&doc_id) else { return false };
         self.nodes
             .parent(host)
@@ -12959,7 +12959,7 @@ impl<'a> Checker<'a, '_> {
         let mut parameters = Vec::with_capacity(declarations.len());
         for declaration in declarations.iter() {
             let name = declaration.name?.text.to_string();
-            let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let parameter = declaration.node_id().and_then(|id| self.binder.symbol_of(id))?;
             let declared = self.get_declared_type_of_symbol(parameter);
             if declared == self.intrinsics.error {
                 return None;
@@ -13142,7 +13142,7 @@ mod conditional_error_tests {
                 &parsed.nodes,
                 tsr_binder::FileInfo { name: "entry.ts", text: &source },
             );
-            let root = parsed.source_file.node_id.unwrap();
+            let root = parsed.source_file.node_id().unwrap();
             let callable = bound.lookup_local(root, "callable").unwrap();
             let declaration = bound.symbols().get(callable).value_declaration.unwrap();
             let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
@@ -13197,7 +13197,7 @@ mod conditional_error_tests {
         else {
             panic!("Broken alias")
         };
-        let symbol = bound.symbol_of(choose.node_id.unwrap()).unwrap();
+        let symbol = bound.symbol_of(choose.node_id().unwrap()).unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let unresolved = checker.get_type_from_type_node(broken.r#type.unwrap());
         assert!(checker.is_error(unresolved));
@@ -13229,7 +13229,7 @@ mod conditional_error_tests {
         else {
             panic!("Box alias")
         };
-        let symbol = bound.symbol_of(alias.node_id.unwrap()).unwrap();
+        let symbol = bound.symbol_of(alias.node_id().unwrap()).unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let (string, number) = (checker.intrinsics.string, checker.intrinsics.number);
         let first = checker.evaluate_conditional_alias(symbol, &[string], None).unwrap();
@@ -13271,7 +13271,7 @@ mod conditional_error_tests {
             else {
                 panic!("alias")
             };
-            bound.symbol_of(alias.node_id.unwrap()).unwrap()
+            bound.symbol_of(alias.node_id().unwrap()).unwrap()
         };
         let (f, g) = (symbol_of(0), symbol_of(1));
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
@@ -13309,7 +13309,7 @@ mod conditional_error_tests {
         let symbols: Vec<SymbolId> = alias
             .type_parameters
             .iter()
-            .map(|parameter| bound.symbol_of(parameter.node_id.unwrap()).unwrap())
+            .map(|parameter| bound.symbol_of(parameter.node_id().unwrap()).unwrap())
             .collect();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         assert!(checker.flattened_alias_bindings().is_empty());
@@ -13368,7 +13368,7 @@ function read<X extends string>(pure: string, scalar: Scalar, projection: Id<X>,
             panic!("function")
         };
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-        let parameter = bound.symbol_of(function.type_parameters[0].node_id.unwrap()).unwrap();
+        let parameter = bound.symbol_of(function.type_parameters[0].node_id().unwrap()).unwrap();
         // A concrete frame must not erase the original parameter dependency.
         checker
             .alias_evaluation_bindings
@@ -13452,7 +13452,7 @@ function read<X extends string>(pure: string, scalar: Scalar, projection: Id<X>,
                 else {
                     panic!("alias")
                 };
-                let symbol = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+                let symbol = bound.symbol_of(alias.type_parameters[0].node_id().unwrap()).unwrap();
                 let original = checker.get_declared_type_of_symbol(symbol);
                 checker.alias_evaluation_bindings.push([(symbol, original)].into_iter().collect());
                 let source = checker.get_type_from_type_node(alias.r#type.unwrap());
@@ -13497,7 +13497,7 @@ mod literal_union_alias_tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "literal-union.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let unit_owner = bound.lookup_local(root, "Unit").unwrap();
         let owner = bound.lookup_local(root, "Plural").unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
@@ -13537,7 +13537,7 @@ mod literal_union_alias_tests {
             &parsed.nodes,
             tsr_binder::FileInfo { name: "literal-order.ts", text: source },
         );
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let plural = bound.lookup_local(root, "Plural").unwrap();
         let other = bound.lookup_local(root, "Other").unwrap();
         let pair = bound.lookup_local(root, "Pair").unwrap();

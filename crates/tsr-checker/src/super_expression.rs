@@ -274,7 +274,7 @@ impl Checker<'_, '_> {
             .iter()
             .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
             .and_then(|clause| clause.types.first())
-            .and_then(|base| base.node_id)
+            .and_then(|base| base.node_id())
     }
 
     /// `classDeclarationExtendsNull` (`checker.go:12280`), whose real test is

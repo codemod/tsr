@@ -336,7 +336,7 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(attributes) = attributes else { return };
-        let Some(attributes_id) = attributes.node_id else { return };
+        let Some(attributes_id) = attributes.node_id() else { return };
         let intrinsic = crate::jsx_intrinsic::jsx_intrinsic_tag_text(tag).is_some();
         // `getJsxNamespaceAt` (`jsx.go:1306`) takes the automatic runtime's
         // module first. When the file selects that runtime and this port does
@@ -753,7 +753,7 @@ impl Checker<'_, '_> {
         else {
             return Some(false);
         };
-        if element.opening_element.and_then(|node| node.node_id) != Some(opening) {
+        if element.opening_element.and_then(|node| node.node_id()) != Some(opening) {
             return Some(false);
         }
         let valid: Vec<_> = element
@@ -1022,7 +1022,7 @@ impl Checker<'_, '_> {
     fn jsx_children_name_for(&mut self, child: &tsr_ast::JsxChild<'_>) -> Option<String> {
         let element = self.nodes.parent(child.node_id()?)?;
         let opening = match self.node_map.get(element) {
-            Some(Node::JsxElement(element)) => element.opening_element?.node_id?,
+            Some(Node::JsxElement(element)) => element.opening_element?.node_id()?,
             _ => return None,
         };
         match self.jsx_children_name(opening) {
@@ -1650,12 +1650,12 @@ impl Checker<'_, '_> {
         for attribute in attributes.properties {
             let JsxAttributeLike::JsxAttribute(attribute) = attribute else { continue };
             let (text, name_id) = match attribute.name {
-                Some(JsxAttributeName::Identifier(name)) => (name.text.to_string(), name.node_id),
+                Some(JsxAttributeName::Identifier(name)) => (name.text.to_string(), name.node_id()),
                 Some(JsxAttributeName::JsxNamespacedName(name)) => {
                     let (Some(namespace), Some(local)) = (name.namespace, name.name) else {
                         continue;
                     };
-                    (format!("{}:{}", namespace.text, local.text), name.node_id)
+                    (format!("{}:{}", namespace.text, local.text), name.node_id())
                 }
                 None => continue,
             };
@@ -1672,7 +1672,7 @@ impl Checker<'_, '_> {
             if let Some(JsxAttributeValue::JsxExpression(initializer)) = attribute.initializer
                 && initializer.expression.is_none()
             {
-                if let Some(id) = initializer.node_id {
+                if let Some(id) = initializer.node_id() {
                     self.grammar_error_on_node(
                         id,
                         &messages::JSX_ATTRIBUTES_MUST_ONLY_BE_ASSIGNED_A_NON_EMPTY_EXPRESSION,
@@ -1993,7 +1993,7 @@ impl Checker<'_, '_> {
         // that check (`chooseOverload`, `checker.go:9080`).
         let mut skip_context_sensitive = context_sensitive;
         let incomplete = attributes
-            .node_id
+            .node_id()
             .is_some_and(|id| self.nodes.span(id).end == self.nodes.span(node).end);
         let candidates = self.reorder_candidates(signatures);
         let mut failed: Vec<(crate::signatures::Signature, TypeId)> = Vec::new();
@@ -2016,7 +2016,7 @@ impl Checker<'_, '_> {
                     Some(false) => continue,
                     None => return JsxOverloads::Declined,
                 }
-                let Some(attributes_id) = attributes.node_id else {
+                let Some(attributes_id) = attributes.node_id() else {
                     return JsxOverloads::Declined;
                 };
                 let mut seed = None;
@@ -2059,7 +2059,7 @@ impl Checker<'_, '_> {
                 let check = *check;
                 let verdict = self.with_jsx_candidate_context(node, &check, |checker| {
                     let source = checker.jsx_checked_attributes_type(node)?;
-                    let attributes_id = attributes.node_id?;
+                    let attributes_id = attributes.node_id()?;
                     checker
                         .jsx_attributes_relation(attributes_id, source, props, relation, true)
                         .map(|(related, _)| related)
@@ -2235,7 +2235,7 @@ impl Checker<'_, '_> {
     fn jsx_semantic_children(&self, opening: NodeId) -> Vec<Expression<'_>> {
         let Some(parent) = self.nodes.parent(opening) else { return Vec::new() };
         let Some(Node::JsxElement(element)) = self.node_map.get(parent) else { return Vec::new() };
-        if element.opening_element.and_then(|node| node.node_id) != Some(opening) {
+        if element.opening_element.and_then(|node| node.node_id()) != Some(opening) {
             return Vec::new();
         }
         element
@@ -2658,9 +2658,9 @@ impl Checker<'_, '_> {
     fn jsx_overload_context_node(&self, opening: NodeId) -> NodeId {
         match self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent)) {
             Some(Node::JsxElement(element))
-                if element.opening_element.and_then(|node| node.node_id) == Some(opening) =>
+                if element.opening_element.and_then(|node| node.node_id()) == Some(opening) =>
             {
-                element.node_id.unwrap_or(opening)
+                element.node_id().unwrap_or(opening)
             }
             _ => opening,
         }

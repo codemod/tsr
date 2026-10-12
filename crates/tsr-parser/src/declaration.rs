@@ -560,7 +560,7 @@ impl<'a> Parser<'a> {
         let (text, span) = match name {
             PropertyName::Identifier(identifier) => (
                 identifier.text,
-                identifier.node_id.map_or(self.token.span, |id| self.nodes.span(id)),
+                identifier.node_id().map_or(self.token.span, |id| self.nodes.span(id)),
             ),
             _ => ("", self.token.span),
         };

@@ -189,9 +189,9 @@ impl Checker<'_, '_> {
     fn jsx_inference_context_node(&self, opening: NodeId) -> NodeId {
         match self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent)) {
             Some(Node::JsxElement(element))
-                if element.opening_element.and_then(|node| node.node_id) == Some(opening) =>
+                if element.opening_element.and_then(|node| node.node_id()) == Some(opening) =>
             {
-                element.node_id.unwrap_or(opening)
+                element.node_id().unwrap_or(opening)
             }
             _ => opening,
         }
@@ -461,7 +461,7 @@ impl Checker<'_, '_> {
                         name,
                         printed_slot: crate::objects::PrintedSlot::printed(self.type_to_string(ty)),
                         slot: crate::objects::PropertySlot::resolved(ty),
-                        origin: node.node_id.and_then(|id| self.binder.symbol_of(id)),
+                        origin: node.node_id().and_then(|id| self.binder.symbol_of(id)),
                         checked_declaration: None,
                         optional: false,
                         readonly: false,
@@ -505,7 +505,7 @@ impl Checker<'_, '_> {
         }
         if let Some(parent) = self.nodes.parent(opening)
             && let Some(Node::JsxElement(element)) = self.node_map.get(parent)
-            && element.opening_element.and_then(|node| node.node_id) == Some(opening)
+            && element.opening_element.and_then(|node| node.node_id()) == Some(opening)
         {
             let children: Vec<_> =
                 element.children.iter().copied().filter(semantic_jsx_child).collect();
@@ -604,7 +604,7 @@ impl Checker<'_, '_> {
             _ => std::cmp::Ordering::Equal,
         });
         let members = self.property_members(&properties);
-        let symbol = self.binder.symbol_of(attributes.node_id?);
+        let symbol = self.binder.symbol_of(attributes.node_id()?);
         let ty = self.store.new_named(
             crate::flags::TypeFlags::OBJECT,
             crate::objects::render_object_type(&members),
@@ -672,7 +672,7 @@ impl Checker<'_, '_> {
             self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent)).is_some_and(
                 |parent| {
                     matches!(parent, Node::JsxElement(element)
-                if element.opening_element.and_then(|node| node.node_id) == Some(opening)
+                if element.opening_element.and_then(|node| node.node_id()) == Some(opening)
                     && element.children.iter().any(semantic_jsx_child))
                 },
             );
@@ -989,7 +989,7 @@ impl Checker<'_, '_> {
         child: NodeId,
     ) -> Option<crate::types::TypeId> {
         let Node::JsxElement(node) = self.node_map.get(element)? else { return None };
-        let opening = node.opening_element?.node_id?;
+        let opening = node.opening_element?.node_id()?;
         let children: Vec<_> =
             node.children.iter().filter(|child| semantic_jsx_child(child)).collect();
         let index = children.iter().position(|node| node.node_id() == Some(child))?;
@@ -1425,7 +1425,7 @@ impl Checker<'_, '_> {
         let Some(tsr_ast::Expression::Identifier(name)) = assignment.expression else {
             return symbol;
         };
-        let Some(name_id) = name.node_id else { return symbol };
+        let Some(name_id) = name.node_id() else { return symbol };
         self.binder
             .resolve_name(self.nodes, self.node_map, name_id, name.text, SymbolFlags::NAMESPACE)
             .map_or(symbol, |found| self.binder.merged_symbol(found))
@@ -1514,7 +1514,7 @@ const opaque = <Opaque a="five" />;
         let parsed =
             tsr_parser::parse_with_script_kind(&arena, source, tsr_parser::ScriptKind::Tsx);
         assert!(parsed.diagnostics.is_empty());
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         let bound = tsr_binder::bind(
             &arena,
             parsed.source_file,

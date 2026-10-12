@@ -82,7 +82,7 @@ impl Checker<'_, '_> {
         if computed == error || error_receiver {
             return computed;
         }
-        let Some(id) = node.node_id else { return computed };
+        let Some(id) = node.node_id() else { return computed };
         // ADR-0048: a failed lookup is `errorType`, and a definite write
         // target takes it as is (`getFlowTypeOfAccessExpression`'s
         // `AssignmentKindDefinite` arm, `checker.go:8176`). The write-type
@@ -193,7 +193,7 @@ impl Checker<'_, '_> {
                     return self.intrinsics.any;
                 }
                 let flowed = self.get_flow_type_of_property_symbol(id, None, property);
-                return self.propagate_optional_type_marker_at(node.node_id, flowed, was_optional);
+                return self.propagate_optional_type_marker_at(node.node_id(), flowed, was_optional);
             }
         }
         // §12.7's element-access half (the §52 scorecard's recorded residue):
@@ -248,13 +248,13 @@ impl Checker<'_, '_> {
             } else {
                 computed
             };
-            return self.propagate_optional_type_marker_at(node.node_id, computed, was_optional);
+            return self.propagate_optional_type_marker_at(node.node_id(), computed, was_optional);
         }
         let narrowed = self.get_flow_type_of_reference(id, None, computed);
         // `checkElementAccessChain` wraps the whole access — flow narrowing
         // included — in `propagateOptionalTypeMarker` (`checker.go:8140`),
         // the same ordering as the property-access twin.
-        self.propagate_optional_type_marker_at(node.node_id, narrowed, was_optional)
+        self.propagate_optional_type_marker_at(node.node_id(), narrowed, was_optional)
     }
 
     /// The type `a[b]` computes before flow narrowing, whether an optional
@@ -303,7 +303,7 @@ impl Checker<'_, '_> {
         // (`crate::members`). A widened union of a declared object and `{}`
         // reduces to `{}`, so `(options || {})["a"] = 1` misses where the
         // read finds `string | undefined`.
-        let object_type = if node.node_id.is_some_and(|id| {
+        let object_type = if node.node_id().is_some_and(|id| {
             self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
                 || self.is_method_access_for_call(id)
         }) {
@@ -423,7 +423,7 @@ impl Checker<'_, '_> {
         // mints are the port's gap, not upstream's type, and keep the `any`
         // stand-in.
         if self.unresolved_types.contains(&object_type)
-            && node.node_id.is_some_and(|id| !self.file_has_import_machinery(id))
+            && node.node_id().is_some_and(|id| !self.file_has_import_machinery(id))
         {
             if !self.is_gap(object_type) {
                 return object_type;
@@ -454,7 +454,7 @@ impl Checker<'_, '_> {
         // type with one of its OWN member literals — `E[E.A]` — stays exact,
         // no `undefined`. `enum_member_owners` is precisely that back-edge.
         let include_undefined = self.no_unchecked_indexed_access
-            && node.node_id.is_none_or(|id| {
+            && node.node_id().is_none_or(|id| {
                 self.assignment_target_kind(id)
                     != crate::expressions::AssignmentTargetKind::Definite
             });
@@ -483,7 +483,7 @@ impl Checker<'_, '_> {
                 return member;
             }
         }
-        let writing = node.node_id.is_some_and(|id| {
+        let writing = node.node_id().is_some_and(|id| {
             self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
         });
         // checkElementAccessExpression (checker.go:8169): a generic receiver
@@ -499,7 +499,7 @@ impl Checker<'_, '_> {
         // checkElementAccessExpression (`checker.go:8148`) widens the receiver
         // of an assignment target or a called method; a widened object literal
         // has lost ObjectFlagsObjectLiteral.
-        let widened = writing || node.node_id.is_some_and(|id| self.is_method_access_for_call(id));
+        let widened = writing || node.node_id().is_some_and(|id| self.is_method_access_for_call(id));
         // `getIndexedAccessTypeOrUndefined` (`checker.go:26975`): a union key
         // other than `boolean` reads each constituent through
         // `getPropertyTypeForIndexType`; one miss fails the whole access, and
@@ -1292,7 +1292,7 @@ impl Checker<'_, '_> {
             skipped = inner;
         }
         let tsr_ast::Expression::Identifier(name) = skipped else { return false };
-        let Some(reference) = name.node_id else { return false };
+        let Some(reference) = name.node_id() else { return false };
         let Some(symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
@@ -1346,13 +1346,13 @@ impl Checker<'_, '_> {
             if matches!(first.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
                 return None;
             }
-            return self.binder.symbol_of(first.node_id?);
+            return self.binder.symbol_of(first.node_id()?);
         }
         if let tsr_ast::ForInitializer::Identifier(name) = initializer {
             return self.binder.resolve_name(
                 self.nodes,
                 self.node_map,
-                name.node_id?,
+                name.node_id()?,
                 name.text,
                 tsr_binder::SymbolFlags::VALUE,
             );

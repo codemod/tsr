@@ -86,7 +86,7 @@ impl<'a> Checker<'a, '_> {
         for carrier in carriers {
             let owned = carrier == node;
             let mut push = |signature: &tsr_ast::IndexSignatureDeclaration<'a>| {
-                if let (Some(at), [parameter]) = (signature.node_id, signature.parameters)
+                if let (Some(at), [parameter]) = (signature.node_id(), signature.parameters)
                     && let Some(key) = parameter.r#type
                 {
                     signatures.push((at, owned, key));

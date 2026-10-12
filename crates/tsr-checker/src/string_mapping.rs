@@ -297,14 +297,14 @@ mod owner_tests {
                 let tsr_ast::Statement::TypeAliasDeclaration(alias) = statement else {
                     panic!("alias fixture");
                 };
-                bound.symbol_of(alias.node_id.unwrap()).unwrap()
+                bound.symbol_of(alias.node_id().unwrap()).unwrap()
             })
             .collect();
         let tsr_ast::Statement::TypeAliasDeclaration(parameter) = parsed.source_file.statements[2]
         else {
             panic!("parameter fixture")
         };
-        let parameter = bound.symbol_of(parameter.type_parameters[0].node_id.unwrap()).unwrap();
+        let parameter = bound.symbol_of(parameter.type_parameters[0].node_id().unwrap()).unwrap();
         for reverse in [false, true] {
             let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
             let raw = checker.symbols.bound(owners[0]).unwrap();
@@ -398,14 +398,14 @@ mod owner_tests {
                 let tsr_ast::Statement::TypeAliasDeclaration(alias) = statement else {
                     panic!("alias fixture");
                 };
-                bound.symbol_of(alias.node_id.unwrap()).unwrap()
+                bound.symbol_of(alias.node_id().unwrap()).unwrap()
             })
             .collect();
         let tsr_ast::Statement::TypeAliasDeclaration(parameter) = parsed.source_file.statements[2]
         else {
             panic!("parameter fixture")
         };
-        let parameter = bound.symbol_of(parameter.type_parameters[0].node_id.unwrap()).unwrap();
+        let parameter = bound.symbol_of(parameter.type_parameters[0].node_id().unwrap()).unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let argument = checker.get_declared_type_of_symbol(parameter);
         let upper = checker.instantiate_string_mapping_alias(owners[0], &[argument]).unwrap();

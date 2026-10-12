@@ -82,8 +82,17 @@ pub struct Token<'a> {
     /// Which token this is.
     pub kind: SyntaxKind,
     /// Key into the side tables holding this node's kind, span, and parent.
-    pub node_id: Option<NodeId>,
+    pub(crate) node_id: Option<NodeId>,
     _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl Token<'_> {
+    /// The id the parser registered this token under.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl Token<'_> {

@@ -41,7 +41,7 @@ fn type_of_last_expression_with_null_checks(
     // Match the compiler loader: a JS parse dialect does not stamp its root.
     if std::path::Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("js")) {
         parsed.nodes.add_flags(
-            parsed.source_file.node_id.expect("a parsed file has an id"),
+            parsed.source_file.node_id().expect("a parsed file has an id"),
             tsr_ast::NodeFlags::JAVASCRIPT_FILE,
         );
     }

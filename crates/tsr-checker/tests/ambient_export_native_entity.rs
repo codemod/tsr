@@ -14,7 +14,7 @@ fn diagnostics(source: &str, ambient: bool) -> Vec<(String, Span, String)> {
     );
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     checker.check_source_file(
-        parsed.source_file.node_id.expect("source file identity"),
+        parsed.source_file.node_id().expect("source file identity"),
         FileContext { ambient, has_parse_errors: false },
     );
     checker.diagnostics().iter().map(|(_, d)| (d.code(), d.span, d.text())).collect()

@@ -25,7 +25,7 @@ fn is_native_error(source: &str, javascript: bool) -> bool {
     if javascript {
         parsed
             .nodes
-            .add_flags(parsed.source_file.node_id.expect("a root id"), NodeFlags::JAVASCRIPT_FILE);
+            .add_flags(parsed.source_file.node_id().expect("a root id"), NodeFlags::JAVASCRIPT_FILE);
     }
     let bound = tsr_binder::bind(
         &arena,

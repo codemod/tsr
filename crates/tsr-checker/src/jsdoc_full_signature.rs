@@ -68,7 +68,7 @@ impl<'a> Checker<'a, '_> {
             _ => return None,
         };
         let signature = self.jsdoc_full_signature(function)?;
-        let position = parameters.iter().position(|node| node.node_id == Some(parameter))?;
+        let position = parameters.iter().position(|node| node.node_id() == Some(parameter))?;
         Some(if parameters[position].dot_dot_dot_token.is_some() {
             self.signature_rest_type_at_position(&signature, position)
         } else {

@@ -8,7 +8,7 @@ fn diagnostics(source: &str) -> Vec<Diagnostic> {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty());
-    let root = parsed.source_file.node_id.unwrap();
+    let root = parsed.source_file.node_id().unwrap();
     let bound = tsr_binder::bind(
         &arena,
         parsed.source_file,

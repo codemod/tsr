@@ -15,7 +15,7 @@ fn completed_commonjs_wrapper_preserves_identity_in_cold_reversed_and_warm_views
     for reverse in [false, true] {
         let arena = Arena::new();
         let mut parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
         let bound = tsr_binder::bind(
             &arena,
@@ -38,7 +38,7 @@ fn completed_commonjs_wrapper_preserves_identity_in_cold_reversed_and_warm_views
             if let tsr_ast::Node::Identifier(node) = node
                 && matches!(node.text, "before" | "nested" | "after")
             {
-                sites.push(node.node_id.unwrap());
+                sites.push(node.node_id().unwrap());
             }
             push_children(node, &mut nodes);
         }
@@ -76,7 +76,7 @@ fn export_equals_class_uses_module_container_except_at_its_own_name_scope() {
     for reverse in [false, true] {
         let arena = Arena::new();
         let mut parsed = tsr_parser::parse(&arena, source);
-        let root = parsed.source_file.node_id.unwrap();
+        let root = parsed.source_file.node_id().unwrap();
         parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
         let bound = tsr_binder::bind(
             &arena,
@@ -90,15 +90,15 @@ fn export_equals_class_uses_module_container_except_at_its_own_name_scope() {
         while let Some(node) = nodes.pop() {
             match node {
                 tsr_ast::Node::ClassExpression(node) => {
-                    let declaration = node.node_id.unwrap();
+                    let declaration = node.node_id().unwrap();
                     symbol = bound.symbol_of(declaration);
                     sites.push((declaration, "typeof import(\"./klass\")"));
                 }
                 tsr_ast::Node::Identifier(node) if node.text == "Bound" => {
-                    sites.push((node.node_id.unwrap(), "typeof Bound"));
+                    sites.push((node.node_id().unwrap(), "typeof Bound"));
                 }
                 tsr_ast::Node::Identifier(node) if matches!(node.text, "before" | "after") => {
-                    sites.push((node.node_id.unwrap(), "typeof import(\"./klass\")"));
+                    sites.push((node.node_id().unwrap(), "typeof import(\"./klass\")"));
                 }
                 _ => {}
             }

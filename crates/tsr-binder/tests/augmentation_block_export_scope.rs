@@ -12,7 +12,7 @@ fn block_export_modifier_does_not_publish_namespace_member() {
         &parsed.nodes,
         FileInfo { name: "main.ts", text: source },
     );
-    let n = bound.lookup_local(parsed.source_file.node_id.unwrap(), "N").unwrap();
+    let n = bound.lookup_local(parsed.source_file.node_id().unwrap(), "N").unwrap();
     assert!(!bound.symbols().get(n).exports.contains_key("hidden"));
     assert!(bound.symbols().get(n).exports.contains_key("visible"));
 }

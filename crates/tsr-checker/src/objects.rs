@@ -975,7 +975,7 @@ impl<'a> Checker<'a, '_> {
                 let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name else {
                     return None;
                 };
-                (self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
+                (self.nodes.kind(pattern.node_id()?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
                     .then_some(pattern)
             }
             tsr_ast::Node::ParameterDeclaration(declaration) => {
@@ -1004,7 +1004,7 @@ impl<'a> Checker<'a, '_> {
                 else {
                     return None;
                 };
-                (self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern
+                (self.nodes.kind(pattern.node_id()?) == tsr_ast::SyntaxKind::ObjectBindingPattern
                     && self.binding_default_pattern_context_available(
                         pattern,
                         tsr_ast::Expression::ObjectLiteralExpression(node),
@@ -1042,7 +1042,7 @@ impl<'a> Checker<'a, '_> {
                     else {
                         return None;
                     };
-                    return (self.nodes.kind(pattern.node_id?)
+                    return (self.nodes.kind(pattern.node_id()?)
                         == tsr_ast::SyntaxKind::ObjectBindingPattern
                         && self.binding_default_pattern_context_available(
                             pattern,
@@ -1074,7 +1074,7 @@ impl<'a> Checker<'a, '_> {
                 else {
                     return None;
                 };
-                (self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern
+                (self.nodes.kind(pattern.node_id()?) == tsr_ast::SyntaxKind::ObjectBindingPattern
                     && self.binding_default_pattern_context_available(
                         pattern,
                         tsr_ast::Expression::ObjectLiteralExpression(node),
@@ -1088,7 +1088,7 @@ impl<'a> Checker<'a, '_> {
                 let Some(tsr_ast::BindingName::BindingPattern(inner)) = element.name else {
                     return None;
                 };
-                (self.nodes.kind(inner.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
+                (self.nodes.kind(inner.node_id()?) == tsr_ast::SyntaxKind::ObjectBindingPattern)
                     .then_some(inner)
             }
             // getContextualType's ParenthesizedExpression arm passes the
@@ -1119,7 +1119,7 @@ impl<'a> Checker<'a, '_> {
             Some(tsr_ast::Node::FunctionExpression(f)) => f.parameters,
             _ => return true,
         };
-        let Some(index) = parameters.iter().position(|p| p.node_id == Some(parameter)) else {
+        let Some(index) = parameters.iter().position(|p| p.node_id() == Some(parameter)) else {
             return true;
         };
         declaration.dot_dot_dot_token.is_some() || index < call.arguments.len()
@@ -1160,7 +1160,7 @@ impl<'a> Checker<'a, '_> {
                 // The left must really BE a pattern, not an ordinary literal in
                 // an expression position the grammar happens to allow.
                 pattern
-                    .node_id
+                    .node_id()
                     .is_some_and(|id| self.is_assignment_pattern_target(id))
                     .then_some(pattern)
             }
@@ -1349,7 +1349,7 @@ impl Checker<'_, '_> {
         }
         // Read-drop-recurse (ADR-0013): the arena node carries the checker's
         // lifetime that `get_type_from_type_node` needs.
-        let Some(Node::LiteralTypeNode(arena)) = self.node_map.get(literal_type.node_id?) else {
+        let Some(Node::LiteralTypeNode(arena)) = self.node_map.get(literal_type.node_id()?) else {
             return None;
         };
         if self.get_type_from_type_node(TypeNode::LiteralTypeNode(arena)) != member_type {
@@ -1386,8 +1386,8 @@ impl Checker<'_, '_> {
         // conflating them measured 4 RIGHT→WRONG. The readonly is applied at
         // the literal source-view builder before inference collects candidates.
         let const_parameter_context =
-            node.node_id.is_some_and(|id| self.literal_in_const_type_variable_context(id));
-        let const_context = node.node_id.is_some_and(|id| self.is_const_context(id));
+            node.node_id().is_some_and(|id| self.literal_in_const_type_variable_context(id));
+        let const_context = node.node_id().is_some_and(|id| self.is_const_context(id));
         let regular_members = const_context || const_parameter_context;
         // §365: whether this literal IS a destructuring-assignment target —
         // upstream's `inDestructuringPattern := ast.IsAssignmentTarget(node)`
@@ -1395,11 +1395,11 @@ impl Checker<'_, '_> {
         // (`inDestructuringPattern && hasDefaultValue`, checker.go:13248):
         // `({name: nameA = "noName"} = robot)` prints `{ name?: string; }`.
         let in_destructuring_pattern =
-            node.node_id.is_some_and(|id| self.is_assignment_pattern_target(id));
+            node.node_id().is_some_and(|id| self.is_assignment_pattern_target(id));
         // §897: the ASSIGNMENT pattern this literal is typed against, if any —
         // `({ a: x = 1 } = { a: 2 })` gives the right literal `{ a?: number; }`.
         let contextual_assignment =
-            node.node_id.and_then(|id| self.contextual_assignment_pattern(id));
+            node.node_id().and_then(|id| self.contextual_assignment_pattern(id));
         // §489: `contextualTypeHasPattern`'s BINDING half (`checker.go:13253`,
         // §365 built the assignment half above): a literal contextually typed
         // by the IMPLIED TYPE of an object binding pattern copies each implied
@@ -1411,7 +1411,7 @@ impl Checker<'_, '_> {
         // literal is, or a matching element of an enclosing literal's pattern
         // — which is exactly where `getContextualType`'s variable-declaration
         // arm would have served the implied type.
-        let contextual_pattern = node.node_id.and_then(|id| self.contextual_binding_pattern(id));
+        let contextual_pattern = node.node_id().and_then(|id| self.contextual_binding_pattern(id));
         let mut members = Vec::with_capacity(node.properties.len());
         let mut typed_properties: Vec<AnonymousProperty> = Vec::new();
         let mut capture_complete = true;
@@ -1445,7 +1445,7 @@ impl Checker<'_, '_> {
             let (name_node, value) = match property {
                 tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
                     let Some(initializer) = assignment.initializer else { return error };
-                    property_node_id = assignment.node_id;
+                    property_node_id = assignment.node_id();
                     if in_destructuring_pattern
                         && matches!(initializer, tsr_ast::Expression::BinaryExpression(binary)
                             if binary.operator_token.is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken))
@@ -1541,7 +1541,7 @@ impl Checker<'_, '_> {
                 // destructuring parameter — gaps the **whole literal**, which
                 // is the rule every other member arm here already follows.
                 tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
-                    let Some(id) = method.node_id else { return error };
+                    let Some(id) = method.node_id() else { return error };
                     let Some(signature) = self.get_signature_from_declaration(id) else {
                         return error;
                     };
@@ -1677,7 +1677,7 @@ impl Checker<'_, '_> {
                     // twin of `signature_member_text` with a per-slot fallback to
                     // the baked text. No reference (a literal with no node id)
                     // keeps the site-less spelling.
-                    let member_text = match node.node_id {
+                    let member_text = match node.node_id() {
                         Some(reference) => self.signature_member_text_at(&signature, reference),
                         None => signature_member_text(self, &signature),
                     };
@@ -1719,7 +1719,7 @@ impl Checker<'_, '_> {
                     // pair's type goes through get_type_of_accessors, the
                     // same road class accessors take.
                     if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
-                        let Some(id) = accessor.node_id else { return error };
+                        let Some(id) = accessor.node_id() else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
                         let setter_sibling =
                             node.properties.iter().find_map(|sibling| match sibling {
@@ -1761,7 +1761,7 @@ impl Checker<'_, '_> {
                         // (declarationEmitObjectLiteralAccessors1), §415's
                         // recorded rung.
                         let setter_annotation = setter_sibling
-                            .and_then(|setter| setter.node_id)
+                            .and_then(|setter| setter.node_id())
                             .and_then(|setter_id| match self.node_map.get(setter_id) {
                                 Some(tsr_ast::Node::SetAccessorDeclaration(fetched)) => {
                                     fetched.parameters.first().and_then(|p| p.r#type)
@@ -1793,7 +1793,7 @@ impl Checker<'_, '_> {
                                 continue;
                             }
                         }
-                        let printed = self.member_text_at(member_type, node.node_id);
+                        let printed = self.member_text_at(member_type, node.node_id());
                         upsert_member(
                             &mut members,
                             Member::Property {
@@ -1815,7 +1815,7 @@ impl Checker<'_, '_> {
                     else {
                         return error;
                     };
-                    let Some(id) = accessor.node_id else { return error };
+                    let Some(id) = accessor.node_id() else { return error };
                     match self.computed_member_index_key(computed) {
                         // SS325: a late-bound GETTER prints as a property of
                         // its return type - the third `[s]: number` row of
@@ -1828,7 +1828,7 @@ impl Checker<'_, '_> {
                             let Some(signature) = self.get_signature_from_declaration(id) else {
                                 return error;
                             };
-                            let printed = self.member_text_at(signature.r#type, node.node_id);
+                            let printed = self.member_text_at(signature.r#type, node.node_id());
                             if !unique {
                                 // A component-row getter: plain property, no
                                 // readonly, no merge (`symbolProperty1/2`).
@@ -1898,7 +1898,7 @@ impl Checker<'_, '_> {
                     // so both arms compute the SAME get_type_of_accessors
                     // answer and the upsert keeps one row.
                     if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
-                        let Some(id) = accessor.node_id else { return error };
+                        let Some(id) = accessor.node_id() else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
                         if self.accessor_type_deferred(symbol) {
                             upsert_member(
@@ -1966,7 +1966,7 @@ impl Checker<'_, '_> {
                                 continue;
                             }
                         }
-                        let printed = self.member_text_at(member_type, node.node_id);
+                        let printed = self.member_text_at(member_type, node.node_id());
                         upsert_member(
                             &mut members,
                             Member::Property {
@@ -1988,7 +1988,7 @@ impl Checker<'_, '_> {
                     else {
                         return error;
                     };
-                    let Some(id) = accessor.node_id else { return error };
+                    let Some(id) = accessor.node_id() else { return error };
                     match self.computed_member_index_key(computed) {
                         // SS325: the setter half - a property of its first
                         // parameter's type, `any` when unannotated, the same
@@ -2020,7 +2020,7 @@ impl Checker<'_, '_> {
                                 .map_or(self.intrinsics.any, |parameter| {
                                     self.parameter_type(parameter)
                                 });
-                            let printed = self.member_text_at(member_type, node.node_id);
+                            let printed = self.member_text_at(member_type, node.node_id());
                             if unique {
                                 accessor_members.push((name.clone(), members.len()));
                             }
@@ -2251,7 +2251,7 @@ impl Checker<'_, '_> {
                 let unresolved = match &value {
                     PropertyValue::Initializer(tsr_ast::Expression::Identifier(identifier))
                     | PropertyValue::Shorthand(identifier) => {
-                        identifier.node_id.is_some_and(|id| {
+                        identifier.node_id().is_some_and(|id| {
                             self.binder
                                 .resolve_name(
                                     self.nodes,
@@ -2321,7 +2321,7 @@ impl Checker<'_, '_> {
             // deferred to the member's first composer (§15): the literal's own
             // display keeps the site-free print, as a node builder that never
             // runs leaves native's member unprinted.
-            let site_plan = match (&reused, node.node_id) {
+            let site_plan = match (&reused, node.node_id()) {
                 (None, Some(reference))
                     if !self.member_text_waits_on_pending_return(member_type)
                         && !self.holds_value_object(member_type) =>
@@ -2333,7 +2333,7 @@ impl Checker<'_, '_> {
             let printed = match (reused, site_plan) {
                 (Some(reused), _) => reused,
                 (None, Some(_)) => self.type_to_string(member_type),
-                (None, None) => self.member_text_at(member_type, node.node_id),
+                (None, None) => self.member_text_at(member_type, node.node_id()),
             };
             if let Some(id) = property.node_id() {
                 checked_members.push((id, PropertySlot::resolved(member_type)));
@@ -2471,7 +2471,7 @@ impl Checker<'_, '_> {
         // The binder gives an object literal its own `__object` symbol, whose
         // members table is where a property access on this type looks — the same
         // arrangement `get_type_from_type_literal` relies on for `__type`.
-        let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
+        let symbol = node.node_id().and_then(|id| self.binder.symbol_of(id));
         let minted = self.store.new_named(TypeFlags::OBJECT, printed, symbol);
         if capture_complete {
             // Spread properties have no binder symbol on this literal. Use
@@ -2494,7 +2494,7 @@ impl Checker<'_, '_> {
         // `checker.go:13206`): a literal under `@type`/`@satisfies` is checked
         // like a TypeScript one.
         if node
-            .node_id
+            .node_id()
             .is_some_and(|id| self.in_js_file(id) && self.get_contextual_type(id).is_none())
         {
             self.js_literal_types.insert(minted);
@@ -3300,7 +3300,7 @@ mod display_source_tests {
             for reverse in [false, true] {
                 let arena = Arena::new();
                 let parsed = tsr_parser::parse(&arena, source);
-                let root = parsed.source_file.node_id.unwrap();
+                let root = parsed.source_file.node_id().unwrap();
                 let bound = tsr_binder::bind(
                     &arena,
                     parsed.source_file,
@@ -3325,7 +3325,7 @@ mod display_source_tests {
                     else {
                         panic!("property-only native control");
                     };
-                    let declaration = assignment.node_id.unwrap();
+                    let declaration = assignment.node_id().unwrap();
                     let symbol = bound.symbol_of(declaration).unwrap();
                     last.insert(bound.symbols().get(symbol).name, (symbol, declaration));
                 }

@@ -105,7 +105,7 @@ fn canonical_type_names_preserve_default_scope_shadows_and_clone_identity() {
         }
         if let Node::Identifier(name) = node
             && name.text.ends_with("Slot")
-            && program.nodes().parent(name.node_id.unwrap()).is_some_and(|parent| {
+            && program.nodes().parent(name.node_id().unwrap()).is_some_and(|parent| {
                 program.nodes().kind(parent) == tsr_ast::SyntaxKind::ExpressionStatement
             })
         {
@@ -113,7 +113,7 @@ fn canonical_type_names_preserve_default_scope_shadows_and_clone_identity() {
         }
         tsr_ast::push_children(node, &mut stack);
     }
-    queries.sort_by_key(|name| program.nodes().span(name.node_id.unwrap()).start);
+    queries.sort_by_key(|name| program.nodes().span(name.node_id().unwrap()).start);
     assert_eq!(queries.len(), 13);
     for reverse in [false, true] {
         let mut checker = types_producer::configured_checker(&program);
@@ -142,7 +142,7 @@ fn canonical_type_names_preserve_default_scope_shadows_and_clone_identity() {
                         .resolve_name(
                             program.nodes(),
                             program.node_map(),
-                            name.node_id.unwrap(),
+                            name.node_id().unwrap(),
                             "Pair",
                             tsr_binder::SymbolFlags::TYPE,
                         )
@@ -163,7 +163,7 @@ fn canonical_type_names_preserve_default_scope_shadows_and_clone_identity() {
                     "sourceValueSlot" => checker.get_type_of_symbol(namespace),
                     _ => checker.create_type_reference_public(target, arguments),
                 };
-                let actual = checker.type_to_string_at(ty, name.node_id.unwrap());
+                let actual = checker.type_to_string_at(ty, name.node_id().unwrap());
                 let expected = match name.text {
                     "rootSlot" | "valueShadowSlot" => Some("React.Pair<string, number>"),
                     "defaultValueShadowSlot" => Some("DefaultOnly.Pair<string, number>"),
@@ -300,7 +300,7 @@ fn jsx_mixed_signature_context_matches_cold_reverse_and_warm_program_queries() {
         tsr_ast::push_children(node, &mut stack);
     }
     assert_eq!(callbacks.len(), 14);
-    callbacks.sort_by_key(|(arrow, _)| program.nodes().span(arrow.node_id.unwrap()).start);
+    callbacks.sort_by_key(|(arrow, _)| program.nodes().span(arrow.node_id().unwrap()).start);
     for reversed in [false, true] {
         let mut checker = types_producer::configured_checker(&program);
         let mut order: Vec<_> = callbacks.iter().collect();

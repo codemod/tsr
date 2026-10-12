@@ -306,7 +306,7 @@ mod tests {
                 tsr_binder::FileInfo { name: "top.ts", text: &source },
             );
             let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-            let root = parsed.source_file.node_id.unwrap();
+            let root = parsed.source_file.node_id().unwrap();
             let object = checker.get_type_of_symbol(bound.lookup_local(root, "object").unwrap());
             let callable = checker.get_type_of_property_of_type(object, "f").unwrap();
             let signature = checker.signature_types[&callable][0].clone();
@@ -356,7 +356,7 @@ mod tests {
                 let Statement::FunctionDeclaration(function) = statement else { continue };
                 let name = function.name.unwrap().text;
                 let signature = checker
-                    .get_signature_from_declaration(function.node_id.unwrap())
+                    .get_signature_from_declaration(function.node_id().unwrap())
                     .expect("signature");
                 let mut stored = Vec::with_capacity(signature.parameters.len());
                 for p in &signature.parameters {

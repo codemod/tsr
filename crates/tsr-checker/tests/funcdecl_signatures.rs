@@ -81,7 +81,7 @@ fn type_of_function(source: &str, name: &str) -> String {
             _ => None,
         })
         .expect("the named function");
-    let symbol = bound.symbol_of(function.node_id.expect("registered")).expect("a symbol");
+    let symbol = bound.symbol_of(function.node_id().expect("registered")).expect("a symbol");
     let id = checker.get_type_of_symbol(symbol);
     checker.type_to_string(id)
 }

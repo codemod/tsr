@@ -16,7 +16,7 @@ fn variable_type(source: &str, name: &str) -> String {
     parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
     for (_, docs) in parsed.jsdoc.iter() {
         for doc in docs {
-            if let Some(id) = doc.node_id {
+            if let Some(id) = doc.node_id() {
                 parsed.nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
             }
         }

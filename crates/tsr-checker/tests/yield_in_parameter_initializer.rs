@@ -19,7 +19,7 @@ fn ts2523_count(source: &str) -> usize {
         &mut nodes,
         &mut node_map,
     );
-    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
+    let root: NodeId = file.source_file.node_id().expect("a parsed file has an id");
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
         &arena,

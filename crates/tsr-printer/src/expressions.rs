@@ -404,7 +404,7 @@ impl Printer<'_> {
                 // element (`extends Foo`) has no list. The port's slice cannot
                 // tell the two apart, so the parent decides (r7-printer §16).
                 let in_heritage =
-                    node.node_id.and_then(|id| self.nodes.parent(id)).is_some_and(|parent| {
+                    node.node_id().and_then(|id| self.nodes.parent(id)).is_some_and(|parent| {
                         self.nodes.kind(parent) == tsr_ast::SyntaxKind::HeritageClause
                     });
                 if node.type_arguments.is_empty() && !in_heritage {

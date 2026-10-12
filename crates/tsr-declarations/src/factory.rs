@@ -161,7 +161,7 @@ impl<'a, 't> Factory<'a, 't> {
         original: &SourceFile<'a>,
         statements: &'a [Statement<'a>],
     ) -> &'a SourceFile<'a> {
-        let span = self.span_of(original.node_id);
+        let span = self.span_of(original.node_id());
         self.alloc(
             SourceFile::new(statements, original.end_of_file_token),
             SyntaxKind::SourceFile,

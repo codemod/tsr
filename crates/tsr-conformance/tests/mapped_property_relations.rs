@@ -220,7 +220,7 @@ fn missing_heads_keep_native_order_and_six_property_truncation() {
     let program = types_producer::program_for_case(&arena, &case);
     let mut checker = types_producer::configured_checker(&program);
     let file = program.source_file("missing.ts").expect("fixture");
-    let id = file.source_file().node_id.expect("registered file");
+    let id = file.source_file().node_id().expect("registered file");
     checker.set_checked_files([id]);
     checker.check_source_file(
         id,

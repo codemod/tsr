@@ -103,12 +103,12 @@ pub fn check_program_files(
         .iter()
         .enumerate()
         .filter(|(index, _)| full_check_exclusion(program, *index).is_none())
-        .filter_map(|(_, file)| file.source_file().node_id)
+        .filter_map(|(_, file)| file.source_file().node_id())
         .collect();
     let file_index: rustc_hash::FxHashMap<_, _> = files
         .iter()
         .enumerate()
-        .filter_map(|(index, file)| file.source_file().node_id.map(|id| (id, index)))
+        .filter_map(|(index, file)| file.source_file().node_id().map(|id| (id, index)))
         .collect();
 
     let run = |owner: usize| -> (Located, Located, usize, Duration) {
@@ -142,7 +142,7 @@ pub fn check_program_files(
             if index % count != owner {
                 continue;
             }
-            if let Some(id) = file.source_file().node_id {
+            if let Some(id) = file.source_file().node_id() {
                 js_syntax
                     .extend(checker.js_syntax_diagnostics(id).into_iter().map(|(_, d)| (index, d)));
             }
@@ -155,7 +155,7 @@ pub fn check_program_files(
                 if index % count != owner || full_check_exclusion(program, index).is_some() {
                     continue;
                 }
-                let Some(id) = file.source_file().node_id else { continue };
+                let Some(id) = file.source_file().node_id() else { continue };
                 // Upstream's parser sets `NodeFlagsAmbient` on every node of a
                 // declaration file; this port's does not, so the bit is
                 // supplied here, the same way the conformance harness does.

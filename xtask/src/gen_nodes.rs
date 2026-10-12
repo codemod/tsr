@@ -522,9 +522,9 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
             out,
             "impl crate::HasNodeId for {name}<'_> {{\n    \
              fn set_node_id(&mut self, id: NodeId) {{\n        \
-             self.node_id = Some(id);\n    }}\n\n    \
+             self.node_id() = Some(id);\n    }}\n\n    \
              fn node_id(&self) -> Option<NodeId> {{\n        \
-             self.node_id\n    }}\n}}\n"
+             self.node_id()\n    }}\n}}\n"
         )?;
     }
 
@@ -543,13 +543,13 @@ pub fn generate_publication(ast: &AstDefinition, nullability: &GoNullability) ->
     );
     for name in ast.nodes.definitions.keys() {
         if name == "Token" {
-            out.push_str("Node::Token(n) => { let mut node = Token::new(n.kind); node.node_id = n.node_id.map(|id| p.id(id)); Node::Token(p.arena.alloc(node)) },\n");
+            out.push_str("Node::Token(n) => { let mut node = Token::new(n.kind); node.node_id() = n.node_id().map(|id| p.id(id)); Node::Token(p.arena.alloc(node)) },\n");
             continue;
         }
         let fields = resolve_fields(ast, nullability, name)?;
         writeln!(
             out,
-            "Node::{name}(n) => {{ let node = {name} {{ node_id: n.node_id.map(|id| p.id(id)),"
+            "Node::{name}(n) => {{ let node = {name} {{ node_id: n.node_id().map(|id| p.id(id)),"
         )?;
         if !fields.iter().any(|f| f.rust_type.contains("'a")) {
             out.push_str("_marker: std::marker::PhantomData,\n");

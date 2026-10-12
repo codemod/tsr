@@ -37,7 +37,7 @@ use crate::jsx_intrinsic::is_intrinsic_jsx_name;
 pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
     let value_tag = |tag: Option<JsxTagNameExpression<'_>>| {
         matches!(tag, Some(JsxTagNameExpression::Identifier(name))
-            if name.node_id == Some(node) && !is_intrinsic_jsx_name(name.text))
+            if name.node_id() == Some(node) && !is_intrinsic_jsx_name(name.text))
     };
     match parent {
         Node::WithStatement(with) => with.expression.and_then(|e| e.node_id()) == Some(node),
@@ -238,7 +238,7 @@ impl Checker<'_, '_> {
                     matches!(first.name, Some(BindingName::Identifier(name)) if name.text == "this")
                 });
                 has_body
-                    && this_parameter.and_then(|p| p.node_id) != Some(decorated)
+                    && this_parameter.and_then(|p| p.node_id()) != Some(decorated)
                     && self.nodes.parent(function).map(|g| self.nodes.kind(g))
                         == Some(SyntaxKind::ClassDeclaration)
             }

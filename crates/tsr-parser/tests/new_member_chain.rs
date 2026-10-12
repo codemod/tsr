@@ -27,7 +27,7 @@ fn constructor_callees_consume_members_but_not_calls_or_optional_chains() {
         assert_eq!(parsed.nodes.kind(id), callee_kind, "{source}");
         assert_eq!(&source[span.start as usize..span.end as usize], callee_text, "{source}");
         assert_eq!(new.arguments.len(), arguments, "{source}");
-        assert_eq!(parsed.nodes.parent(id), new.node_id, "the callee belongs to new");
+        assert_eq!(parsed.nodes.parent(id), new.node_id(), "the callee belongs to new");
         assert_eq!(new.type_arguments.len(), usize::from(source.contains("<T>")), "{source}");
     }
     for source in ["new C()[1].f(4)", "new C[0]?.f()"] {
@@ -60,6 +60,6 @@ fn empty_constructor_index_retains_its_missing_argument_and_native_diagnostic() 
         .and_then(|argument| argument.node_id())
         .expect("missing identifier");
     assert_eq!(parsed.nodes.span(missing), tsr_core::Span::at(6));
-    assert_eq!(parsed.nodes.parent(missing), index.node_id);
+    assert_eq!(parsed.nodes.parent(missing), index.node_id());
     assert_eq!(parsed.diagnostics[0].span, tsr_core::Span::at(6));
 }

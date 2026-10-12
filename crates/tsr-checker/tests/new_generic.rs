@@ -35,7 +35,7 @@ fn type_of_declaration(source: &str, name: &str) -> String {
                 continue;
             }
             let symbol = bound
-                .symbol_of(declaration.node_id.expect("registered"))
+                .symbol_of(declaration.node_id().expect("registered"))
                 .expect("the declaration must be bound");
             let id = checker.get_type_of_symbol(symbol);
             return checker.type_to_string(id);

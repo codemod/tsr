@@ -433,7 +433,7 @@ fn classify(
     // `gap_reason`'s. A wider meaning here would resolve names the checker did
     // not, and attribute lines to a declaration it never saw.
     let symbol = identifier
-        .node_id
+        .node_id()
         .and_then(|id| bound.resolve_name(nodes, map, id, identifier.text, SymbolFlags::VALUE));
     let Some(symbol) = symbol else { return Bucket::Unresolved };
     let kinds: BTreeSet<SyntaxKind> =

@@ -52,7 +52,7 @@ fn codes(isolated_modules: bool, verbatim_module_syntax: bool) -> Vec<u32> {
             ..Default::default()
         },
     );
-    let bad = program.source_file("/bad.ts").expect("loaded").source_file().node_id.expect("id");
+    let bad = program.source_file("/bad.ts").expect("loaded").source_file().node_id().expect("id");
     let mut checker = tsr_checker::Checker::with_module_host(
         program.binder(),
         program.nodes(),

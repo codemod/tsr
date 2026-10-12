@@ -64,14 +64,14 @@ fn check_group(program: &Program<'_>, options: &CompilerOptions, group: &[usize]
             .filter(|(index, _)| {
                 tsr_execute::compile::full_check_exclusion(program, *index).is_none()
             })
-            .filter_map(|(_, file)| file.source_file().node_id),
+            .filter_map(|(_, file)| file.source_file().node_id()),
     );
     let initial_types = checker.type_count();
     let initialized = Instant::now();
     for &index in group {
         let file = &program.source_files()[index];
         checker.check_source_file(
-            file.source_file().node_id.expect("a parsed root is registered"),
+            file.source_file().node_id().expect("a parsed root is registered"),
             FileContext {
                 ambient: tsr_path::is_declaration_file_name(file.file_name()),
                 has_parse_errors: !file.diagnostics().is_empty(),
@@ -175,7 +175,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     let file_names: std::collections::HashMap<_, _> = program
         .source_files()
         .iter()
-        .filter_map(|file| file.source_file().node_id.map(|id| (id.as_u32(), file.file_name())))
+        .filter_map(|file| file.source_file().node_id().map(|id| (id.as_u32(), file.file_name())))
         .collect();
     worker_diagnostics::normalize(&mut raw, |id| file_names[&id]);
     let mut diagnostics = Vec::new();
@@ -187,7 +187,7 @@ fn run() -> Result<bool, Box<dyn std::error::Error>> {
     for &index in &eligible {
         let source = &program.source_files()[index];
         let file = &files[index];
-        let id = source.source_file().node_id.unwrap().as_u32();
+        let id = source.source_file().node_id().unwrap().as_u32();
         let entries: Vec<_> = raw
             .iter()
             .filter(|(file_id, _)| *file_id == id)

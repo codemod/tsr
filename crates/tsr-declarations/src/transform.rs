@@ -186,7 +186,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     /// rather than deleted, because the shape is what Phase 4 will fill.
     pub(crate) fn transform_source_file(&mut self, file: &SourceFile<'a>) -> &'a SourceFile<'a> {
         self.javascript_file =
-            self.factory.flags_of(file.node_id).contains(NodeFlags::JAVASCRIPT_FILE);
+            self.factory.flags_of(file.node_id()).contains(NodeFlags::JAVASCRIPT_FILE);
         let commonjs = tsr_dts::visibility::is_commonjs_module(file, self.javascript_file);
         let is_module =
             is_external_module(file.statements) || self.options.force_module || commonjs;
@@ -443,7 +443,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         if clause.phase_modifier.is_none_or(|modifier| modifier.kind != SyntaxKind::DeferKeyword) {
             return Statement::ImportDeclaration(node);
         }
-        let span = self.span_of(clause.node_id);
+        let span = self.span_of(clause.node_id());
         let clause = self.factory.alloc(
             tsr_ast::ImportClause::new(None, clause.name, clause.named_bindings),
             SyntaxKind::ImportClause,
@@ -458,7 +458,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 node.attributes,
             ),
             SyntaxKind::ImportDeclaration,
-            self.span_of(node.node_id),
+            self.span_of(node.node_id()),
             NodeFlags::empty(),
         ))
     }
@@ -475,7 +475,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             return vec![Statement::ExportAssignment(node)];
         }
 
-        let span = self.span_of(node.node_id);
+        let span = self.span_of(node.node_id());
         // `transformExportAssignment` (`transform.go:1235`): a function or arrow
         // expression is promoted to a function declaration named for the export,
         // and the export assignment comes first (`modulePreserve4`:
@@ -507,7 +507,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let r#type = if literal.is_some() {
             None
         } else {
-            self.ensure_type(None, node.expression.as_ref(), Freshness::Widening, node.node_id)
+            self.ensure_type(None, node.expression.as_ref(), Freshness::Widening, node.node_id())
         };
         let declaration = self.factory.alloc(
             tsr_ast::VariableDeclaration::new(
@@ -909,10 +909,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     ) -> Statement<'a> {
         let (type_parameters, parameters, written, node_id) = match function {
             Expression::ArrowFunction(arrow) => {
-                (arrow.type_parameters, arrow.parameters, arrow.r#type, arrow.node_id)
+                (arrow.type_parameters, arrow.parameters, arrow.r#type, arrow.node_id())
             }
             Expression::FunctionExpression(function) => {
-                (function.type_parameters, function.parameters, function.r#type, function.node_id)
+                (function.type_parameters, function.parameters, function.r#type, function.node_id())
             }
             _ => unreachable!("skip_parentheses_to_function returns function-likes only"),
         };
@@ -989,7 +989,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 // and none of them takes `declare`.
                 let saved = std::mem::replace(&mut self.needs_declare, false);
                 let modifiers =
-                    self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
+                    self.ensure_modifiers(node.modifiers, node.node_id(), parent_is_file, false);
                 let r#type = node.r#type.map(|r#type| self.transform_written_type(r#type));
                 self.needs_declare = saved;
                 vec![Statement::TypeAliasDeclaration(self.factory.alloc(
@@ -1000,7 +1000,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         r#type,
                     ),
                     SyntaxKind::TypeAliasDeclaration,
-                    self.span_of(node.node_id),
+                    self.span_of(node.node_id()),
                     NodeFlags::empty(),
                 ))]
             }
@@ -1008,7 +1008,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 // `transformInterfaceDeclaration` (`:1794`). `isAlwaysType`, so no
                 // `declare`.
                 let modifiers =
-                    self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, true);
+                    self.ensure_modifiers(node.modifiers, node.node_id(), parent_is_file, true);
                 let members = self.visit_type_members(node.members);
                 vec![Statement::InterfaceDeclaration(self.factory.alloc(
                     tsr_ast::InterfaceDeclaration::new(
@@ -1019,7 +1019,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         members,
                     ),
                     SyntaxKind::InterfaceDeclaration,
-                    self.span_of(node.node_id),
+                    self.span_of(node.node_id()),
                     NodeFlags::empty(),
                 ))]
             }
@@ -1045,7 +1045,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let rewrites_default = expando_members.is_some()
                     && has_modifier(node.modifiers, SyntaxKind::DefaultKeyword);
                 let modifiers = if rewrites_default {
-                    let span = self.span_of(node.node_id);
+                    let span = self.span_of(node.node_id());
                     let flags = (modifiers::modifier_flags(node.modifiers)
                         & !(ModifierFlags::EXPORT | ModifierFlags::DEFAULT))
                         | ModifierFlags::AMBIENT;
@@ -1053,11 +1053,11 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         modifiers::create_modifiers_from_flags(&mut self.factory, flags, span);
                     self.factory.slice(&created)
                 } else {
-                    self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false)
+                    self.ensure_modifiers(node.modifiers, node.node_id(), parent_is_file, false)
                 };
-                let parameters = self.update_param_list(node.parameters, false, node.node_id);
+                let parameters = self.update_param_list(node.parameters, false, node.node_id());
                 let return_type =
-                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id);
+                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id());
                 let function = Statement::FunctionDeclaration(self.factory.alloc(
                     tsr_ast::FunctionDeclaration::new(
                         modifiers,
@@ -1070,7 +1070,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         None,
                     ),
                     SyntaxKind::FunctionDeclaration,
-                    self.span_of(node.node_id),
+                    self.span_of(node.node_id()),
                     NodeFlags::empty(),
                 ));
                 let mut result = vec![function];
@@ -1080,7 +1080,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     result.push(self.create_expando_namespace(
                         name,
                         modifiers,
-                        self.span_of(node.node_id),
+                        self.span_of(node.node_id()),
                         &members,
                     ));
                     if rewrites_default {
@@ -1092,7 +1092,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                                 Some(Expression::Identifier(name)),
                             ),
                             SyntaxKind::ExportAssignment,
-                            self.span_of(node.node_id),
+                            self.span_of(node.node_id()),
                             NodeFlags::empty(),
                         )));
                     }
@@ -1108,12 +1108,12 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 // none. See [`crate::enum_value`] for why keeping the source form
                 // is not an option.
                 let modifiers =
-                    self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
+                    self.ensure_modifiers(node.modifiers, node.node_id(), parent_is_file, false);
                 let name = node.name.map_or("", |name| name.text);
                 let values = self.resolver.get_enum_member_values(node.members, name);
                 let mut members = Vec::with_capacity(node.members.len());
                 for (member, value) in node.members.iter().zip(values) {
-                    let span = self.span_of(member.node_id);
+                    let span = self.span_of(member.node_id());
                     let is_ambient = self.ambient_context
                         || has_modifier(node.modifiers, SyntaxKind::DeclareKeyword);
                     let initializer = if is_ambient && member.initializer.is_none() {
@@ -1132,7 +1132,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 vec![Statement::EnumDeclaration(self.factory.alloc(
                     tsr_ast::EnumDeclaration::new(modifiers, node.name, members),
                     SyntaxKind::EnumDeclaration,
-                    self.span_of(node.node_id),
+                    self.span_of(node.node_id()),
                     NodeFlags::empty(),
                 ))]
             }
@@ -1174,17 +1174,17 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             return *statement;
         }
         let declarations = self.factory.slice(&kept);
-        let list_flags = self.factory.flags_of(list.node_id);
+        let list_flags = self.factory.flags_of(list.node_id());
         let new_list = self.factory.alloc(
             tsr_ast::VariableDeclarationList::new(declarations),
             SyntaxKind::VariableDeclarationList,
-            self.span_of(list.node_id),
+            self.span_of(list.node_id()),
             list_flags,
         );
         Statement::VariableStatement(self.factory.alloc(
             tsr_ast::VariableStatement::new(node.modifiers, Some(new_list)),
             SyntaxKind::VariableStatement,
-            self.span_of(node.node_id),
+            self.span_of(node.node_id()),
             NodeFlags::empty(),
         ))
     }
@@ -1199,14 +1199,14 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         if let Some(promoted) = self.promote_expando_function(node, list, parent_is_file) {
             return promoted;
         }
-        let flags = self.factory.flags_of(list.node_id);
+        let flags = self.factory.flags_of(list.node_id());
         let is_const = flags.intersects(NodeFlags::CONSTANT);
 
         // In JavaScript, a single-declarator statement's leading `@type` JSDoc
         // annotates that declarator (`callbackOnConstructor`'s `ooscope2`).
         let jsdoc_annotation = if list.declarations.len() == 1 {
-            let span = self.span_of(node.node_id);
-            self.leading_jsdoc(node.node_id)
+            let span = self.span_of(node.node_id());
+            self.leading_jsdoc(node.node_id())
                 .and_then(|comment| self.jsdoc_type(comment, "type", span))
         } else {
             None
@@ -1221,7 +1221,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let mut names = Vec::new();
                 collect_binding_identifiers(declaration.name, &mut names);
                 for name in names {
-                    let span = self.span_of(name.node_id);
+                    let span = self.span_of(name.node_id());
                     let r#type = self.factory.keyword_type(SyntaxKind::AnyKeyword, span);
                     declarations.push(self.factory.alloc(
                         tsr_ast::VariableDeclaration::new(
@@ -1248,7 +1248,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
         let declarations = self.factory.slice(&declarations);
 
-        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
+        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), parent_is_file, false);
         // Upstream rewrites a `using`/`await using` list to `const`, because
         // neither keyword is legal in a `.d.ts`. `NodeFlags` are what the printer
         // reads for the keyword, so the rewrite is a flag change on a new list
@@ -1261,13 +1261,13 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let list = self.factory.alloc(
             tsr_ast::VariableDeclarationList::new(declarations),
             SyntaxKind::VariableDeclarationList,
-            self.span_of(list.node_id),
+            self.span_of(list.node_id()),
             list_flags,
         );
         vec![Statement::VariableStatement(self.factory.alloc(
             tsr_ast::VariableStatement::new(modifiers, Some(list)),
             SyntaxKind::VariableStatement,
-            self.span_of(node.node_id),
+            self.span_of(node.node_id()),
             NodeFlags::empty(),
         ))]
     }
@@ -1289,14 +1289,14 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         if members.iter().any(|member| member.name.is_none()) {
             return None;
         }
-        let span = self.span_of(declaration.node_id);
+        let span = self.span_of(declaration.node_id());
         let TypeNode::FunctionTypeNode(function_type) =
-            self.ensure_type(None, Some(initializer), Freshness::Widening, declaration.node_id)?
+            self.ensure_type(None, Some(initializer), Freshness::Widening, declaration.node_id())?
         else {
             return None;
         };
         let modifiers =
-            self.ensure_modifiers(statement.modifiers, statement.node_id, parent_is_file, false);
+            self.ensure_modifiers(statement.modifiers, statement.node_id(), parent_is_file, false);
         let function = Statement::FunctionDeclaration(self.factory.alloc(
             tsr_ast::FunctionDeclaration::new(
                 modifiers,
@@ -1378,7 +1378,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         *statement = Statement::VariableStatement(self.factory.alloc(
                             tsr_ast::VariableStatement::new(exported, variable.declaration_list),
                             SyntaxKind::VariableStatement,
-                            self.span_of(variable.node_id),
+                            self.span_of(variable.node_id()),
                             NodeFlags::empty(),
                         ));
                     }
@@ -1566,7 +1566,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     return None;
                 }
                 let expando = self.object_expandos.remove(name.text)?;
-                let span = self.span_of(declaration.node_id);
+                let span = self.span_of(declaration.node_id());
                 Some(self.object_expando_type(expando, span))
             })
             .or_else(|| {
@@ -1584,7 +1584,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     return None;
                 }
                 let entity = self.entity_of_expression(initializer)?;
-                let span = self.span_of(declaration.node_id);
+                let span = self.span_of(declaration.node_id());
                 Some(TypeNode::TypeQueryNode(self.factory.alloc(
                     tsr_ast::TypeQueryNode::new(Some(entity), &[]),
                     SyntaxKind::TypeQuery,
@@ -1615,13 +1615,13 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 annotation,
                 declaration.initializer.as_ref(),
                 Freshness::Widening,
-                declaration.node_id,
+                declaration.node_id(),
             )
         };
         self.factory.alloc(
             tsr_ast::VariableDeclaration::new(declaration.name, None, r#type, initializer),
             SyntaxKind::VariableDeclaration,
-            self.span_of(declaration.node_id),
+            self.span_of(declaration.node_id()),
             NodeFlags::empty(),
         )
     }
@@ -1633,12 +1633,12 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 TypeNode::TypeLiteralNode(self.factory.alloc(
                     tsr_ast::TypeLiteralNode::new(members),
                     SyntaxKind::TypeLiteral,
-                    self.span_of(literal.node_id),
+                    self.span_of(literal.node_id()),
                     NodeFlags::empty(),
                 ))
             }
             TypeNode::MappedTypeNode(mapped) => {
-                let span = self.span_of(mapped.node_id);
+                let span = self.span_of(mapped.node_id());
                 let name_type = mapped.name_type.map(|name| self.transform_written_type(name));
                 let value_type = match mapped.r#type {
                     Some(value) => self.transform_written_type(value),
@@ -1663,7 +1663,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 TypeNode::ParenthesizedTypeNode(self.factory.alloc(
                     tsr_ast::ParenthesizedTypeNode::new(inner),
                     SyntaxKind::ParenthesizedType,
-                    self.span_of(parenthesized.node_id),
+                    self.span_of(parenthesized.node_id()),
                     NodeFlags::empty(),
                 ))
             }
@@ -1677,7 +1677,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 TypeNode::ConditionalTypeNode(self.factory.alloc(
                     tsr_ast::ConditionalTypeNode::new(check, extends, true_type, false_type),
                     SyntaxKind::ConditionalType,
-                    self.span_of(conditional.node_id),
+                    self.span_of(conditional.node_id()),
                     NodeFlags::empty(),
                 ))
             }
@@ -1697,10 +1697,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         node: &tsr_ast::ModuleDeclaration<'a>,
         parent_is_file: bool,
     ) -> Vec<Statement<'a>> {
-        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
+        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), parent_is_file, false);
         let saved_declare = std::mem::replace(&mut self.needs_declare, false);
         let enters_ambient = self.ambient_context
-            || self.factory.flags_of(node.node_id).contains(NodeFlags::AMBIENT)
+            || self.factory.flags_of(node.node_id()).contains(NodeFlags::AMBIENT)
             || has_modifier(node.modifiers, SyntaxKind::DeclareKeyword);
         let saved_ambient = std::mem::replace(&mut self.ambient_context, enters_ambient);
         let saved_needs_fix = std::mem::replace(&mut self.needs_scope_fix_marker, false);
@@ -1775,7 +1775,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 Some(tsr_ast::ModuleBody::ModuleBlock(self.factory.alloc(
                     tsr_ast::ModuleBlock::new(statements),
                     SyntaxKind::ModuleBlock,
-                    self.span_of(block.node_id),
+                    self.span_of(block.node_id()),
                     NodeFlags::empty(),
                 )))
             }
@@ -1802,7 +1802,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         vec![Statement::ModuleDeclaration(self.factory.alloc(
             tsr_ast::ModuleDeclaration::new(modifiers, node.keyword, node.name, body, None),
             SyntaxKind::ModuleDeclaration,
-            self.span_of(node.node_id),
+            self.span_of(node.node_id()),
             NodeFlags::empty(),
         ))]
     }
@@ -1839,7 +1839,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         node: &tsr_ast::ClassDeclaration<'a>,
         parent_is_file: bool,
     ) -> Vec<Statement<'a>> {
-        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
+        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), parent_is_file, false);
         let (base_variable, heritage_clauses) = self.rewrite_class_base(node);
         let heritage_clauses = self.with_jsdoc_implements(node, heritage_clauses);
         let mut members: Vec<ClassElement<'a>> = Vec::with_capacity(node.members.len());
@@ -1855,7 +1855,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             for parameter in constructor.parameters {
                 if modifiers::modifier_flags(parameter.modifiers)
                     .intersects(PARAMETER_PROPERTY_MODIFIER)
-                    && !self.should_strip_internal(parameter.node_id)
+                    && !self.should_strip_internal(parameter.node_id())
                 {
                     members.extend(self.parameter_properties(parameter));
                 }
@@ -1879,7 +1879,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         if node.members.iter().any(|member| {
             matches!(class_member_name(member), Some(tsr_ast::PropertyName::PrivateIdentifier(_)))
         }) {
-            let span = self.span_of(node.node_id);
+            let span = self.span_of(node.node_id());
             let name = self.factory.alloc(
                 tsr_ast::PrivateIdentifier::new("#private"),
                 SyntaxKind::PrivateIdentifier,
@@ -1950,7 +1950,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 members,
             ),
             SyntaxKind::ClassDeclaration,
-            self.span_of(node.node_id),
+            self.span_of(node.node_id()),
             NodeFlags::empty(),
         ));
         match base_variable {
@@ -1981,7 +1981,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             return (None, node.heritage_clauses);
         };
 
-        let span = self.span_of(base.node_id);
+        let span = self.span_of(base.node_id());
         let base_name = self.fresh_class_base_name(class_name.text, span);
         let any_type = self.factory.keyword_type(SyntaxKind::AnyKeyword, span);
         let declaration = self.factory.alloc(
@@ -2026,7 +2026,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         clauses[clause_index] = self.factory.alloc(
             tsr_ast::HeritageClause::new(original.token, types),
             SyntaxKind::HeritageClause,
-            self.span_of(original.node_id),
+            self.span_of(original.node_id()),
             NodeFlags::empty(),
         );
         (Some(variable), self.factory.slice(&clauses))
@@ -2054,8 +2054,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         parameter: &'a ParameterDeclaration<'a>,
     ) -> Vec<ClassElement<'a>> {
         let Some(name) = parameter.name else { return Vec::new() };
-        let span = self.span_of(parameter.node_id);
-        let modifiers = self.ensure_modifiers(parameter.modifiers, parameter.node_id, false, false);
+        let span = self.span_of(parameter.node_id());
+        let modifiers = self.ensure_modifiers(parameter.modifiers, parameter.node_id(), false, false);
         // `ensureType(param, /*ignorePrivate*/ false)` (`transform.go:1933`). The
         // *property* a private parameter property declares emits no type, while
         // the constructor parameter it came from keeps one — `ensureParameter`
@@ -2065,7 +2065,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let r#type = if private {
             None
         } else {
-            self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id).map(
+            self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id()).map(
                 |r#type| {
                     if parameter.question_token.is_some() {
                         self.include_undefined_type(r#type, span)
@@ -2101,7 +2101,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             if r#type.is_none() && !private {
                 return;
             }
-            let span = self.span_of(name.node_id);
+            let span = self.span_of(name.node_id());
             properties.push(ClassElement::PropertyDeclaration(self.factory.alloc(
                 tsr_ast::PropertyDeclaration::new(
                     modifiers,
@@ -2118,7 +2118,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         };
 
         let pattern_kind =
-            pattern.node_id.map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
+            pattern.node_id().map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
         for (index, element) in pattern.elements.iter().enumerate() {
             let Some(element_name) = element.name else { continue };
             let element_type = if private {
@@ -2326,7 +2326,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let Some(tsr_ast::MemberName::Identifier(right)) = &access.name else {
                     return None;
                 };
-                let span = self.span_of(access.node_id);
+                let span = self.span_of(access.node_id());
                 Some(tsr_ast::EntityName::QualifiedName(self.factory.alloc(
                     tsr_ast::QualifiedName::new(Some(left), Some(right)),
                     SyntaxKind::QualifiedName,
@@ -2786,9 +2786,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         node: &tsr_ast::ClassDeclaration<'a>,
         heritage_clauses: &'a [&'a tsr_ast::HeritageClause<'a>],
     ) -> &'a [&'a tsr_ast::HeritageClause<'a>] {
-        let Some(comment) = self.leading_jsdoc(node.node_id) else { return heritage_clauses };
+        let Some(comment) = self.leading_jsdoc(node.node_id()) else { return heritage_clauses };
         let Some(name) = jsdoc_tag_text(comment, "implements") else { return heritage_clauses };
-        let span = self.span_of(node.node_id);
+        let span = self.span_of(node.node_id());
         let name = name.trim_start_matches('{').trim_end_matches('}').trim();
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
             return heritage_clauses;
@@ -2839,7 +2839,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             if assignment.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken) {
                 continue;
             }
-            let span = self.span_of(statement.node_id);
+            let span = self.span_of(statement.node_id());
             let name = match &assignment.left {
                 Some(Expression::PropertyAccessExpression(access)) => {
                     let Some(Expression::KeywordExpression(keyword)) = &access.expression else {
@@ -2884,14 +2884,14 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // A `@type` JSDoc is the written type; otherwise the assigned
             // expression widens like a property initializer would.
             let r#type = self
-                .leading_jsdoc(statement.node_id)
+                .leading_jsdoc(statement.node_id())
                 .and_then(|comment| self.jsdoc_type(comment, "type", span))
                 .or_else(|| {
                     self.ensure_type(
                         None,
                         assignment.right.as_ref(),
                         Freshness::Widening,
-                        statement.node_id,
+                        statement.node_id(),
                     )
                 });
             properties.push(ClassElement::PropertyDeclaration(self.factory.alloc(
@@ -2941,10 +2941,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         match member {
             // `transformPropertyDeclaration` (`:979`).
             ClassElement::PropertyDeclaration(node) => {
-                let span = self.span_of(node.node_id);
-                let accessibility = self.jsdoc_accessibility(node.node_id, node.modifiers);
+                let span = self.span_of(node.node_id());
+                let accessibility = self.jsdoc_accessibility(node.node_id(), node.modifiers);
                 let private = private || accessibility == Some(SyntaxKind::PrivateKeyword);
-                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
+                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), false, false);
                 let modifiers = self.with_jsdoc_accessibility(modifiers, accessibility, span);
                 // A definite-assignment `!` is not legal in a `.d.ts`; a `?` is.
                 let postfix =
@@ -2954,7 +2954,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 // In JavaScript, a member's leading `@type` JSDoc is its
                 // written annotation (`typedefOnSemicolonClassElement`).
                 let annotation = node.r#type.or_else(|| {
-                    let comment = self.leading_jsdoc(node.node_id)?;
+                    let comment = self.leading_jsdoc(node.node_id())?;
                     self.jsdoc_type(comment, "type", span)
                 });
                 let r#type = if initializer.is_some() || private {
@@ -2964,7 +2964,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         annotation,
                         node.initializer.as_ref(),
                         Freshness::Widening,
-                        node.node_id,
+                        node.node_id(),
                     )
                 };
                 Some(ClassElement::PropertyDeclaration(self.factory.alloc(
@@ -2985,10 +2985,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // property with no type, because its signature is not part of the
             // class's public shape.
             ClassElement::MethodDeclaration(node) => {
-                let span = self.span_of(node.node_id);
-                let accessibility = self.jsdoc_accessibility(node.node_id, node.modifiers);
+                let span = self.span_of(node.node_id());
+                let accessibility = self.jsdoc_accessibility(node.node_id(), node.modifiers);
                 let private = private || accessibility == Some(SyntaxKind::PrivateKeyword);
-                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
+                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), false, false);
                 let modifiers = self.with_jsdoc_accessibility(modifiers, accessibility, span);
                 if private {
                     return Some(ClassElement::PropertyDeclaration(self.factory.alloc(
@@ -2998,9 +2998,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         NodeFlags::empty(),
                     )));
                 }
-                let parameters = self.update_param_list(node.parameters, false, node.node_id);
+                let parameters = self.update_param_list(node.parameters, false, node.node_id());
                 let return_type =
-                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id);
+                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id());
                 Some(ClassElement::MethodDeclaration(self.factory.alloc(
                     tsr_ast::MethodDeclaration::new(
                         modifiers,
@@ -3021,9 +3021,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // `transformConstructorDeclaration` (`:1068`). No type parameters and
             // no return type: a constructor may not be annotated.
             ClassElement::ConstructorDeclaration(node) => {
-                let span = self.span_of(node.node_id);
-                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
-                let parameters = self.update_param_list(node.parameters, private, node.node_id);
+                let span = self.span_of(node.node_id());
+                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), false, false);
+                let parameters = self.update_param_list(node.parameters, private, node.node_id());
                 Some(ClassElement::ConstructorDeclaration(self.factory.alloc(
                     tsr_ast::ConstructorDeclaration::new(
                         modifiers,
@@ -3041,13 +3041,13 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
             // `transformGetAccesorDeclaration` (`:1015`).
             ClassElement::GetAccessorDeclaration(node) => {
-                let span = self.span_of(node.node_id);
-                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
-                let parameters = self.update_param_list(node.parameters, private, node.node_id);
+                let span = self.span_of(node.node_id());
+                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), false, false);
+                let parameters = self.update_param_list(node.parameters, private, node.node_id());
                 let return_type = if private {
                     None
                 } else {
-                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id)
+                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id())
                 };
                 Some(ClassElement::GetAccessorDeclaration(self.factory.alloc(
                     tsr_ast::GetAccessorDeclaration::new(
@@ -3070,11 +3070,11 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // `updateAccessorParamList` (`:1031`), which synthesizes `value: any`
             // when the setter has no parameter to reuse.
             ClassElement::SetAccessorDeclaration(node) => {
-                let span = self.span_of(node.node_id);
-                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
+                let span = self.span_of(node.node_id());
+                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), false, false);
                 // In JavaScript, `@param {T} name` types the setter's value
                 // parameter, same as any other signature.
-                let saved = self.begin_jsdoc_params(node.node_id);
+                let saved = self.begin_jsdoc_params(node.node_id());
                 let parameters = self.update_accessor_param_list(node.parameters, private, span);
                 self.jsdoc_param_types = saved;
                 Some(ClassElement::SetAccessorDeclaration(self.factory.alloc(
@@ -3097,9 +3097,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // `transformIndexSignatureDeclaration` (`:941`), including its fallback
             // to `any` for a missing type.
             ClassElement::IndexSignatureDeclaration(node) => {
-                let span = self.span_of(node.node_id);
-                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
-                let parameters = self.update_param_list(node.parameters, false, node.node_id);
+                let span = self.span_of(node.node_id());
+                let modifiers = self.ensure_modifiers(node.modifiers, node.node_id(), false, false);
+                let parameters = self.update_param_list(node.parameters, false, node.node_id());
                 let r#type = node
                     .r#type
                     .unwrap_or_else(|| self.factory.keyword_type(SyntaxKind::AnyKeyword, span));
@@ -3138,8 +3138,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
             match member {
                 TypeElement::CallSignatureDeclaration(node) => {
-                    let span = self.span_of(node.node_id);
-                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
+                    let span = self.span_of(node.node_id());
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id());
                     result.push(TypeElement::CallSignatureDeclaration(self.factory.alloc(
                         tsr_ast::CallSignatureDeclaration::new(
                             node.type_parameters,
@@ -3153,8 +3153,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     )));
                 }
                 TypeElement::ConstructSignatureDeclaration(node) => {
-                    let span = self.span_of(node.node_id);
-                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
+                    let span = self.span_of(node.node_id());
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id());
                     result.push(TypeElement::ConstructSignatureDeclaration(self.factory.alloc(
                         tsr_ast::ConstructSignatureDeclaration::new(
                             node.type_parameters,
@@ -3169,12 +3169,12 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 }
                 // `transformPropertySignatureDeclaration` (`:963`).
                 TypeElement::PropertySignatureDeclaration(node) => {
-                    let span = self.span_of(node.node_id);
+                    let span = self.span_of(node.node_id());
                     let r#type = self.ensure_type(
                         node.r#type,
                         node.initializer.as_ref(),
                         Freshness::Widening,
-                        node.node_id,
+                        node.node_id(),
                     );
                     result.push(TypeElement::PropertySignatureDeclaration(self.factory.alloc(
                         tsr_ast::PropertySignatureDeclaration::new(
@@ -3190,10 +3190,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     )));
                 }
                 TypeElement::MethodSignatureDeclaration(node) => {
-                    let span = self.span_of(node.node_id);
+                    let span = self.span_of(node.node_id());
                     let modifiers =
-                        self.ensure_modifiers(node.modifiers, node.node_id, false, true);
-                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
+                        self.ensure_modifiers(node.modifiers, node.node_id(), false, true);
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id());
                     result.push(TypeElement::MethodSignatureDeclaration(self.factory.alloc(
                         tsr_ast::MethodSignatureDeclaration::new(
                             modifiers,
@@ -3210,8 +3210,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     )));
                 }
                 TypeElement::IndexSignatureDeclaration(node) => {
-                    let span = self.span_of(node.node_id);
-                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
+                    let span = self.span_of(node.node_id());
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id());
                     result.push(TypeElement::IndexSignatureDeclaration(self.factory.alloc(
                         tsr_ast::IndexSignatureDeclaration::new(
                             node.modifiers,
@@ -3282,7 +3282,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         &mut self,
         parameter: &'a ParameterDeclaration<'a>,
     ) -> &'a ParameterDeclaration<'a> {
-        let span = self.span_of(parameter.node_id);
+        let span = self.span_of(parameter.node_id());
         let existing = parameter
             .r#type
             .unwrap_or_else(|| self.factory.keyword_type(SyntaxKind::AnyKeyword, span));
@@ -3375,7 +3375,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         &mut self,
         parameter: &'a ParameterDeclaration<'a>,
     ) -> &'a ParameterDeclaration<'a> {
-        let span = self.span_of(parameter.node_id);
+        let span = self.span_of(parameter.node_id());
         let name = parameter.name.map(|name| self.strip_binding_initializers(name));
         let question = if self.resolver.is_optional_parameter(parameter) {
             Some(
@@ -3413,7 +3413,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 written,
                 parameter.initializer.as_ref(),
                 Freshness::Widening,
-                parameter.node_id,
+                parameter.node_id(),
             )
             .map(|r#type| {
                 if parameter.question_token.is_some()
@@ -3458,8 +3458,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         &mut self,
         pattern: &'a tsr_ast::BindingPattern<'a>,
     ) -> Option<TypeNode<'a>> {
-        let span = self.span_of(pattern.node_id);
-        let kind = pattern.node_id.map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
+        let span = self.span_of(pattern.node_id());
+        let kind = pattern.node_id().map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
         if kind == SyntaxKind::ArrayBindingPattern {
             let rest =
                 pattern.elements.last().filter(|element| element.dot_dot_dot_token.is_some());
@@ -3488,7 +3488,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 .map_or(0, |index| index + 1);
             let mut elements = Vec::with_capacity(pattern.elements.len());
             for (index, element) in pattern.elements.iter().enumerate() {
-                let element_span = self.span_of(element.node_id);
+                let element_span = self.span_of(element.node_id());
                 let r#type = if element.name.is_none() {
                     self.factory.keyword_type(SyntaxKind::AnyKeyword, element_span)
                 } else {
@@ -3531,7 +3531,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let mut members = Vec::with_capacity(pattern.elements.len());
         let mut string_index = None;
         for element in pattern.elements {
-            let element_span = self.span_of(element.node_id);
+            let element_span = self.span_of(element.node_id());
             if element.dot_dot_dot_token.is_some() {
                 string_index = Some(element_span);
                 continue;
@@ -3544,7 +3544,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         Some(Expression::StringLiteral(literal))
                             if is_identifier_text(literal.text) =>
                         {
-                            let span = self.span_of(literal.node_id);
+                            let span = self.span_of(literal.node_id());
                             tsr_ast::PropertyName::Identifier(
                                 self.factory.identifier(literal.text, span),
                             )
@@ -3627,7 +3627,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         if let Some(tsr_ast::BindingName::BindingPattern(pattern)) = element.name {
             return self.binding_pattern_type(pattern);
         }
-        Some(self.factory.keyword_type(SyntaxKind::AnyKeyword, self.span_of(element.node_id)))
+        Some(self.factory.keyword_type(SyntaxKind::AnyKeyword, self.span_of(element.node_id())))
     }
 
     fn strip_binding_initializers(
@@ -3649,17 +3649,17 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     None,
                 ),
                 SyntaxKind::BindingElement,
-                self.span_of(element.node_id),
+                self.span_of(element.node_id()),
                 NodeFlags::empty(),
             ));
         }
         let elements = self.factory.slice(&elements);
-        let kind = pattern.node_id.map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
-        let flags = self.factory.flags_of(pattern.node_id) & NodeFlags::HAS_TRAILING_COMMA;
+        let kind = pattern.node_id().map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
+        let flags = self.factory.flags_of(pattern.node_id()) & NodeFlags::HAS_TRAILING_COMMA;
         tsr_ast::BindingName::BindingPattern(self.factory.alloc(
             tsr_ast::BindingPattern::new(pattern.kind, elements),
             kind,
-            self.span_of(pattern.node_id),
+            self.span_of(pattern.node_id()),
             flags,
         ))
     }
@@ -3841,7 +3841,7 @@ fn collect_expando_members<'a>(
     for statement in statements {
         let Statement::VariableStatement(statement) = statement else { continue };
         let Some(list) = statement.declaration_list else { continue };
-        if !list.node_id.is_some_and(|id| nodes.flags(id).intersects(NodeFlags::CONSTANT)) {
+        if !list.node_id().is_some_and(|id| nodes.flags(id).intersects(NodeFlags::CONSTANT)) {
             continue;
         }
         for declaration in list.declarations {
@@ -3865,7 +3865,7 @@ fn collect_expando_members<'a>(
         members.entry(host.to_string()).or_default().push(ExpandoMember {
             name,
             initializer: binary.right,
-            node_id: binary.node_id,
+            node_id: binary.node_id(),
         });
     }
     members
@@ -4008,9 +4008,9 @@ fn commonjs_exports<'a>(file: &SourceFile<'a>) -> Vec<CommonJsExport<'a>> {
                         name,
                         export_name,
                         right,
-                        node_id: node.node_id,
+                        node_id: node.node_id(),
                         is_alias: matches!(right, Expression::Identifier(_))
-                            && node.node_id.is_some_and(|id| self.top_level.contains(&id)),
+                            && node.node_id().is_some_and(|id| self.top_level.contains(&id)),
                     });
                 }
             }

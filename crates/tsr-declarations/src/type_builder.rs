@@ -126,7 +126,7 @@ impl<'a> FileScope<'a> {
         span: Span,
     ) -> Option<TypeNode<'a>> {
         self.typeof_values.get(identifier.text)?;
-        if !resolves_at_file_scope(factory, identifier.node_id) {
+        if !resolves_at_file_scope(factory, identifier.node_id()) {
             return None;
         }
         // A fresh name node: the source identifier may also be the emitted
@@ -155,7 +155,7 @@ impl<'a> FileScope<'a> {
         let Some(Expression::Identifier(callee)) = new_expression.expression else { return None };
         if !new_expression.type_arguments.is_empty()
             || self.typeof_values.get(callee.text) != Some(&ValueKind::Class(false))
-            || !resolves_at_file_scope(factory, callee.node_id)
+            || !resolves_at_file_scope(factory, callee.node_id())
         {
             return None;
         }
@@ -583,7 +583,7 @@ fn object_literal_type<'a>(
                 let value = assignment.initializer.as_ref()?;
                 let r#type =
                     type_of_expression(factory, value, freshness, strict_null_checks, scope)?;
-                let member_span = factory.span_of(assignment.node_id);
+                let member_span = factory.span_of(assignment.node_id());
                 property_signature(factory, assignment.name, Some(r#type), freshness, member_span)
             }
             // A method's type needs its return annotation. Without one this is
@@ -591,7 +591,7 @@ fn object_literal_type<'a>(
             // wants `readonly m: () => T` and a widening one wants `m(): T`.
             Member::MethodDeclaration(method) => {
                 let return_type = method.r#type?;
-                let member_span = factory.span_of(method.node_id);
+                let member_span = factory.span_of(method.node_id());
                 match freshness {
                     Freshness::Const => {
                         let function = function_type(
@@ -639,7 +639,7 @@ fn object_literal_type<'a>(
                 }
                 let return_type = get.r#type?;
                 let key = property_name_key(&get.name)?;
-                let member_span = factory.span_of(get.node_id);
+                let member_span = factory.span_of(get.node_id());
                 if accessor_partner_exists(object, &key, AccessorHalf::Set)? {
                     TypeElement::GetAccessorDeclaration(factory.alloc(
                         tsr_ast::GetAccessorDeclaration::new(
@@ -680,7 +680,7 @@ fn object_literal_type<'a>(
                 }
                 let value_type = set.parameters.first().and_then(|parameter| parameter.r#type)?;
                 let key = property_name_key(&set.name)?;
-                let member_span = factory.span_of(set.node_id);
+                let member_span = factory.span_of(set.node_id());
                 if accessor_partner_exists(object, &key, AccessorHalf::Get)? {
                     let parameters = declaration_parameters(factory, set.parameters);
                     TypeElement::SetAccessorDeclaration(factory.alloc(
@@ -722,7 +722,7 @@ fn object_literal_type<'a>(
             // refusing keeps the builder and the analysis in agreement.
             Member::ShorthandPropertyAssignment(shorthand) => {
                 let tsr_ast::PropertyName::Identifier(name) = shorthand.name else { return None };
-                let member_span = factory.span_of(shorthand.node_id);
+                let member_span = factory.span_of(shorthand.node_id());
                 let r#type = scope.type_query(factory, name, member_span)?;
                 property_signature(factory, shorthand.name, Some(r#type), freshness, member_span)
             }
@@ -842,7 +842,7 @@ fn declaration_parameters<'a>(
 ) -> &'a [&'a tsr_ast::ParameterDeclaration<'a>] {
     let mut result = Vec::with_capacity(parameters.len());
     for parameter in parameters {
-        let span = factory.span_of(parameter.node_id);
+        let span = factory.span_of(parameter.node_id());
         let name = parameter.name.map(|name| strip_binding_initializers(factory, name));
         let question_token =
             if parameter.question_token.is_some() || parameter.initializer.is_some() {
@@ -879,7 +879,7 @@ fn strip_binding_initializers<'a>(
     let mut elements = Vec::with_capacity(pattern.elements.len());
     for element in pattern.elements {
         let nested = element.name.map(|name| strip_binding_initializers(factory, name));
-        let span = factory.span_of(element.node_id);
+        let span = factory.span_of(element.node_id());
         elements.push(factory.alloc(
             tsr_ast::BindingElement::new(
                 element.dot_dot_dot_token,
@@ -893,9 +893,9 @@ fn strip_binding_initializers<'a>(
         ));
     }
     let elements = factory.slice(&elements);
-    let kind = pattern.node_id.map_or(pattern.kind.kind, |id| factory.nodes().kind(id));
-    let span = factory.span_of(pattern.node_id);
-    let flags = pattern.node_id.map_or(NodeFlags::empty(), |id| factory.nodes().flags(id))
+    let kind = pattern.node_id().map_or(pattern.kind.kind, |id| factory.nodes().kind(id));
+    let span = factory.span_of(pattern.node_id());
+    let flags = pattern.node_id().map_or(NodeFlags::empty(), |id| factory.nodes().flags(id))
         & NodeFlags::HAS_TRAILING_COMMA;
     tsr_ast::BindingName::BindingPattern(factory.alloc(
         tsr_ast::BindingPattern::new(pattern.kind, elements),
@@ -934,7 +934,7 @@ fn arrow_return_type<'a>(
                 }
             }
         }
-        if no_scope_between_arrow_and_file(factory, arrow.node_id) {
+        if no_scope_between_arrow_and_file(factory, arrow.node_id()) {
             return scope.annotation(identifier.text);
         }
         return None;

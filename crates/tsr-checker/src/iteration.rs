@@ -1255,7 +1255,7 @@ impl Checker<'_, '_> {
         let Some(holder) = self.nodes.parent(pattern_id) else { return };
         let named = pattern.elements.iter().find(|element| element.name.is_some());
         if let Some(element) = named {
-            let Some(element_id) = element.node_id else { return };
+            let Some(element_id) = element.node_id() else { return };
             let parent_type = self.get_type_for_binding_element_parent(holder);
             if self.is_type_any(parent_type) {
                 return;

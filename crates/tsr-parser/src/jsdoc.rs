@@ -172,7 +172,7 @@ impl<'a> Parser<'a> {
     /// declare. docs/parity/notes/r7-parser.md §6.
     fn report_missing_typedef_names(&mut self, docs: &[&'a JSDoc<'a>]) {
         for doc in docs {
-            let span = self.span_of(doc.node_id);
+            let span = self.span_of(doc.node_id());
             let mut i = 0;
             while i < self.missing_typedef_names.len() {
                 let at = self.missing_typedef_names[i];
@@ -535,7 +535,7 @@ impl<'a> Parser<'a> {
                     comment = self.parse_trailing_tag_comments(start, margin, indent_text);
                 }
                 let end = if comment.is_empty() {
-                    self.span_of(signature.node_id).end
+                    self.span_of(signature.node_id()).end
                 } else {
                     self.pos()
                 };
@@ -873,7 +873,7 @@ impl<'a> Parser<'a> {
                 match child {
                     tsr_ast::JSDocTag::JSDocTemplateTag(template) => self.error_at(
                         &messages::A_JSDOC_TEMPLATE_TAG_MAY_NOT_FOLLOW_A_TYPEDEF_CALLBACK_OR_OVERLOAD_TAG,
-                        self.span_of(template.tag_name.node_id),
+                        self.span_of(template.tag_name.node_id()),
                     ),
                     tsr_ast::JSDocTag::JSDocTypeTag(type_tag) => {
                         if child_type_tag.is_none() {
@@ -915,7 +915,7 @@ impl<'a> Parser<'a> {
                     // `!!! This differs from Strada but prevents a crash`:
                     // the literal starts at its first property, or at the tag.
                     let position =
-                        property_tags.first().map_or(start, |tag| self.span_of(tag.node_id).start);
+                        property_tags.first().map_or(start, |tag| self.span_of(tag.node_id()).start);
                     let end = self.pos();
                     Node::from(self.reparse_jsdoc_type_literal(
                         &property_tags,
@@ -939,7 +939,7 @@ impl<'a> Parser<'a> {
             } else if let Some(expression) = type_expression {
                 self.span_of(expression.node_id()).end
             } else {
-                self.span_of(tag_name.node_id).end
+                self.span_of(tag_name.node_id()).end
             }
         });
         if comment.is_empty() {
@@ -986,7 +986,7 @@ impl<'a> Parser<'a> {
         if comment.is_empty() {
             comment = self.parse_trailing_tag_comments(start, margin, indent_text);
         }
-        let end = if comment.is_empty() { self.span_of(signature.node_id).end } else { self.pos() };
+        let end = if comment.is_empty() { self.span_of(signature.node_id()).end } else { self.pos() };
         tsr_ast::JSDocTag::JSDocCallbackTag(self.finish_node_with_end(
             tsr_ast::JSDocCallbackTag::new(
                 tag_name,
@@ -1029,7 +1029,7 @@ impl<'a> Parser<'a> {
             if let tsr_ast::JSDocTag::JSDocTemplateTag(template) = child {
                 self.error_at(
                     &messages::A_JSDOC_TEMPLATE_TAG_MAY_NOT_FOLLOW_A_TYPEDEF_CALLBACK_OR_OVERLOAD_TAG,
-                    self.span_of(template.tag_name.node_id),
+                    self.span_of(template.tag_name.node_id()),
                 );
             } else {
                 parameters.push(child);
@@ -1050,7 +1050,7 @@ impl<'a> Parser<'a> {
         for (index, parameter) in parameters.iter().enumerate() {
             match parameter {
                 tsr_ast::JSDocTag::JSDocThisTag(this_tag) => {
-                    let span = self.span_of(this_tag.node_id);
+                    let span = self.span_of(this_tag.node_id());
                     let this = self.finish_node_with_end(
                         Identifier::new("this"),
                         SyntaxKind::Identifier,
@@ -1078,7 +1078,7 @@ impl<'a> Parser<'a> {
                     // Sub-property parameters (`@param x.y`) describe a parent
                     // parameter, not a standalone one.
                     let Some(EntityName::Identifier(name)) = tag.name else { continue };
-                    let span = self.span_of(tag.node_id);
+                    let span = self.span_of(tag.node_id());
                     let mut dot_dot_dot = None;
                     let mut ty = tag
                         .type_expression
@@ -1245,7 +1245,7 @@ impl<'a> Parser<'a> {
                 tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(child) => children.push(child),
                 tsr_ast::JSDocTag::JSDocTemplateTag(template) => self.error_at(
                     &messages::A_JSDOC_TEMPLATE_TAG_MAY_NOT_FOLLOW_A_TYPEDEF_CALLBACK_OR_OVERLOAD_TAG,
-                    self.span_of(template.tag_name.node_id),
+                    self.span_of(template.tag_name.node_id()),
                 ),
                 _ => {}
             }
@@ -1287,7 +1287,7 @@ impl<'a> Parser<'a> {
             let name = if is_valid_identifier(name.text) {
                 tsr_ast::PropertyName::Identifier(name)
             } else {
-                let span = self.span_of(name.node_id);
+                let span = self.span_of(name.node_id());
                 tsr_ast::PropertyName::StringLiteral(self.finish_node_with_end(
                     tsr_ast::StringLiteral::new(name.text, tsr_ast::TokenFlags::empty()),
                     SyntaxKind::StringLiteral,
@@ -1299,7 +1299,7 @@ impl<'a> Parser<'a> {
             let ty = tag
                 .type_expression
                 .and_then(|expression| jsdoc_type_expression_type(Node::from(expression)));
-            let span = self.span_of(tag.node_id);
+            let span = self.span_of(tag.node_id());
             let property = self.finish_node_with_end(
                 tsr_ast::PropertySignatureDeclaration::new(&[], name, question, ty, None),
                 SyntaxKind::PropertySignature,
@@ -1339,7 +1339,7 @@ impl<'a> Parser<'a> {
             )
         });
         (tag.is_bracketed || postfix_optional)
-            .then(|| self.alloc_token(SyntaxKind::QuestionToken, self.span_of(tag.node_id)))
+            .then(|| self.alloc_token(SyntaxKind::QuestionToken, self.span_of(tag.node_id())))
     }
 
     /// The parameter name `reparseJSDocSignature` writes: invalid identifier
@@ -1366,7 +1366,7 @@ impl<'a> Parser<'a> {
             text.push_str(&index.to_string());
         }
         let text: &'a str = self.arena.alloc_str(&text);
-        let span = self.span_of(name.node_id);
+        let span = self.span_of(name.node_id());
         self.finish_node_with_end(
             Identifier::new(text),
             SyntaxKind::Identifier,

@@ -57,7 +57,7 @@ fn spell(b: &str) -> (String, bool, String) {
             &mut map,
         );
         assert!(parsed.diagnostics.is_empty());
-        roots.push(parsed.source_file.node_id.unwrap());
+        roots.push(parsed.source_file.node_id().unwrap());
         bound = tsr_binder::bind_into(
             bound,
             &arena,

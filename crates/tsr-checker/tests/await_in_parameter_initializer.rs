@@ -36,7 +36,7 @@ fn ts2524_count(source: &str) -> usize {
         "fixture must parse: {:?}",
         file.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
-    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
+    let root: NodeId = file.source_file.node_id().expect("a parsed file has an id");
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
         &arena,

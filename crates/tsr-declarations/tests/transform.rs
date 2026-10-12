@@ -156,7 +156,7 @@ fn jsdoc_accessibility_tags_become_modifiers_in_javascript_files() {
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty());
         let mut nodes = parsed.nodes;
-        if javascript && let Some(root) = parsed.source_file.node_id {
+        if javascript && let Some(root) = parsed.source_file.node_id() {
             nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
         }
         tsr_declarations::emit_with_options(
@@ -189,7 +189,7 @@ fn emit_javascript(source: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "test source must parse cleanly: {source:?}");
     let mut nodes = parsed.nodes;
-    if let Some(root) = parsed.source_file.node_id {
+    if let Some(root) = parsed.source_file.node_id() {
         nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
     }
     tsr_declarations::emit_with_options(

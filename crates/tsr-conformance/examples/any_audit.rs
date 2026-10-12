@@ -347,7 +347,7 @@ impl Ctx<'_, '_, '_> {
         let kind = self.nodes.kind(id);
         match expression {
             tsr_ast::Expression::Identifier(identifier) => {
-                match identifier.node_id.and_then(|node| {
+                match identifier.node_id().and_then(|node| {
                     self.binder.resolve_name(
                         self.nodes,
                         self.map,
@@ -389,7 +389,7 @@ impl Ctx<'_, '_, '_> {
                 }
             }
             tsr_ast::Expression::BinaryExpression(binary) => {
-                let operator = binary.operator_token.and_then(|token| token.node_id).map_or_else(
+                let operator = binary.operator_token.and_then(|token| token.node_id()).map_or_else(
                     || "?".to_string(),
                     |token| format!("{:?}", self.nodes.kind(token)),
                 );
@@ -575,7 +575,7 @@ impl Ctx<'_, '_, '_> {
             && let Some(parent) = self.nodes.parent(id)
             && self.nodes.kind(parent) == SyntaxKind::QualifiedName
             && let Some(Node::QualifiedName(qualified)) = self.map.get(parent)
-            && qualified.right.and_then(|right| right.node_id) != Some(id)
+            && qualified.right.and_then(|right| right.node_id()) != Some(id)
         {
             let mut outermost = parent;
             while let Some(above) = self.nodes.parent(outermost) {

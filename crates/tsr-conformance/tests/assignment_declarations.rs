@@ -199,7 +199,7 @@ fn exact_optional_write_messages_preserve_concrete_targets_and_source_display() 
     let program = types_producer::program_for_case(&arena, &case);
     let mut checker = types_producer::configured_checker(&program);
     let file = program.source_file("assignment.ts").expect("fixture file");
-    let id = file.source_file().node_id.expect("registered file");
+    let id = file.source_file().node_id().expect("registered file");
     checker.set_checked_files([id]);
     checker.check_source_file(
         id,
@@ -504,7 +504,7 @@ fn exact_optional_object_messages_preserve_intersections_and_instantiated_names(
     let program = types_producer::program_for_case(&arena, &case);
     let mut checker = types_producer::configured_checker(&program);
     let file = program.source_file("assignment.ts").expect("fixture file");
-    let id = file.source_file().node_id.expect("registered file");
+    let id = file.source_file().node_id().expect("registered file");
     checker.set_checked_files([id]);
     checker.check_source_file(
         id,

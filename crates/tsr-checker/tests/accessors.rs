@@ -31,8 +31,8 @@ fn type_of_member(source: &str, member: &str) -> String {
         .statements
         .iter()
         .find_map(|statement| match statement {
-            tsr_ast::Statement::ClassDeclaration(node) => node.node_id,
-            tsr_ast::Statement::InterfaceDeclaration(node) => node.node_id,
+            tsr_ast::Statement::ClassDeclaration(node) => node.node_id(),
+            tsr_ast::Statement::InterfaceDeclaration(node) => node.node_id(),
             _ => None,
         })
         .expect("the fixture must start with a class or interface");

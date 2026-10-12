@@ -447,7 +447,7 @@ impl<'a> Checker<'a, '_> {
             name = qualified.left;
         }
         let Some(tsr_ast::EntityName::Identifier(identifier)) = name else { return false };
-        let Some(location) = identifier.node_id else { return false };
+        let Some(location) = identifier.node_id() else { return false };
         let Some(symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
@@ -886,7 +886,7 @@ mod tests {
         else {
             panic!("F alias")
         };
-        let symbol = bound.symbol_of(alias.node_id.unwrap()).unwrap();
+        let symbol = bound.symbol_of(alias.node_id().unwrap()).unwrap();
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
         let (number, string) = (checker.intrinsics.number, checker.intrinsics.string);
         let with_number = checker.evaluate_alias_body(symbol, &[number]).expect("F<number>");
