@@ -643,3 +643,47 @@ export = m;
     );
     assert_has(&lines, &["y : import(\"./a\").c", "m.c : typeof import(\"./a\").c"]);
 }
+
+/// r7-printer §57: an import declaration's own specifier picks the ending
+/// mode; the JSX site in the same file keeps the file's default
+/// (native-read lines, `reactImportDropped`).
+#[test]
+fn an_import_declaration_specifier_picks_the_ending_mode() {
+    let lines = assertions(
+        "probe/original_module_specifier",
+        r"//@module: es6
+// @moduleResolution: bundler
+//@target: es6
+//@allowSyntheticDefaultImports: true
+//@allowJs: true
+//@jsx: react
+//@outDir: build
+//@filename: react.d.ts
+export = React;
+export as namespace React;
+declare namespace React {
+    function createClass(spec: any): ClassicComponentClass;
+    interface ClassicComponentClass {
+        new (props?: any): ClassicComponentClass;
+    }
+}
+declare global {
+    namespace JSX {
+        interface ElementAttributesProperty { }
+    }
+}
+//@filename: src/components/TabBar.js
+export default React.createClass({});
+//@filename: src/modules/navigation/NavigationView.js
+import TabBar from '../../components/TabBar';
+const x = <TabBar />;
+",
+    );
+    assert_has(
+        &lines,
+        &[
+            "TabBar : import(\"../../../react.js\").ClassicComponentClass",
+            "TabBar : import(\"../../../react\").ClassicComponentClass",
+        ],
+    );
+}
