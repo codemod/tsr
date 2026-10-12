@@ -459,6 +459,25 @@ impl Checker<'_, '_> {
             return;
         }
         self.report_indexed_access_type_misses(object_type, index_type, index_id);
+        // `getPropertyTypeForIndexType`'s type-node arm (`checker.go:27193`)
+        // for a non-literal key no index signature takes: TS2537 for
+        // `string`/`number`, TS2538 for `any` or a symbol, per constituent of
+        // a non-boolean union key (§76). A generic object or key defers.
+        if !self.indexed_access_index_is_generic(index_type) {
+            let constituents = match &self.store.get(index_type).data {
+                TypeData::Union { types, .. }
+                    if !self.store.get(index_type).flags.intersects(TypeFlags::BOOLEAN) =>
+                {
+                    types.clone()
+                }
+                _ => vec![index_type],
+            };
+            for part in constituents {
+                if literal_key_name(&self.store.get(part).data).is_none() {
+                    self.report_missing_index_signature(object_type, part, false, index_id);
+                }
+            }
+        }
         if let Some(access_type) = self.node_map.get(node).and_then(|node| match node {
             Node::IndexedAccessTypeNode(access) => {
                 Some(tsr_ast::TypeNode::IndexedAccessTypeNode(access))
@@ -593,6 +612,51 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// Whether `getConditionalFlowTypeOfType`'s mapped-type arm substitutes
+    /// the mapped type's parameter in its template: the mapped type is
+    /// homomorphic (`[P in keyof X]`, `getHomomorphicTypeVariable`) and
+    /// `X`'s constraint is every array or tuple type. A shape this cannot
+    /// read answers `true` (§75).
+    fn mapped_template_substitutes(&mut self, mapped: NodeId) -> bool {
+        let Some(Node::MappedTypeNode(mapped)) = self.node_map.get(mapped) else { return true };
+        let Some(constraint) = mapped.type_parameter.and_then(|parameter| parameter.constraint)
+        else {
+            return true;
+        };
+        let tsr_ast::TypeNode::TypeOperatorNode(operator) = constraint else { return false };
+        if operator.operator.kind != SyntaxKind::KeyOfKeyword {
+            return false;
+        }
+        let Some(variable) = operator.r#type else { return true };
+        let variable = self.get_type_from_type_node(variable);
+        if !self
+            .store
+            .get(variable)
+            .flags
+            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
+        {
+            return false;
+        }
+        if !self.store.get(variable).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return true;
+        }
+        let Some(bound) = self.type_parameter_constraint(variable) else { return false };
+        let parts = match &self.store.get(bound).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![bound],
+        };
+        let array = self.global_type_symbol("Array");
+        let readonly_array = self.global_type_symbol("ReadonlyArray");
+        parts.into_iter().all(|part| {
+            self.tuple_element_lists.contains_key(&part)
+                || self.variadic_tuple_elements.contains_key(&part)
+                || self.type_reference_targets.get(&part).is_some_and(|(symbol, _)| {
+                    let symbol = Some(self.binder.merged_symbol(*symbol));
+                    symbol == array || symbol == readonly_array
+                })
+        })
+    }
+
     /// Whether native's check walk reaches the indexed access type `node`
     /// as written: not inside the true branch of an enclosing conditional
     /// type, not inside the template of a mapped type without an `as`
@@ -602,13 +666,13 @@ impl Checker<'_, '_> {
     /// written in a conditional's true branch (getImpliedConstraint), and a
     /// mapped type's own parameter in its template when the homomorphic
     /// type variable's constraint is every array or tuple (`number` or a
-    /// numeric string); this port's type node road has no substitution
+    /// numeric string, [`Checker::mapped_template_substitutes`]); this port's type node road has no substitution
     /// types, so such an access is not certified (the conditional half is
     /// the walk of `constraints.rs`' private `is_in_conditional_true_branch`). `checkImportType`
     /// (`checker.go:3324`) checks its argument and the reference but never
     /// `checkSourceElements` its type arguments, which `checkTypeReferenceNode`
     /// (`:2994`) does; this port's walk visits them.
-    fn indexed_access_type_node_is_checked(&self, node: NodeId) -> bool {
+    fn indexed_access_type_node_is_checked(&mut self, node: NodeId) -> bool {
         let mut child = node;
         while let Some(parent) = self.nodes.parent(child) {
             match self.node_map.get(parent) {
@@ -620,7 +684,8 @@ impl Checker<'_, '_> {
                 }
                 Some(Node::MappedTypeNode(mapped))
                     if mapped.name_type.is_none()
-                        && mapped.r#type.and_then(|template| template.node_id()) == Some(child) =>
+                        && mapped.r#type.and_then(|template| template.node_id()) == Some(child)
+                        && self.mapped_template_substitutes(parent) =>
                 {
                     return false;
                 }

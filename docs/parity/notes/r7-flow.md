@@ -1838,3 +1838,34 @@ Measured on `06968dce`: diagnostics **+1** case, 0 lost; exact oracle +1, 0
 lost; jsTyping gap 18 → 18, new_false 0, lost_true 0; Ir gi 0.9998, dm
 1.0029 (the expando arm's property lookup on every strict-mode property read,
 native's own order; within the gate).
+
+## §75 The mapped-template decline asks whether native substitutes
+
+§48 declined every TS2536 inside a mapped type's template (no `as`), because
+`getConditionalFlowTypeOfType` may substitute the mapped parameter there. It
+substitutes only when the mapped type is homomorphic (`[P in keyof X]` with
+`X` a type variable, `getHomomorphicTypeVariable`) and `X`'s constraint is
+every array or tuple type. `mapped_template_substitutes` reads exactly that
+(an indexed-access `X` or an unreadable shape still declines), so
+`{ [P in T]?: T[P] }` (`mappedTypeErrors`) and `{ [K in keyof B]:
+B[Exclude<keyof B, K>]["val"] }` (`infiniteConstraints`) report as native
+does, and `U extends string[]`'s `{ [K in keyof U]: Obj[K] }` stays silent.
+
+## §76 An indexed access type with a non-literal key no index signature takes
+
+`getPropertyTypeForIndexType`'s final arm (`checker.go:27193`) for an indexed
+access type node reports a `string`/`number` key with no applicable index
+signature as TS2537 ("Type 'Shape' has no matching index signature for type
+'string'.") and an `any` or symbol key as TS2538, per constituent of a
+non-boolean union key, at the index node. The type-node check reported only
+literal misses (`report_indexed_access_type_misses`); it now also runs
+`report_missing_index_signature` (the computed-name arm's reporter, which
+already reads the apparent type, the string-index fallback and the
+symbol-keyed table) for each non-literal constituent of a non-generic key
+(`keyofAndIndexedAccessErrors`' `Shape[any]`, `Shape[string]`,
+`Shape[string | number]`, `string[][string]`).
+
+Measured (§75 with §76) on `7f6848b8`: legacy verdicts unchanged
+(`keyofAndIndexedAccessErrors` keeps other lanes' TS2345/TS2322 differences;
+its seven TS2537/TS2538 now match), exact oracle unchanged, 0 lost; jsTyping
+gap 18 → 18, new_false 0, lost_true 0; Ir gi 1.0002, dm 1.0004.
