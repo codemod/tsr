@@ -837,3 +837,38 @@ Otherwise the mention is on another road and the answer stays undecided.
 `member_names_are_literal` now also admits an enum object (`typeof E`,
 `TypeData::Anonymous` over a symbol declared only by enum declarations). A
 merged namespace would add exports that its declaration walk does not see.
+
+## 27. A binding pattern's implied object is tuple-like through its `"0"` member
+
+`checkArrayLiteral`'s `inTupleContext` (`checker.go:8029`) asks
+`isTupleLikeType` of the contextual type, whose second disjunct is
+`getPropertyOfType(t, "0") != nil`. The type an object binding pattern implies
+(`getTypeFromObjectBindingPattern`, `:17917`) has synthetic properties with no
+declarations. This port keeps them in `anonymous_properties` with no symbol
+(`binding_pattern_object`), so `get_property_of_type` answered none and
+`var { 0: a, 1: b } = [10, "hello"]` widened the literal to
+`(string | number)[]`. Native gives `[number, string]`, and `a : number`,
+`b : string` follow (declarationsAndAssignments 0:210).
+`binding_pattern_object_has_index_zero` reads that table for a symbol-less
+`"0"` property of a member-less named object, which is exactly
+`binding_pattern_object`'s shape. It is consulted beside `is_tuple_like_type`
+in `array_literal_has_a_tuple_contextual_type` only. Generalizing the lookup
+in `get_property_of_type` (members.rs) would serve every reader, but that file
+is not this lane's.
+
+## 28. An array-literal default supplies context to a nested-pattern element
+
+`binding_default_pattern_context_available`'s array arm (the twin of §22's
+object arm) refused a default whose matching pattern element is itself a
+pattern, because no per-element pattern context was available for the
+literal's element. Since §10 that context arrives through
+`initializer_binding_pattern_context` on the BindingElement arm. In
+`var [a, [b, { x, y: c }] = ["abc", { x: 10, y: false }]] = [1, ["hello", { x: 5, y: true }]]`
+the default types as `[string, { x: number; y: boolean; }]` under its
+`[any, { x: any; y: any; }]` pattern context. The outer literal's
+`{ x: 5, y: true }` then keeps `true` under `y: boolean`
+(isLiteralOfContextualType), as native does (declarationsAndAssignments
+0:228–0:235). The arm still refuses a pattern element with its own
+initializer, and any rest element. tsgo's d.ts emit agrees with the port on
+five probes (`[a, {x, y}] = [1, {x: 1, y: true}]`, a nested array pattern, an
+object root holding an array pattern, an excess member, and a short tuple).

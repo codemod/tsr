@@ -584,6 +584,21 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `isTupleLikeType`'s `getPropertyOfType(t, "0")` disjunct for the type a
+    /// binding pattern implies (`getTypeFromObjectBindingPattern`,
+    /// `checker.go:17917`). Its synthetic properties have no declarations, and
+    /// this port keeps them in `anonymous_properties` without a symbol, so
+    /// `get_property_of_type` cannot see them. `var { 0: a, 1: b } = [10,
+    /// "hello"]` gets the context `{ 0: any; 1: any; }`, which is tuple-like
+    /// natively, so the literal is `[number, string]`
+    /// (declarationsAndAssignments).
+    fn binding_pattern_object_has_index_zero(&self, t: TypeId) -> bool {
+        matches!(self.store.get(t).data, crate::types::TypeData::Named { members: None, .. })
+            && self.anonymous_properties.get(&t).is_some_and(|(properties, _)| {
+                properties.iter().any(|property| property.origin.is_none() && property.name == "0")
+            })
+    }
+
     /// §888: upstream's SECOND `inTupleContext` disjunct (`checker.go:8029`) —
     /// *is the contextual type tuple-like?* — asked once, generically.
     ///
@@ -628,6 +643,7 @@ impl Checker<'_, '_> {
         };
         if contexts.iter().any(|&t| {
             self.is_tuple_like_type(t)
+                || self.binding_pattern_object_has_index_zero(t)
                 || (self.is_generic_homomorphic_mapped_type(t)
                     && self.mapped_types.get(&t).is_some_and(|info| info.name_type.is_none()))
         }) {
