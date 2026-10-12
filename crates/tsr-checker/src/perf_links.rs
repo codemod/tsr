@@ -63,6 +63,21 @@ pub(crate) struct PerfLinks {
     /// answers for receivers with no `signature_types` entry
     /// (`r5-perf4.md` §2).
     pub(crate) receiver_signature_kinds: FxHashMap<TypeId, (bool, bool)>,
+    /// `discriminateContextualTypeByObjectMembers`' decided answers, per
+    /// object literal and contextual union
+    /// ([`Checker::discriminated_contextual_type`]).
+    pub(crate) discriminated_contextual_types: FxHashMap<(NodeId, TypeId), TypeId>,
+    /// [`Checker::type_only_alias_declaration`]'s answer per alias symbol:
+    /// native `links.typeOnlyDeclaration`. The walk reads only the binder,
+    /// the module host and completed alias targets; published outside alias
+    /// resolution.
+    pub(crate) type_only_alias_declarations: FxHashMap<SymbolId, Option<bool>>,
+    /// [`Checker::resolve_name_with_export_alias`]'s answer for an identifier
+    /// resolved under its own text, per `(node, meaning)`: native
+    /// `getResolvedSymbol`'s `links.resolvedSymbol`. The walk reads the
+    /// binder and completed alias targets; published only when no alias
+    /// resolution is open at either end (`r7-perf.md` §27).
+    pub(crate) resolved_export_alias_names: FxHashMap<(NodeId, u32), Option<SymbolId>>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
     /// Reused `visiting` path for a property walk started from an empty path
@@ -420,6 +435,57 @@ impl<T: Copy> SharedFlows<T> {
             link = self.links[position].1;
         }
         first.map(|position| self.types[position])
+    }
+}
+
+// ---- r7-perf (`tsr-2zk.1277`): contextual discrimination. ----
+
+impl Checker<'_, '_> {
+    /// [`Checker::discriminate_contextual_type_by_object_members`], memoised.
+    ///
+    /// **Native operation.** `discriminateContextualTypeByObjectMembers`
+    /// (`checker.go:30755`, pinned `5b1047d`) keeps every answer in
+    /// `c.discriminatedContextualTypes`. The port recomputed it on each
+    /// member's contextual read, so an n-member literal paid n² member
+    /// tests per pass (`r7-perf.md` §24).
+    ///
+    /// **Identity and owner.** Key: the literal's `NodeId` and the
+    /// contextual union's `TypeId`, native's `(nodeId, typeId)`. An
+    /// instantiated contextual type is a different `TypeId`, so every
+    /// inference pass keys its own entry. Private `Checker`, Program
+    /// lifetime.
+    ///
+    /// **Publication.** Only a decided (`Some`) answer, under
+    /// [`Self::publishable_since`]. A decline is recomputed.
+    ///
+    /// **Context.** Neither read nor publish happens while a frame that
+    /// changes what a `TypeId` denotes is open: an alias-evaluation binding,
+    /// a mapped template, or identity-unmapped type parameters. An inference
+    /// context is not such a frame, because the union's identity already
+    /// carries its instantiation.
+    ///
+    /// **Work boundary.** One discrimination per `(literal, union)`.
+    pub(crate) fn discriminated_contextual_type(
+        &mut self,
+        literal: NodeId,
+        contextual: TypeId,
+    ) -> Option<TypeId> {
+        let clean = self.mapped_template_depth == 0
+            && !self.identity_unmapped_type_parameters
+            && self.alias_evaluation_bindings.iter().all(FxHashMap::is_empty);
+        let key = (literal, contextual);
+        if clean && let Some(&answer) = self.perf_links.discriminated_contextual_types.get(&key) {
+            return Some(answer);
+        }
+        let mark = self.publication_mark();
+        let answer = self.discriminate_contextual_type_by_object_members(literal, contextual);
+        if let Some(answer) = answer
+            && clean
+            && self.publishable_since(mark)
+        {
+            self.perf_links.discriminated_contextual_types.insert(key, answer);
+        }
+        answer
     }
 }
 

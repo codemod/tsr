@@ -1831,11 +1831,24 @@ impl Checker<'_, '_> {
     /// answers `false`, which makes the whole function `false` there; the
     /// one `c.error` arm (TS8038) has the same guard.
     pub(crate) fn check_grammar_modifiers(&mut self, node: NodeId) -> bool {
+        let Some(typed) = self.node_map.get(node) else { return false };
+        let Some(written) = grammar_modifier_nodes(typed) else { return false };
+        // A node without modifiers answers `false` on every call; only a
+        // modifier chain is memoized (`r7-perf.md` §22).
+        let reparsed_host_kind = matches!(
+            typed,
+            Node::MethodDeclaration(_)
+                | Node::GetAccessorDeclaration(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::PropertyDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+        );
+        if written.is_empty() && !(self.file_is_js && reparsed_host_kind) {
+            return false;
+        }
         if !self.modifier_chain_checked.insert(node) {
             return self.modifier_chain_reported.contains(&node);
         }
-        let Some(typed) = self.node_map.get(node) else { return false };
-        let Some(written) = grammar_modifier_nodes(typed) else { return false };
         let entries: Vec<ModifierEntry> = written
             .iter()
             .filter_map(|modifier| match modifier {

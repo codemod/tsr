@@ -1211,6 +1211,454 @@ negatives for unannotated signatures whose lazy return is no longer
 pending moved Ir by 0.00%. That is not where the walk's cost is, so it is
 not proposed.
 
+## §22 Three faithful hot-path fixes in other lanes' files (branch `box/r7-perf-proposed`)
+
+Each is one commit on `box/r7-perf-proposed`, gated on main `127660ee`.
+Gates for every commit: both unfiltered dumps byte-identical, exact
+oracle 9,639 → 9,639 with 0 lost (`--deadline 20 --workers 3` for base and
+candidate, §19), CLI output identical on dm, dml and gi, and jsTyping leg
+new_false 0 / lost_true 0. They are proposed to the integrator for routing
+or a grant; they are not landable from this lane's branch.
+
+1. **`withJSDoc`'s scanner flag** (`tsr-parser/src/jsdoc.rs`
+   `leading_jsdoc_marker`, r7-parser). In a non-JavaScript file the marker
+   is `None` unless the token carries `PRECEDING_JSDOC_WITH_SEE_OR_LINK`.
+   That is `jsdocScannerInfoHasSeeOrLink`, which native reads
+   (`jsdoc.go:64`; ADR-0053). The scanner sets it with `mentions_tag`, the
+   same predicate and terminator set as `jsdoc_has_see_or_link`. A debug
+   build compared the flag with the old re-scan's verdict on every marker
+   across jsTyping and found no disagreement. `parse_jsdoc_at` previously
+   re-scanned the trivia (`jsdoc_ranges_in`) to recompute the flag. Ir:
+   **gi −13.3%**, dm −3.3%, dml −0.8%.
+2. **`check_grammar_modifiers`' memo** (`grammar.rs`, r7-grammar). A node
+   without modifiers no longer enters `modifier_chain_checked`, which
+   native does not have at all. The JS reparsed-host kinds keep the memo.
+   That was 234 K inserts plus rehashing on dml. Ir: dm −0.6%, dml −0.9%.
+3. **`getEffectsSignature`'s nil-dotted-name negative** (`flow.rs`,
+   r7-flow; §21). Ir: dm −0.3%, dml −1.7%.
+
+Together, by Ir: gi about −13%, dm about −4%, dml about −3.4%.
+
+## §23 domain-model-large by file and by operation count: two more fixes
+
+**Where checker 0's time goes.** A scratch build timed each
+`check_source_file` (release, 4 checkers, main `127660ee`). Checker 0 owns
+`main.ts` (index 264, so `264 % 4 == 0`). It finished at 310 ms; the
+other three finished at about 220 ms. `main.ts` alone took 126 ms of it,
+because checker 0 resolves lazily the 150 models its own files never
+touched. The file association is native's `i % checkerCount`
+(`checkerpool.go:98`), so the imbalance is native's too and is not a
+lever.
+
+**TSR against tsgo, single-threaded, by subtraction.** Dropping `main.ts`
+from the project (`include: [core.ts, model*.ts]`) and taking the minimum
+check time of 5 runs:
+
+| | all files | without `main.ts` | `main.ts` alone |
+|---|---:|---:|---:|
+| TSR (dist) | 867 ms | 809 ms | 58 ms |
+| tsgo | 624 ms | 513 ms | 111 ms |
+
+TSR is already about 2× faster than tsgo on `main.ts`'s long flow walks,
+and 1.58× slower on the 201 model files. Parallel checking hides this:
+TSR scales 3× on 4 checkers and tsgo 1.2×. The per-file checker cost of
+the model files is therefore the larger lever.
+
+**Native operation counts.** A copy of the pinned tree
+(`/tmp/box/tsgo-count`, not committed) counts calls with a
+`checker.PrintDebugCounts()` at exit. The comparison was against TSR's
+callgrind call counts on the model files:
+
+| native | count | TSR | count |
+|---|---:|---:|---:|
+| `NameResolver.Resolve` | 36,769 | `BindResult::resolve_name` | 142,801 |
+| `instantiateSignature` | 7,660 | `instantiate_signature` | 26,342 |
+| `createTypeReference` | 18,171 | `create_type_reference` | 41,136 |
+| `getPropertyOfType` | 159,560 | `get_property_of_type_ex` | 314,032 |
+| `recursiveTypeRelatedTo` | 47,000 | `recursive_type_related_to` | 21,388 |
+| `getTypeOfSymbol` | 231,997 | `get_type_of_symbol` | 144,653 |
+
+The four rows where TSR does more work are the candidates. The other
+two show that a TSR excess is not across the board.
+
+**Fix 4: `check_used_before_its_declaration` resolves only what can
+report** (`check.rs`, the dispatch lane's file). The rule runs for every
+identifier node, and 51,415 of the 70,876 memo misses on the model files
+came from it. They were property-signature, parameter, variable,
+type-alias and import-specifier names, and type-reference names. Native
+runs `checkResolvedBlockScopedVariable` inside `resolveName`, for
+value-meaning lookups only. Both of the port's arms report only an
+identifier that `is_value_reference` admits or that
+`is_in_extends_clause` finds, so any other identifier now returns before
+the resolution. A property access's name keeps the old path, because its
+`qualified_member_of_namespace` fallback calls `resolve_alias`, which has
+memo side effects. The memo misses fell from 70,876 to 33,470, with no
+other rule picking up the skipped ones. Ir: dml −1.3%, dm −1.2%,
+gi −0.1%.
+
+**Fix 5: `binding_type_alias_body` stops at a non-alias reference**
+(`destructure.rs`, r7-declared). `narrow_type` calls it for every
+condition step of every flow walk: 201,600 calls on `main.ts` alone,
+which is 8.1% of that file's check Ir. Each step with an
+`Array<string>` declared type cloned the argument vector and built a
+`(symbol, Vec)` key, only for `evaluate_alias_body` to answer `None`.
+Both of that function's arms test `TYPE_ALIAS` first. The walk now
+breaks before the clone. The one effect skipped is the
+`(symbol, args) → error` insert into `alias_body_evaluations`, and that
+table's only non-test reader (`index_signatures.rs`, the
+`type_reference_targets` arm) requires `TYPE_ALIAS` too. Ir: dml −0.7%,
+dm −0.1%.
+
+Fixes 4 and 5 were measured on main `127660ee` plus §22's three
+commits. The branch was then rebased onto main `59ceea97` (batch 34).
+§22's item 1 had landed independently there as r7-parser's `a83e1dfc5`
+(the same `PRECEDING_JSDOC_WITH_SEE_OR_LINK` test), so it was dropped
+from the branch.
+
+**Wall** (interleaved, 30 runs, dml, 4 checkers): main 400.7 ms,
+`box/r7-perf-proposed` before these two fixes 395.7 ms, after them
+387.1 ms, tsgo 712.7 ms. The ratio went from 0.562 to **0.543**.
+
+**Not yet attacked.** `instantiate_signature` runs 3.4× native's count,
+`create_type_reference` 2.3× and `get_property_of_type_ex` 2×.
+`FrozenModelNNN = DeepReadonly<ModelNNN>` costs 160 µs per alias in
+`check_type_alias_circularity` (32 ms single-threaded over 200 aliases).
+Native defers the mapped type's members until something reads them; the
+port's `evaluate_conditional_node` resolves them on construction.
+
+**How we would know these were wrong.** For fix 4: an EXACT loss, or a
+corpus case that reports TS2448/TS2449/TS2450 on a declaration name, a
+type reference, or something else that is not a value reference. For
+fix 5: any dump row that differs, since the walk's answer is unchanged
+by construction.
+
+## §24 jsTyping: two re-check loops that native does not have
+
+**Where the time goes.** jsTyping's single-threaded check took 16.4 s
+on TSR against tsgo's 1.6 s (main `59ceea97`). Per-file times from a
+scratch build:
+
+| file | check |
+|---|---:|
+| `compiler/utilities.ts` | 13.4 s |
+| `compiler/transformers/jsx.ts` | 8.1 s |
+| `compiler/checker.ts` | 3.6 s |
+| every other file | under 0.5 s each |
+
+With 4 checkers, `utilities.ts` alone is the critical path. Native call
+counts (§23's counting copy) against TSR's scratch counters on the whole
+project:
+
+| native | count | TSR | count |
+|---|---:|---:|---:|
+| `getPropertyOfType` | 497 K | `get_property_of_type_ex` | 40.0 M |
+| `getContextualType` | 122 K | `get_contextual_type` | 3.86 M |
+| `isRelatedToEx` | 689 K | `is_related_to_with_flags` | 15.7 M |
+| `instantiateType` | 238 K | `instantiate_type` | 3.55 M |
+| `getTypeOfSymbol` | 1.34 M | `get_type_of_symbol` | 12.0 M |
+
+**Fix A: `annotation_member_context` does not re-resolve a call that is
+resolving** (`symbols.rs`). getScriptTargetFeatures nests generic calls
+three deep: `new Map(Object.entries({ Array: new Map(Object.entries({…}))
+… }))`. tsgo's `checkObjectLiteral` runs at most 4 times on any literal in
+`utilities.ts`. TSR checked each inner literal 1,776 to 3,441 times, and
+the count grew by 333 per member of the literal.
+
+The loop: the §56 road reads each member's contextual type through the
+literal's holder. At a `CallExpression` holder with no
+`resolved_call_signatures` entry, it called `resolve_call_signature`.
+That re-checked every argument, so every nested literal's members ran
+the road again. The `narrow_value_stack` guard stops only the
+re-entrant cycle, not the repetition.
+
+Native does not resolve a call whose `resolvedSignature` is the
+`resolvingSignature` sentinel (`getContextualTypeForArgumentAtIndex`,
+`checker.go:29783`). The argument already has the contextual type that
+the running resolution pushed. The port's equivalent of the sentinel is
+`perf_links.main_resolving_calls`. While it holds the holder, the road
+now answers `None`. The caller then takes
+`check_expression_for_mutable_location`, the general contextual road,
+which is native's only one.
+
+`utilities.ts`: 12.7 s → **0.92 s**. jsTyping's error lines were
+identical (124 against 124).
+
+**Fix B: `discriminateContextualTypeByObjectMembers` is memoised as
+native's is** (`contextual.rs` call sites; the memo is in
+`perf_links.rs`). The port's own rustdoc said it recomputed per member
+read. jsx.ts's `entities` literal (about 250 members, inside
+`new Map(Object.entries({…}))`) paid the discrimination once per member
+per pass. The memo key is native's `(nodeId, typeId)`. The rules are
+those in the convention: decided answers only, `publishable_since`, and
+no alias, mapped-template or identity frame open. `jsx.ts`: 7.75 s →
+**3.26 s**.
+
+**Fix C: `type_only_alias_declaration` is memoised per alias**
+(`check.rs`, with the memo in `perf_links.rs`). Native reads
+`links.typeOnlyDeclaration`, which is set once per alias
+(`getTypeOnlyAliasDeclarationEx`, `checker.go:2144`). The port walked the
+alias chain for every value identifier, `export *` barrels included,
+through `specifier_type_only_export_star`. In checker.ts every imported
+name crosses `_namespaces/ts.ts`'s barrel, and the walk was 7.2% of that
+file's check Ir. The walk reads only the binder, the module host and
+completed alias targets. An alias still resolving answers `None` early,
+so the result is published only when no alias resolution is open.
+jsTyping wall, interleaved with A and B already applied: 5.42 → 5.09 s.
+
+**Combined wall** (interleaved, 3 runs, loaded box): main 16.79 s, A and
+B 5.42 s, A, B and C 5.09 s, tsgo 2.39 s. jsTyping goes from 7.0× tsgo
+to 2.1×.
+
+**How we would know these were wrong.** For A: a corpus or EXACT row
+where the §56 retained-literal road answered during the holder's own
+resolution and the general road answers differently. That would show
+up as a widened literal member (`"a"` printed as `string`). For B: any
+row that differs, since the memo returns what the computation returned.
+The same holds for C, and also an alias whose type-only status a later
+alias resolution would change.
+
+## §26 `propertiesRelatedTo` returns at the first failing property on every road
+
+**Forcing measurement.** In dml, `DeepReadonly<ModelNNN>` relates
+`ModelNNN` to `(infer U)[]`. Each such relation cost about 95 K Ir in
+`evaluate_conditional_node`: 1,205 relations for 114.7 M Ir. Native's
+`propertiesRelatedTo` (`relater.go:4240`) returns at the first target
+property the source fails, here `length`. The port stopped early only on
+the discriminated road, the one caller that passes exclusions. On every
+other road it related all of `Array`'s remaining members before
+combining.
+
+r5-relater4 §1 kept that full walk. Applying the early return everywhere
+had changed two `arrayDestructuringInSwitch1` type lines, through the
+pairs the full walk published to the results store.
+
+**Measured at main `6faf95a3`, early return on every road:**
+- Both corpus dumps are identical to the base: 557,343 type rows, and
+  the diagnostics rows.
+- jsTyping CLI output is identical.
+- Ir: dm −2.9%, dml −3.1%, gi 0.
+- jsTyping wall −4% and CPU −7.5%, measured on main without §24's fixes.
+
+The publication-order dependence r5-relater4 recorded no longer
+reproduces.
+
+**How we would know it was wrong.** An exact-oracle or corpus row that
+moves, or a relation answer that depends on a pair the early return
+leaves unpublished.
+
+## §27 `resolve_name_with_export_alias` is memoised per identifier
+
+Native resolves an identifier once and keeps the answer in
+`links.resolvedSymbol` (`getResolvedSymbol`). Several of this port's
+per-identifier rules resolve the same identifier again with the
+export-alias walk: `check_value_identifier`, `check_type_reference_name`
+and others. On dml's model files that walk was 124 M Ir inclusive (5.0%)
+at main `6faf95a3` plus §22–§26.
+
+The answer is memoised per `(node, meaning)` when the node is an
+identifier resolved under its own text, as `resolve_identifier_memo`
+already does for the plain walk. The walk's only checker callback is
+`resolve_alias`. An alias still resolving answers `None`, so the result
+is published only when `alias_resolving` is zero at both entry and exit.
+
+Ir on top of §22–§26 and the §25 loader: dm −1.1%, dml −1.2%, gi
+−0.1%. CLI output is identical on dm, dml, gi and jsTyping.
+
+## §28 Ratios at main `27c17a4f` (batch 44), with and without this branch
+
+TSR/tsgo-pinned wall · CPU, medians of interleaved runs on a quiet box:
+25 runs each for dm, dml and gi, 3 for jsTyping. "Branch" is this chain
+rebased on `27c17a4f`. The §25 loader is already on main.
+
+| project | tsgo wall / CPU | main release | main dist | branch release | branch dist |
+|---|---|---|---|---|---|
+| domain-model | 209.4 / 663.5 ms | 0.530 · 0.396 | **0.492** · 0.378 | 0.499 · 0.371 | **0.488** · 0.362 |
+| domain-model-large | 701.2 / 2,523 ms | 0.552 · 0.427 | **0.511** · 0.391 | 0.499 · 0.395 | **0.496** · 0.384 |
+| generic-imports | 68.3 / 151.2 ms | 0.558 · 0.275 | **0.545** · 0.263 | 0.567 · 0.277 | **0.539** · 0.265 |
+| jsTyping | 1.99 / 5.21 s | 8.22 · 6.28 | **7.43** · 5.71 | 1.95 · 1.53 | **1.92** · 1.50 |
+
+The 0.50 target is met in dist on domain-model at main. It is also met on
+domain-model-large with this branch. generic-imports is front-end bound:
+parse 22 ms plus bind 12.5 ms of about 37 ms wall, nearly all of it
+`lib.dom.d.ts`. jsTyping is checker-bound on `compiler/checker.ts`
+(§24's remaining table).
+
+## §29 The flow walk's identifier resolutions go through `resolve_identifier_memo`
+
+Native's `isMatchingReference` and the other flow readers compare
+`getResolvedSymbol(node)`, which is resolved once per identifier
+(`links.resolvedSymbol`). This port's flow readers called
+`binder.resolve_name` directly on every flow step:
+`is_matching_reference`, `references_match`, `is_constant_reference`,
+`contains_matching_reference`, `get_effects_signature`,
+`get_discriminant_property_access` and narrowing.
+
+On jsTyping's `compiler/checker.ts`, with §22–§27 applied, that was
+1.45 G of the file's 14.8 G check Ir. For example, `is_matching_reference`
+made 420,586 calls at about 1,360 Ir each.
+
+Every such call now goes through `resolve_identifier_memo`. That calls
+the same binder function with the same arguments, memoised per
+`(node, meaning)` when the node is an identifier resolved under its own
+text, and calls it directly otherwise. The answer is therefore identical
+by construction. One `&self` reader (`nullable_literal_type`) keeps the
+direct call.
+
+Measured on top of §22–§28:
+- jsTyping wall −6.2% and CPU −7.8% (interleaved, 3 runs); output
+  identical.
+- Ir: dm −0.4%, dml −0.5%, gi 0.
+
+The same substitution in the other checker files is mechanical but
+meets about 20 `&self` readers. It is not proposed here.
+## §31 The chain rebased onto main `bacf0918` (batch 51): gates and ratios
+
+This section is placed before §25 so that the chain's text and §30's
+append do not touch the same lines. §22's item 1 is not in the chain,
+because it landed as r7-parser's `a83e1dfc5` (§23). The other ten code
+commits, §22 items 2–3 through §29, cherry-pick onto `bacf0918` with no
+code conflict.
+
+**Gates** against a freeze of `bacf0918`:
+
+- Both unfiltered dumps are byte-identical once the `ms=`/`mib=`
+  columns are cut. `compare` reports 0 gained, 0 lost and 0 missing.
+- jsTyping leg: 122 against 122 lines, identical, so new_false 0 and
+  lost_true 0. CLI output is `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,458 → 10,458
+  exact, 0 lost, 0 missing.
+- Callgrind Ir, `--singleThreaded`, release:
+
+  | project | main | chain | change |
+  |---|---:|---:|---:|
+  | generic-imports | 191,627,273 | 191,226,759 | −0.2% |
+  | domain-model | 857,621,235 | 797,721,649 | **−7.0%** |
+  | domain-model-large | 3,736,321,970 | 3,371,628,608 | **−9.8%** |
+
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,841 passed, 0 failed.
+
+**Ratios** (TSR/tsgo-pinned, `whole_project_perf.py`, one quiet
+session, 21 samples, jsTyping 5; median wall · median child CPU):
+
+| project | main dist | **chain dist** | chain release |
+|---|---|---|---|
+| domain-model | 0.524 · 0.399 | **0.496** · 0.363 | 0.528 · 0.387 |
+| domain-model-large | 0.510 · 0.408 | **0.471** · 0.380 | 0.515 · 0.411 |
+| generic-imports | 0.604 · 0.303 | **0.556** · 0.280 | 0.571 · 0.286 |
+| jsTyping | 7.42 · 5.85 (earlier session) | **1.81** · 1.42 | 1.90 · 1.53 |
+
+An earlier session on main alone read dm 0.489, dml 0.527, gi 0.565 in
+dist. So dm's main-only reading straddles 0.50 between sessions. With
+the chain, dm and dml are under 0.50 in dist, and `diagnostics_match`
+is true on both. generic-imports is front-end bound (§12, ADR-0056).
+jsTyping is still not equivalent work: 122 lines against 86.
+
+## §33 Two more success-path fixes on the chain: inference's property order and the relation-first report
+
+This section is placed before §25, after §31, for the same reason as §31.
+Both fixes are in other lanes' files (`inference.rs`, `assignreport.rs`)
+and are proposed on `box/r7-perf-proposed` on top of §31.
+
+**Forcing measurement.** Callgrind on dml with the chain (main
+`bacf0918` plus §31, `--singleThreaded`, profiling build, 3.50 G Ir)
+shows a flat profile: no checker function above 1.7% self. Two
+inclusive costs are on paths native takes only after a failure, or not
+at all:
+
+1. **`infer_from_members`** cost 116 M Ir inclusive over 4,376 calls.
+   200 of those calls come from `DeepReadonly<ModelNNN>`'s
+   `T extends (infer U)[]`, which infers from an interface to `Array<U>`
+   at about 270 K Ir each. For every one of `Array`'s members the port
+   asked `get_type_of_property_of_type(target, name)` before
+   `get_type_of_property_of_type(source, name)`. That instantiates the
+   target member's type even when the source has no such property.
+   Native's `inferFromProperties` (`inference.go:828`) looks up the
+   source property first and reads the target's type only when the
+   source has one.
+2. **`report_relation_failure`** (reached from `check_return_expression`
+   and `check_variable_like_declaration`, 5,032 calls on dml) ran
+   `elaborate_error`, the union-literal and excess-property arms and
+   `report_weak_type_failure` before it related the pair. That is about
+   76 M Ir inclusive, almost all of it on assignable pairs. Native's
+   `checkTypeRelatedToAndOptionallyElaborate` (`relater.go:430`) returns
+   at a successful `isTypeRelatedTo` before any elaboration.
+
+**Changes.**
+
+1. `infer_from_members` reads the source member's type first and skips
+   the name when the source has none. This is native's order.
+2. `report_relation_failure` computes the reporting relation
+   (`relate_with_signature_diagnostic(…, true)`) first and returns at
+   `Related`. The answer is kept and used where the road used to compute
+   it, so no relation runs twice. A source whose node is an object literal,
+   or which is a fresh object literal type, keeps the old order, because
+   its excess-property arms run in this function rather than inside the
+   relation.
+
+Neither is a cache, side table or traversal, so the checker-port record
+does not apply.
+
+**Refused first cut of change 2.** A separate silent relation
+(`report_errors = false`) in front of the old road changed
+`compiler/relationComplexityError` from TS2859 to TS2322. The silent
+relation overflowed first and published `ComplexityOverflow`, and the
+reporting relation that followed read that entry and answered
+`NotRelated`. Computing the reporting relation once, as landed, keeps
+that case byte-identical.
+
+**Measured** against the freeze of `bacf0918`, as cumulative Ir on top of
+§31 (`--singleThreaded`, release):
+
+| project | §31 chain | + change 1 | + change 2 |
+|---|---:|---:|---:|
+| generic-imports | 191,226,759 | 191,194,704 | 191,232,721 |
+| domain-model | 797,721,649 | 793,080,069 (−0.6%) | 789,713,136 (−1.0%) |
+| domain-model-large | 3,371,628,608 | 3,357,742,886 (−0.4%) | 3,341,605,125 (−0.9%) |
+
+- `compare`: 0 gained, 0 lost and 0 missing. The diagnostics dump differs
+  from the base in one row, a WRONG case:
+  `compiler/styledComponentsInstantiaionLimitNotReached` loses its two
+  false reports (TS2577 at 171:8 and TS2456 at 182:13). Native expects two
+  TS2344, so the case stays WRONG. Change 1 alone causes this (checked
+  with change 1 built without change 2). The only thing it removes is the
+  instantiation of target members the source lacks, so the case depends
+  on that order. It was not reduced. The types dump is byte-identical.
+- jsTyping leg: 122 against 122 lines, identical. CLI output is
+  `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,458 → 10,458
+  exact, 0 lost, 0 missing.
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,841 passed, 0 failed.
+
+**How we would know these were wrong.** For change 1: an inference
+that depended on instantiating a target member the source lacks, which
+would show as a changed type row. For change 2: a TS2322, TS2353 or
+TS2559 that `elaborate_error` or the weak-type arm reported on a pair the
+relation calls `Related`. Native never reports one, so a row losing such
+a report would be a fidelity gain to verify, not a loss to restore.
+
+### §33.1 The chain re-gated on main `ad4f76096` (batch 60)
+
+The fourteen commits of §31 and §33 rebase onto `ad4f76096` with no
+conflict. Gates against a freeze of `ad4f76096`:
+
+- `compare`: 0 gained, 0 lost and 0 missing. The types dump is
+  byte-identical. The diagnostics dump moves only §33's
+  `styledComponentsInstantiaionLimitNotReached` row (WRONG, two false
+  reports fewer).
+- jsTyping leg against tsgo-pinned (86 lines): default mode 110 against
+  110, `--singleThreaded` 108 against 108, both identical, so new_false 0
+  and lost_true 0. CLI output is `cmp`-identical on dm, dml and gi.
+- Exact oracle (`--workers 1`, `ulimit -v 4500000`): 10,653 → 10,653
+  exact, 0 lost, 0 missing.
+- Callgrind Ir, `--singleThreaded`, release: generic-imports
+  191,383,183 → 190,971,967 (−0.2%); domain-model 859,130,754 →
+  791,042,078 (**−7.9%**); domain-model-large 3,746,920,151 →
+  3,350,716,320 (**−10.6%**).
+- Strict clippy and fmt are clean. `cargo test --workspace --release`:
+  3,854 passed, 0 failed.
+
 ## §25 The loader prepares the libs beside the roots, and the walk publishes from tickets
 
 This section is numbered after §22–§24, which are on the

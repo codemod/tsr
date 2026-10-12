@@ -2578,6 +2578,30 @@ impl<'a> Checker<'a, '_> {
         // missing-property suppression matches chain arguments against the
         // union and never fires. Where this port cannot decide a member's
         // target type or the excess question, it declines.
+        // checkTypeRelatedToAndOptionallyElaborate (relater.go:431): the
+        // relation runs first, and a related pair is neither elaborated nor
+        // reported. This is the same reporting relation the road below would
+        // make, computed once and kept, so an overflow it publishes is read as
+        // before. A fresh object literal keeps the full road, because its
+        // excess-property arms run here, outside the relation
+        // (`r7-perf.md` §33).
+        let mut related_first = None;
+        if source_node
+            .is_none_or(|node| self.nodes.kind(node) != SyntaxKind::ObjectLiteralExpression)
+            && !self.fresh_object_literal_types.contains(&source)
+        {
+            let answer = self.relate_with_signature_diagnostic(
+                source,
+                target,
+                crate::relater::Relation::Assignable,
+                true,
+            );
+            if answer.0 == crate::relater::Ternary::Related {
+                probe!(PROBE_RELATION_DECLINED);
+                return false;
+            }
+            related_first = Some(answer);
+        }
         let union_literal = source_node.filter(|&node| {
             self.nodes.kind(node) == SyntaxKind::ObjectLiteralExpression
                 && self.type_of(target).flags.contains(TypeFlags::UNION)
@@ -2651,6 +2675,8 @@ impl<'a> Checker<'a, '_> {
         // undecidable pair was being reported as an error.
         let (relation, signature_error) = if excess_failed {
             (crate::relater::Ternary::NotRelated, None)
+        } else if let Some(answer) = related_first {
+            answer
         } else {
             self.relate_with_signature_diagnostic(
                 source,

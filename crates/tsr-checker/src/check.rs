@@ -4909,6 +4909,22 @@ impl Checker<'_, '_> {
         &mut self,
         symbol: tsr_binder::SymbolId,
     ) -> Option<bool> {
+        // Native reads `links.typeOnlyDeclaration`, set once per alias
+        // (`getTypeOnlyAliasDeclarationEx`, `checker.go:2144`); the walk below
+        // runs per value identifier. Published only outside alias resolution,
+        // whose in-progress chain answers `None` early (`r7-perf.md` §24).
+        if let Some(&answer) = self.perf_links.type_only_alias_declarations.get(&symbol) {
+            return answer;
+        }
+        let publish = self.alias_resolving == 0;
+        let answer = self.type_only_alias_declaration_walk(symbol);
+        if publish {
+            self.perf_links.type_only_alias_declarations.insert(symbol, answer);
+        }
+        answer
+    }
+
+    fn type_only_alias_declaration_walk(&mut self, symbol: tsr_binder::SymbolId) -> Option<bool> {
         let mut current = self.binder.merged_symbol(symbol);
         for _ in 0..16 {
             let entry = self.binder.symbols().get(current);
@@ -6281,6 +6297,25 @@ impl Checker<'_, '_> {
     }
 
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
+        // Both arms below report only a value reference or an `extends`
+        // operand (the class arm's `is_value_reference`, and
+        // `use_is_not_deferred`'s). Native runs `checkResolvedBlockScopedVariable`
+        // inside `resolveName`, which a declaration name or a type reference
+        // never reaches with a value meaning, so such an identifier is
+        // answered before its resolution. A property access's name keeps the
+        // walk: its namespace fallback resolves aliases (`r7-perf.md` §23).
+        if !self.is_value_reference(node)
+            && !self.is_in_extends_clause(node)
+            && !self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.node_map.get(parent),
+                    Some(Node::PropertyAccessExpression(access))
+                        if access.name.and_then(|name| name.node_id()) == Some(node)
+                )
+            })
+        {
+            return;
+        }
         let Some(symbol) = self
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
             .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
