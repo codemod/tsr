@@ -2044,3 +2044,11 @@ integrator's grant. Files and functions outside this lane:
     without the written-equivalence exemption.
 
 The measurement is in the commit's gate record (see the integration report).
+
+## 60. Landed (integrator-granted): every JSDoc `@param` annotation is reused
+
+§47's diff landed in this lane under the integrator's grant. The file and
+function outside this lane: `signatures.rs`, the `@param` arm of the
+signature build (`param_types` loop), which now carries every JSDoc
+parameter annotation's inner type as `written_text`. The reuse visitor ports
+the JSDoc-only kinds (§31). The measurement is in the commit's gate record.
