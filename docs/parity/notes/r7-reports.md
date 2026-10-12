@@ -2978,3 +2978,20 @@ Routed from r7-calls (`recursiveTypeRelations`).
   declines before `report_argument_failure`. That is r7-calls'.
 - **Measured.** Quick oracles over `keyof`, `eyof`, `ndex`, `apped` and
   `ecursive`: 0 lost.
+
+## 110. Signature members keep a type from its single base; numeric names print as written
+
+- **`getMembersOfSymbol` counts members bound under internal names.** A
+  class constructor (`__constructor`) and an interface's call and construct
+  signatures (`__call`, `__new`) are members natively, so a class with only
+  a constructor is not a non-augmenting subtype. The port's binder table
+  leaves them out. §88's single-base normalization therefore read `class C
+  extends B implements I { constructor() … }` as `B`, and printed *Property
+  'x' is missing in type 'B'*. It now checks the declarations for those
+  members (`declares_signature_members`, `bases`).
+- **A numeric property name prints as written.** `declarationNameToString`
+  gives the source text, `2.0`, not the normalized key `2`: *Types of
+  property '2.0' are incompatible.* `chain_property_symbol_display` reads
+  the numeric name's source text (`subtypingWithObjectMembers2` is EXACT).
+- **Measured.** Quick oracles over `ubtyping`, `nterface`, `lass`, `ases` and
+  `mplement`: 0 lost.
