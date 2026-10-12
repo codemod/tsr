@@ -481,6 +481,119 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// The arguments of a call [`Checker::check_overload_candidates_arguments`]
+    /// can relate under any candidate: each argument's checked type, except
+    /// an object, array or template literal with no nested resolution, which
+    /// is re-checked under each candidate (`rechecked`). A tagged template's
+    /// synthetic `TemplateStringsArray` argument relates first (`strings`,
+    /// with `offset` 1). `None` when an argument's type would follow the
+    /// candidate in a way not modelled here (a class, a context-sensitive
+    /// argument, a literal with a nested resolution, the shapes of
+    /// [`Checker::report_argument_type_is_not_upstreams`]).
+    fn plain_overload_arguments(
+        &mut self,
+        node: tsr_ast::NodeId,
+    ) -> Option<PlainOverloadArguments<'a>> {
+        let written = self.written_call_arguments(node)?;
+        let strings = match written.template {
+            Some(_) => Some(self.global_template_strings_array_type()?),
+            None => None,
+        };
+        let offset = usize::from(strings.is_some());
+        let arguments = written.arguments.into_owned();
+        let mut rechecked = vec![false; arguments.len()];
+        for (index, argument) in arguments.iter().enumerate() {
+            let mut inner = *argument;
+            while let Expression::ParenthesizedExpression(parenthesized) = inner {
+                inner = parenthesized.expression?;
+            }
+            // A template expression keeps a literal or template literal
+            // type only under a contextual type that admits one, so it is
+            // re-checked like an object or array literal.
+            let literal = matches!(
+                inner,
+                Expression::ObjectLiteralExpression(_)
+                    | Expression::ArrayLiteralExpression(_)
+                    | Expression::TemplateExpression(_)
+            );
+            if literal
+                && !self.is_context_sensitive_argument(argument)
+                && inner.node_id().is_some_and(|id| !self.literal_subtree_has_resolution(id))
+            {
+                rechecked[index] = true;
+                continue;
+            }
+            if literal
+                || matches!(inner, Expression::ClassExpression(_))
+                || self.is_context_sensitive_argument(argument)
+                || self.report_argument_type_is_not_upstreams(*argument)
+            {
+                return None;
+            }
+        }
+        Some(PlainOverloadArguments { arguments, rechecked, strings, offset })
+    }
+
+    /// `isSignatureApplicable` (`checker.go:9256`, no report) of one
+    /// non-generic candidate over [`Checker::plain_overload_arguments`]:
+    /// the `this` argument, then each argument against its parameter. A
+    /// re-checked literal is checked under the candidate and its published
+    /// state put back. `None` on an undecided relation or a generic source
+    /// this port's relation does not answer as upstream does.
+    fn plain_candidate_applicable(
+        &mut self,
+        node: tsr_ast::NodeId,
+        candidate: &Signature,
+        plain: &PlainOverloadArguments<'_>,
+    ) -> Option<bool> {
+        match self.report_this_argument(node, candidate, false) {
+            Ternary::Related => {}
+            Ternary::NotRelated => return Some(false),
+            Ternary::Unknown => return None,
+        }
+        if let Some(strings) = plain.strings {
+            let target = self.signature_type_at_position(candidate, 0)?;
+            if self.is_gap(target) {
+                return None;
+            }
+            match self.relate_ternary(strings, target, Relation::Assignable) {
+                Ternary::Related => {}
+                Ternary::NotRelated => return Some(false),
+                Ternary::Unknown => return None,
+            }
+        }
+        for (index, argument) in plain.arguments.iter().enumerate() {
+            let position = index + plain.offset;
+            let target = self.signature_type_at_position(candidate, position)?;
+            if self.is_gap(target) {
+                return None;
+            }
+            let source = if plain.rechecked[index] {
+                self.check_literal_argument_in_candidate(node, candidate, *argument, true)
+            } else {
+                self.check_expression(*argument)
+            };
+            if self.is_gap(source) {
+                return None;
+            }
+            // This port's relation over a generic source (a homomorphic
+            // mapped type over a type parameter, `Boxified<T>` against
+            // `concat`'s overloads) is not upstream's; declined, the same
+            // refusal as the signature-less callee's.
+            if self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())
+                || self.could_contain_type_variables_at_head(source, 3)
+            {
+                return None;
+            }
+            match self.relate_ternary(source, target, Relation::Assignable) {
+                Ternary::Related => {}
+                Ternary::NotRelated => return Some(false),
+                Ternary::Unknown => return None,
+            }
+        }
+        Some(true)
+    }
+
     /// `resolveCallExpression`'s `super` arm (`checker.go:8471`): the callee's
     /// type is `checkSuperExpression`'s (`any` or `errorType` resolve without
     /// a report); otherwise the candidates are
@@ -734,11 +847,13 @@ impl Checker<'_, '_> {
                         ),
                     );
                 } else {
-                    self.invocation_error(
+                    let related = self.missing_semicolon_related(call, callee_id);
+                    self.invocation_error_with_related(
                         callee_id,
                         apparent,
                         call.arguments.is_empty(),
                         SignatureKind::Call,
+                        related,
                     );
                 }
                 return CallHead::Done;
@@ -1008,14 +1123,14 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(decorator_signature) = self.decorator_call_signature(node) else { return };
-        let arguments: Vec<ReportArgument<'_>> = decorator_signature
+        let argument_types: Vec<TypeId> = decorator_signature
             .parameters
             .iter()
-            .map(|parameter| ReportArgument::Synthetic {
-                at: expression_id,
-                r#type: self.parameter_type(parameter),
-                spread: false,
-            })
+            .map(|parameter| self.parameter_type(parameter))
+            .collect();
+        let arguments: Vec<ReportArgument<'_>> = argument_types
+            .iter()
+            .map(|&r#type| ReportArgument::Synthetic { at: expression_id, r#type, spread: false })
             .collect();
         // `resolveCall`: `reorderCandidates`, then `chooseOverload`'s
         // `hasCorrectArity` with the decorator's argument count.
@@ -1040,30 +1155,95 @@ impl Checker<'_, '_> {
             // is reported over the synthetic arguments (the expression).
             self.report_argument_arity_error(node, node, &candidates, &effective);
             self.chain_reports_under(before, head);
+            // `getCandidateForOverloadFailure`'s single candidate:
+            // `pickLongestCandidateSignature`, which instantiates a generic one
+            // by `inferSignatureInstantiationForOverloadFailure`.
             match candidates.as_slice() {
                 [single] if single.type_parameters.is_empty() => single.clone(),
+                [single] => {
+                    let Some(instantiated) =
+                        self.infer_decorator_candidate(node, single, &argument_types)
+                    else {
+                        return;
+                    };
+                    instantiated
+                }
                 _ => return,
             }
         } else {
             let [candidate] = arity_matched.as_slice() else { return };
-            if !candidate.type_parameters.is_empty() || candidate.this_parameter.is_some() {
+            if candidate.this_parameter.is_some() {
                 return;
             }
+            // `chooseOverload`: a generic candidate is checked as its
+            // `inferTypeArguments` instantiation.
+            let (candidate, context) = if candidate.type_parameters.is_empty() {
+                (candidate.clone(), CandidateContext::Declared)
+            } else {
+                let Some(instantiated) =
+                    self.infer_decorator_candidate(node, candidate, &argument_types)
+                else {
+                    return;
+                };
+                (instantiated, CandidateContext::Instantiated)
+            };
             let before = self.diagnostics.len();
-            if self.report_signature_applicability(
-                node,
-                &arguments,
-                candidate,
-                CandidateContext::Declared,
-                &[],
-            ) == ApplicabilityReport::Declined
+            if self.report_signature_applicability(node, &arguments, &candidate, context, &[])
+                == ApplicabilityReport::Declined
             {
                 return;
             }
             self.chain_reports_under(before, head);
-            candidate.clone()
+            candidate
         };
         self.check_decorator_return(node, parent, expression_id, &resolved, &decorator_signature);
+    }
+
+    /// `inferTypeArguments` (`checker.go:9390`) over a decorator's synthetic
+    /// arguments, then `getSignatureInstantiation`: each argument type is
+    /// inferred to `getTypeAtPosition(signature, i)` (a position past the
+    /// parameters is `any`, which infers nothing). No argument is an
+    /// expression, so nothing is checked with a contextual type and the
+    /// `couldContainTypeVariables` gate only skips work; the contextual
+    /// return inference excludes `KindDecorator` (`checker.go:9398`). A
+    /// `this` parameter (`getThisArgumentOfCall` reads a non-legacy
+    /// decorator's expression), a non-array rest (`getSpreadArgumentType`),
+    /// or an undecided position or inference declines.
+    fn infer_decorator_candidate(
+        &mut self,
+        node: tsr_ast::NodeId,
+        candidate: &Signature,
+        argument_types: &[TypeId],
+    ) -> Option<Signature> {
+        if candidate.this_parameter.is_some()
+            || self.signature_non_array_rest_type(candidate).is_some()
+        {
+            return None;
+        }
+        let parameters = self.type_parameter_types(candidate)?;
+        let names: Vec<String> =
+            candidate.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut inferences = Vec::new();
+        for (position, &argument) in argument_types.iter().enumerate() {
+            let Some(target) = self.signature_type_at_position(candidate, position) else {
+                continue;
+            };
+            if self.is_gap(argument) || self.is_error(target) {
+                return None;
+            }
+            self.infer_from_types(argument, target, &parameters, &mut inferences, 0);
+        }
+        let flags = if self.in_js_file(node) {
+            crate::inference::InferenceFlags::ANY_DEFAULT
+        } else {
+            crate::inference::InferenceFlags::NONE
+        };
+        let map = self.resolved_inference_map(&inferences, candidate, &parameters, flags)?;
+        let mut instantiated =
+            self.instantiate_signature(candidate.clone(), &map, &parameters, &names)?;
+        instantiated.type_parameters.clear();
+        Some(instantiated)
     }
 
     /// `checkDecorator`'s return check (`checker.go:6065-6092`): an `any`
@@ -1139,11 +1319,27 @@ impl Checker<'_, '_> {
     /// made since `before`: each keeps its location and becomes the child of
     /// `head`.
     fn chain_reports_under(&mut self, before: usize, head: &'static tsr_diagnostics::Message) {
-        for (_, diagnostic) in &mut self.diagnostics[before..] {
+        let images = self.chain_file_images(before);
+        for ((_, diagnostic), image) in self.diagnostics[before..].iter_mut().zip(images) {
             let span = diagnostic.span;
             let child = std::mem::replace(diagnostic, Diagnostic::new(head, span));
             *diagnostic = Diagnostic::new_chain(Some(child), head, []);
+            if let Some(image) = image {
+                set_chain_file(diagnostic, &image);
+            }
         }
+    }
+
+    /// The file image of each report made since `before`, for the chain
+    /// children built over it ([`set_chain_file`]).
+    fn chain_file_images(
+        &self,
+        before: usize,
+    ) -> Vec<Option<std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>>> {
+        self.diagnostics[before..]
+            .iter()
+            .map(|(file, _)| self.diagnostic_file_image(*file))
+            .collect()
     }
 
     /// The arity half of `resolveCall` (`checker.go:8843`) and its
@@ -1375,6 +1571,7 @@ impl Checker<'_, '_> {
     /// was checked with this signature's parameter as contextual type.
     fn check_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
         let Some(arguments) = self.report_call_arguments(node) else { return };
+        let before = self.diagnostics.len();
         self.report_signature_applicability(
             node,
             &arguments,
@@ -1382,6 +1579,7 @@ impl Checker<'_, '_> {
             CandidateContext::Declared,
             &[],
         );
+        self.add_implementation_success_elaboration(node, signature, before);
     }
 
     /// The candidates `chooseOverload` (`checker.go:9025`) would check when
@@ -1452,109 +1650,16 @@ impl Checker<'_, '_> {
         node: tsr_ast::NodeId,
         candidates: &[Signature],
     ) -> bool {
-        let Some(written) = self.written_call_arguments(node) else { return false };
-        // A tagged template's synthetic `TemplateStringsArray` argument
-        // ([`Checker::written_call_arguments`]) relates first.
-        let strings = match written.template {
-            Some(_) => match self.global_template_strings_array_type() {
-                Some(strings) => Some(strings),
-                None => return false,
-            },
-            None => None,
-        };
-        let offset = usize::from(strings.is_some());
-        let arguments: &[Expression<'_>] = &written.arguments;
-        let mut rechecked = vec![false; arguments.len()];
-        for (index, argument) in arguments.iter().enumerate() {
-            let mut inner = *argument;
-            while let Expression::ParenthesizedExpression(parenthesized) = inner {
-                let Some(expression) = parenthesized.expression else { return false };
-                inner = expression;
-            }
-            // A template expression keeps a literal or template literal
-            // type only under a contextual type that admits one, so it is
-            // re-checked like an object or array literal.
-            let literal = matches!(
-                inner,
-                Expression::ObjectLiteralExpression(_)
-                    | Expression::ArrayLiteralExpression(_)
-                    | Expression::TemplateExpression(_)
-            );
-            if literal
-                && !self.is_context_sensitive_argument(argument)
-                && inner.node_id().is_some_and(|id| !self.literal_subtree_has_resolution(id))
-            {
-                rechecked[index] = true;
-                continue;
-            }
-            if literal
-                || matches!(inner, Expression::ClassExpression(_))
-                || self.is_context_sensitive_argument(argument)
-                || self.report_argument_type_is_not_upstreams(*argument)
-            {
-                return false;
-            }
-        }
+        let Some(plain) = self.plain_overload_arguments(node) else { return false };
         for candidate in candidates {
-            let mut applicable = match self.report_this_argument(node, candidate, false) {
-                Ternary::Related => true,
-                Ternary::NotRelated => false,
-                Ternary::Unknown => return false,
-            };
-            if applicable && let Some(strings) = strings {
-                let Some(target) = self.signature_type_at_position(candidate, 0) else {
-                    return false;
-                };
-                if self.is_gap(target) {
-                    return false;
-                }
-                match self.relate_ternary(strings, target, Relation::Assignable) {
-                    Ternary::Related => {}
-                    Ternary::NotRelated => applicable = false,
-                    Ternary::Unknown => return false,
-                }
-            }
-            for (index, argument) in arguments.iter().enumerate() {
-                if !applicable {
-                    break;
-                }
-                let position = index + offset;
-                let Some(target) = self.signature_type_at_position(candidate, position) else {
-                    return false;
-                };
-                if self.is_gap(target) {
-                    return false;
-                }
-                let source = if rechecked[index] {
-                    self.check_literal_argument_in_candidate(node, candidate, *argument, true)
-                } else {
-                    self.check_expression(*argument)
-                };
-                if self.is_gap(source) {
-                    return false;
-                }
-                // This port's relation over a generic source (a homomorphic
-                // mapped type over a type parameter, `Boxified<T>` against
-                // `concat`'s overloads) is not upstream's; declined, the same
-                // refusal as the signature-less callee's.
-                if self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())
-                    || self.could_contain_type_variables_at_head(source, 3)
-                {
-                    return false;
-                }
-                match self.relate_ternary(source, target, Relation::Assignable) {
-                    Ternary::Related => {}
-                    Ternary::NotRelated => {
-                        applicable = false;
-                        break;
-                    }
-                    Ternary::Unknown => return false,
-                }
-            }
-            if applicable {
-                return true;
+            match self.plain_candidate_applicable(node, candidate, &plain) {
+                Some(true) => return true,
+                Some(false) => {}
+                None => return false,
             }
         }
+        let PlainOverloadArguments { arguments, rechecked, offset, .. } = plain;
+        let arguments: &[Expression<'_>] = &arguments;
         let Some(last) = candidates.last() else { return false };
         let Some(report_arguments) = self.report_call_arguments(node) else { return false };
         // The last candidate's report reads its literals as checked under it;
@@ -1579,20 +1684,36 @@ impl Checker<'_, '_> {
         );
         self.restore_literal_subtree_state(saved);
         if candidates.len() > 1 {
-            self.chain_overload_failure(before);
+            self.chain_overload_failure(before, last.declaration);
         }
+        self.add_implementation_success_elaboration(node, last, before);
         true
     }
 
     /// `reportCallResolutionErrors`' chain over several candidates
     /// (`checker.go:9656`): every report made since `before` becomes the child
     /// of `The_last_overload_gave_the_following_error`, under
-    /// `No_overload_matches_this_call` (TS2769). The related information
-    /// (`The_last_overload_is_declared_here`, which may sit in another file,
-    /// and `addImplementationSuccessElaboration`) is not attached: this
-    /// port's checker diagnostics carry no cross-file related location.
-    fn chain_overload_failure(&mut self, before: usize) {
-        for (_, diagnostic) in &mut self.diagnostics[before..] {
+    /// `No_overload_matches_this_call` (TS2769), with
+    /// `The_last_overload_is_declared_here` at the last candidate's
+    /// declaration as related information (`related_diagnostic_at` carries
+    /// its file). `addImplementationSuccessElaboration`'s TS2793 (a
+    /// `chooseOverload` against the implementation signature) is not
+    /// attached.
+    fn chain_overload_failure(&mut self, before: usize, last: tsr_ast::NodeId) {
+        // `last.declaration != nil`: a signature declaration. This port's
+        // synthetic signatures borrow another node as their declaration
+        // (a decorated declaration, a function whose arguments they model),
+        // which native leaves nil.
+        let declared_here = self.is_signature_declaration(last).then(|| {
+            self.related_diagnostic_at(
+                last,
+                &messages::THE_LAST_OVERLOAD_IS_DECLARED_HERE,
+                self.signature_declaration_error_span(last),
+                Vec::new(),
+            )
+        });
+        let images = self.chain_file_images(before);
+        for ((_, diagnostic), image) in self.diagnostics[before..].iter_mut().zip(images) {
             let span = diagnostic.span;
             let child = std::mem::replace(
                 diagnostic,
@@ -1605,7 +1726,162 @@ impl Checker<'_, '_> {
             );
             *diagnostic =
                 Diagnostic::new_chain(Some(chained), &messages::NO_OVERLOAD_MATCHES_THIS_CALL, []);
+            if let Some(image) = image {
+                set_chain_file(diagnostic, &image);
+            }
+            diagnostic.add_related_information(declared_here.clone());
         }
+    }
+
+    /// `addImplementationSuccessElaboration` (`checker.go:9685`) over every
+    /// report made since `before`: when the failed candidate's declaration
+    /// shares its (unmerged) symbol with other declarations and one of them
+    /// is a function-like declaration with a body, `chooseOverload` runs
+    /// against that implementation's signature alone; if it would have
+    /// succeeded, `The_call_would_have_succeeded_against_this_implementation…`
+    /// (TS2793) is added at the implementation as related information.
+    ///
+    /// The implementation is checked as a single non-generic candidate
+    /// (`isSingleNonGenericCandidate`): written type arguments fail
+    /// `hasCorrectTypeArgumentArity`, then `hasCorrectArity` and
+    /// `isSignatureApplicable` over [`Checker::plain_overload_arguments`].
+    /// A generic implementation, a spread argument, or an argument or
+    /// relation this port cannot decide adds nothing.
+    fn add_implementation_success_elaboration(
+        &mut self,
+        node: tsr_ast::NodeId,
+        failed: &Signature,
+        before: usize,
+    ) {
+        if self.diagnostics.len() == before {
+            return;
+        }
+        let Some(related) = self.implementation_success_related(node, failed) else { return };
+        for (_, diagnostic) in &mut self.diagnostics[before..] {
+            diagnostic.add_related_information(Some(related.clone()));
+        }
+    }
+
+    fn implementation_success_related(
+        &mut self,
+        node: tsr_ast::NodeId,
+        failed: &Signature,
+    ) -> Option<Diagnostic> {
+        use tsr_ast::Node;
+        if !self.is_signature_declaration(failed.declaration) {
+            return None;
+        }
+        // A constructor's symbol (`__constructor`) is not bound by this
+        // port's binder; its declarations are the class's constructors.
+        let declarations: Vec<tsr_ast::NodeId> =
+            if self.nodes.kind(failed.declaration) == tsr_ast::SyntaxKind::Constructor {
+                let class = self.nodes.parent(failed.declaration)?;
+                let mut constructors = Vec::new();
+                tsr_ast::for_each_child_id(self.node_map.get(class)?, |child| {
+                    if self.nodes.kind(child) == tsr_ast::SyntaxKind::Constructor {
+                        constructors.push(child);
+                    }
+                });
+                constructors
+            } else {
+                let symbol = self.binder.symbol_of(failed.declaration)?;
+                self.binder.symbols().get(symbol).declarations.to_vec()
+            };
+        if declarations.len() <= 1 {
+            return None;
+        }
+        let implementation =
+            declarations.into_iter().find(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::FunctionDeclaration(n)) => n.body.is_some(),
+                Some(Node::MethodDeclaration(n)) => n.body.is_some(),
+                Some(Node::ConstructorDeclaration(n)) => n.body.is_some(),
+                Some(Node::GetAccessorDeclaration(n)) => n.body.is_some(),
+                Some(Node::SetAccessorDeclaration(n)) => n.body.is_some(),
+                Some(Node::FunctionExpression(_) | Node::ArrowFunction(_)) => true,
+                _ => false,
+            })?;
+        if !self.call_type_arguments(node).is_empty() {
+            return None;
+        }
+        let candidate = self.get_signature_from_declaration(implementation)?;
+        if !candidate.type_parameters.is_empty() {
+            return None;
+        }
+        let written = self.written_call_arguments(node)?;
+        let effective = self.effective_written_arguments(&written)?;
+        if effective.iter().any(|argument| argument.spread)
+            || !self.has_correct_arity(&candidate, &effective, false)?
+        {
+            return None;
+        }
+        let plain = self.plain_overload_arguments(node)?;
+        if !self.plain_candidate_applicable(node, &candidate, &plain)? {
+            return None;
+        }
+        Some(self.related_diagnostic_at(
+            implementation,
+            &messages::THE_CALL_WOULD_HAVE_SUCCEEDED_AGAINST_THIS_IMPLEMENTATION_BUT_IMPLEMENTATION_SIGNATURES_OF_OVERLOADS_ARE_NOT_EXTERNALLY_VISIBLE,
+            self.signature_declaration_error_span(implementation),
+            Vec::new(),
+        ))
+    }
+
+    /// `GetErrorRangeForNode` (`scanner.go:2588`) of a signature
+    /// declaration. A function, method, accessor or arrow narrows to its name
+    /// or arrow (`error_span`); a constructor spans from its first token to
+    /// the `constructor` keyword (or its string-literal spelling); the
+    /// signature members and function types have no arm and report over the
+    /// whole node.
+    fn signature_declaration_error_span(&self, node: tsr_ast::NodeId) -> tsr_core::Span {
+        use tsr_ast::SyntaxKind as K;
+        let span = self.nodes.span(node);
+        match self.nodes.kind(node) {
+            K::MethodSignature
+            | K::CallSignature
+            | K::ConstructSignature
+            | K::FunctionType
+            | K::ConstructorType => span,
+            K::Constructor => {
+                let text = self
+                    .source_file_of_for_diagnostics(node)
+                    .and_then(|file| self.module_host?.source_text(file, self.nodes))
+                    .and_then(|text| text.get(span.start as usize..span.end as usize));
+                let Some(text) = text else { return self.error_span(node) };
+                let mut scanner = tsr_scanner::Scanner::new(text);
+                loop {
+                    let token = scanner.scan();
+                    match token.kind {
+                        K::ConstructorKeyword | K::StringLiteral => {
+                            return tsr_core::Span::new(span.start, span.start + token.span.end);
+                        }
+                        K::EndOfFile => return span,
+                        _ => {}
+                    }
+                }
+            }
+            _ => self.error_span(node),
+        }
+    }
+
+    /// Whether `node` is a signature declaration (`ast.IsFunctionLike`'s
+    /// declaration kinds), as a native `Signature.declaration` is.
+    fn is_signature_declaration(&self, node: tsr_ast::NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        matches!(
+            self.nodes.kind(node),
+            K::FunctionDeclaration
+                | K::FunctionExpression
+                | K::ArrowFunction
+                | K::MethodDeclaration
+                | K::Constructor
+                | K::GetAccessor
+                | K::SetAccessor
+                | K::MethodSignature
+                | K::CallSignature
+                | K::ConstructSignature
+                | K::FunctionType
+                | K::ConstructorType
+        )
     }
 
     /// `checkExpressionWithContextualType(arg, paramType)` for an object or
@@ -1867,8 +2143,9 @@ impl Checker<'_, '_> {
         }
         self.restore_literal_subtree_state(saved);
         if failure.count > 1 {
-            self.chain_overload_failure(before);
+            self.chain_overload_failure(before, last.declaration);
         }
+        self.add_implementation_success_elaboration(node, &last, before);
         true
     }
 
@@ -2023,14 +2300,16 @@ impl Checker<'_, '_> {
             return false;
         }
         let Some(arguments) = self.report_call_arguments(node) else { return false };
-        self.report_signature_applicability(
+        let before = self.diagnostics.len();
+        let reported = self.report_signature_applicability(
             node,
             &arguments,
             &instantiated,
             CandidateContext::Instantiated,
             &[],
-        ) != ApplicabilityReport::Declined
-            || self.report_this_argument(node, &instantiated, false) == Ternary::Related
+        ) != ApplicabilityReport::Declined;
+        self.add_implementation_success_elaboration(node, &instantiated, before);
+        reported || self.report_this_argument(node, &instantiated, false) == Ternary::Related
     }
 
     /// `checkTypeArguments` (`checker.go:9222`) with `reportErrors`, as
@@ -2043,9 +2322,10 @@ impl Checker<'_, '_> {
     ///
     /// `Some(true)`: every constraint holds. `Some(false)`: a failure was
     /// found (and reported where the relation reporter speaks). `None`: a
-    /// side this port cannot decide — an unresolved argument, a constraint
-    /// or argument mentioning type variables (the refusal
-    /// `constraints.rs`' type-reference check makes), an unknown relation.
+    /// side this port cannot decide — an unresolved argument, a failed
+    /// relation between a constraint or argument mentioning type variables
+    /// (the refusal `constraints.rs`' type-reference check makes; a pair
+    /// that relates is accepted), an unknown relation.
     /// `getTypeWithThisArgument` is not applied (no `this`-typed
     /// constraint reaches here decided).
     fn check_call_type_argument_constraints(
@@ -2073,13 +2353,21 @@ impl Checker<'_, '_> {
             };
             let target = self.instantiate_type(constraint, &map, &parameters, &names);
             let source = map[position].1;
-            if self.is_gap(target)
-                || self.could_contain_type_variables_at_head(source, 3)
+            if self.is_gap(target) {
+                return None;
+            }
+            // A pair mentioning type variables is trusted only when it
+            // relates: a negative answer over one is the refusal above.
+            let related = self.relate_ternary(source, target, Relation::Assignable);
+            if related == Ternary::Related {
+                continue;
+            }
+            if self.could_contain_type_variables_at_head(source, 3)
                 || self.could_contain_type_variables_at_head(target, 3)
             {
                 return None;
             }
-            match self.relate_ternary(source, target, Relation::Assignable) {
+            match related {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
@@ -2230,6 +2518,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(arguments) = self.report_call_arguments(node) else { return };
+        let before = self.diagnostics.len();
         self.report_signature_applicability(
             node,
             &arguments,
@@ -2237,6 +2526,7 @@ impl Checker<'_, '_> {
             CandidateContext::Instantiated,
             &[],
         );
+        self.add_implementation_success_elaboration(node, &instantiated, before);
     }
 
     /// The type-argument half of [`Checker::check_resolve_call_arity`] alone.
@@ -2449,9 +2739,13 @@ impl Checker<'_, '_> {
         let mut max_count = 0usize;
         let mut max_below: Option<usize> = None;
         let mut min_above: Option<usize> = None;
+        let mut closest = None;
         for signature in signatures {
             let min_parameter = self.signature_min_argument_count(signature);
             let max_parameter = self.signature_parameter_count(signature);
+            if min_parameter < min_count {
+                closest = Some(signature);
+            }
             min_count = min_count.min(min_parameter);
             max_count = max_count.max(max_parameter);
             if min_parameter < count && max_below.is_none_or(|below| min_parameter > below) {
@@ -2493,7 +2787,17 @@ impl Checker<'_, '_> {
                     min_above.map_or_else(String::new, |n| n.to_string()),
                 ],
             )
-        } else if count < min_count || max_count >= count {
+        } else if count < min_count {
+            let mut diagnostic = Diagnostic::with_args(
+                message,
+                self.error_span(error_node),
+                [range, count.to_string()],
+            );
+            diagnostic.add_related_information(
+                closest.and_then(|closest| self.missing_argument_related(closest, count)),
+            );
+            diagnostic
+        } else if max_count >= count {
             Diagnostic::with_args(message, self.error_span(error_node), [range, count.to_string()])
         } else {
             let start = self.nodes.span(arguments[max_count].node).start;
@@ -2505,6 +2809,39 @@ impl Checker<'_, '_> {
             )
         };
         self.report_at_node(node, diagnostic);
+    }
+
+    /// `getArgumentArityError`'s related information on its too-short arm
+    /// (`checker.go:9770`): the closest signature's declared parameter at the
+    /// argument count (past a `this` parameter) is named as not provided —
+    /// `An_argument_matching_this_binding_pattern_was_not_provided` for a
+    /// pattern, `Arguments_for_the_rest_parameter_0_were_not_provided` for a
+    /// rest, else `An_argument_for_0_was_not_provided`. A signature whose
+    /// declaration lists no such parameter (a synthetic or default one)
+    /// adds nothing, as native's nil declaration does.
+    fn missing_argument_related(&self, closest: &Signature, count: usize) -> Option<Diagnostic> {
+        let parameters = self.parameters_of(closest.declaration);
+        let parameter = *parameters.get(count + usize::from(closest.this_parameter.is_some()))?;
+        let Some(tsr_ast::Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter)
+        else {
+            return None;
+        };
+        let span = self.error_span(parameter);
+        let (message, args): (&'static tsr_diagnostics::Message, Vec<String>) = match declaration
+            .name?
+        {
+            tsr_ast::BindingName::BindingPattern(_) => {
+                (&messages::AN_ARGUMENT_MATCHING_THIS_BINDING_PATTERN_WAS_NOT_PROVIDED, Vec::new())
+            }
+            tsr_ast::BindingName::Identifier(name) if declaration.dot_dot_dot_token.is_some() => (
+                &messages::ARGUMENTS_FOR_THE_REST_PARAMETER_0_WERE_NOT_PROVIDED,
+                vec![name.text.to_owned()],
+            ),
+            tsr_ast::BindingName::Identifier(name) => {
+                (&messages::AN_ARGUMENT_FOR_0_WAS_NOT_PROVIDED, vec![name.text.to_owned()])
+            }
+        };
+        Some(self.related_diagnostic_at(parameter, message, span, args))
     }
 
     /// `isPromiseResolveArityError` (`checker.go`): the callee is a parameter
@@ -3092,14 +3429,29 @@ impl Checker<'_, '_> {
     /// `Not_all_constituents_of_type_0_are_callable`, or
     /// `No_constituent_of_type_0_is_callable`, or `Each_member_of_the_union_type_0_has_signatures_but_none_…`.
     /// A union constituent whose list this port cannot decide leaves the head
-    /// without its detail. `Did_you_forget_to_use_await`'s related information
-    /// and `invocationErrorRecovery` are not modelled.
+    /// without its detail. `Did_you_forget_to_use_await` is related
+    /// information when the awaited apparent type has signatures of the
+    /// kind; `invocationErrorRecovery` is not modelled.
     pub(crate) fn invocation_error(
         &mut self,
         error_target: tsr_ast::NodeId,
         apparent: TypeId,
         zero_arguments: bool,
         kind: SignatureKind,
+    ) {
+        self.invocation_error_with_related(error_target, apparent, zero_arguments, kind, None);
+    }
+
+    /// [`Checker::invocation_error`] with `invocationError`'s
+    /// `relatedInformation` (`checker.go:10006`), added after
+    /// `invocationErrorDetails`' own.
+    fn invocation_error_with_related(
+        &mut self,
+        error_target: tsr_ast::NodeId,
+        apparent: TypeId,
+        zero_arguments: bool,
+        kind: SignatureKind,
+        related: Option<Diagnostic>,
     ) {
         let is_call = kind == SignatureKind::Call;
         let parent_is_call = self
@@ -3128,12 +3480,94 @@ impl Checker<'_, '_> {
             }
         }
         let span = self.error_span(target);
-        let detail = self.invocation_error_detail(apparent, kind, span);
-        let diagnostic = match detail {
-            Some(detail) => Diagnostic::new_chain(Some(detail), head, []),
+        let detail = self.invocation_error_detail(apparent, kind, span, target);
+        let mut diagnostic = match detail {
+            Some(detail) => {
+                let mut diagnostic = Diagnostic::new_chain(Some(detail), head, []);
+                if let Some(image) = self
+                    .source_file_of_for_diagnostics(target)
+                    .and_then(|file| self.diagnostic_file_image(file))
+                {
+                    set_chain_file(&mut diagnostic, &image);
+                }
+                diagnostic
+            }
             None => Diagnostic::new(head, span),
         };
+        // `maybeMissingAwait`: the awaited apparent type has signatures of
+        // this kind (`getAwaitedType`; an undecided awaited type adds
+        // nothing).
+        let missing_await = self.awaited_type(apparent).is_some_and(|awaited| {
+            self.signatures_of_type_kind(awaited, kind)
+                .is_some_and(|signatures| !signatures.is_empty())
+        });
+        if missing_await {
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                error_target,
+                &messages::DID_YOU_FORGET_TO_USE_AWAIT,
+                self.error_span(error_target),
+                Vec::new(),
+            )));
+        }
+        diagnostic.add_related_information(related);
         self.report_at_node(target, diagnostic);
+    }
+
+    /// `resolveCallExpression`'s `Are_you_missing_a_semicolon` related
+    /// information (`checker.go:8545`): a call with one argument whose
+    /// callee ends a line (`SkipTriviaEx` with `StopAfterLineBreak` from the
+    /// callee's end stops just after a line break).
+    fn missing_semicolon_related(
+        &self,
+        call: &CallExpression<'_>,
+        callee: tsr_ast::NodeId,
+    ) -> Option<Diagnostic> {
+        if call.arguments.len() != 1 {
+            return None;
+        }
+        let file = self.source_file_of_for_diagnostics(callee)?;
+        let text = self.module_host?.source_text(file, self.nodes)?;
+        // `SkipTriviaEx` (`scanner.go`): spaces and comments are skipped, and
+        // with `StopAfterLineBreak` the skip ends just after the first line
+        // break (`\n`, or `\r` with an optional `\n`).
+        let bytes = text.as_bytes();
+        let mut position = self.nodes.span(callee).end as usize;
+        let line_break = loop {
+            match bytes.get(position) {
+                Some(b'\n' | b'\r') => break true,
+                Some(b'\t' | 0x0b | 0x0c | b' ') => position += 1,
+                Some(b'/') if bytes.get(position + 1) == Some(&b'/') => {
+                    position += 2;
+                    while bytes.get(position).is_some_and(|&b| b != b'\n' && b != b'\r') {
+                        position += 1;
+                    }
+                }
+                Some(b'/') if bytes.get(position + 1) == Some(&b'*') => {
+                    position += 2;
+                    while position < bytes.len() && !bytes[position..].starts_with(b"*/") {
+                        position += 1;
+                    }
+                    position = (position + 2).min(bytes.len());
+                }
+                Some(&b) if b >= 0x80 => {
+                    // Non-ASCII whitespace (`IsWhiteSpaceLike`) is skipped.
+                    let c = text.get(position..)?.chars().next()?;
+                    if !c.is_whitespace() {
+                        break false;
+                    }
+                    position += c.len_utf8();
+                }
+                _ => break false,
+            }
+        };
+        line_break.then(|| {
+            self.related_diagnostic_at(
+                callee,
+                &messages::ARE_YOU_MISSING_A_SEMICOLON,
+                self.error_span(callee),
+                Vec::new(),
+            )
+        })
     }
 
     /// The detail chain of `invocationErrorDetails` (`checker.go:9940`), at
@@ -3143,6 +3577,7 @@ impl Checker<'_, '_> {
         apparent: TypeId,
         kind: SignatureKind,
         span: tsr_core::Span,
+        at: tsr_ast::NodeId,
     ) -> Option<Diagnostic> {
         let is_call = kind == SignatureKind::Call;
         let no_signatures = if is_call {
@@ -3151,14 +3586,14 @@ impl Checker<'_, '_> {
             &messages::TYPE_0_HAS_NO_CONSTRUCT_SIGNATURES
         };
         let TypeData::Union { types, .. } = self.store.get(apparent).data.clone() else {
-            let printed = self.type_to_string(apparent);
+            let printed = self.type_to_string_for_message(apparent, at);
             return Some(Diagnostic::with_args(no_signatures, span, [printed]));
         };
         let mut lists = Vec::with_capacity(types.len());
         for &constituent in &types {
             lists.push(self.signatures_of_type_kind(constituent, kind)?.len());
         }
-        let union_text = self.type_to_string(apparent);
+        let union_text = self.type_to_string_for_message(apparent, at);
         let mut detail = None;
         let mut has_signatures = false;
         for (&constituent, &count) in types.iter().zip(&lists) {
@@ -3169,7 +3604,7 @@ impl Checker<'_, '_> {
                 }
             } else {
                 if detail.is_none() {
-                    let printed = self.type_to_string(constituent);
+                    let printed = self.type_to_string_for_message(constituent, at);
                     let inner = Diagnostic::with_args(no_signatures, span, [printed]);
                     detail = Some(Diagnostic::new_chain(
                         Some(inner),
@@ -5647,6 +6082,38 @@ enum OverloadPass {
     /// `candidatesForArgumentError`.
     AllRejected(OverloadArgumentFailure),
     Undecidable,
+}
+
+/// Every chain child under `diagnostic` that has no file takes `image`.
+/// Native's `NewDiagnosticChain` (`ast/diagnostic.go:152`) builds the head
+/// from the child's file and location, so every level of a reported chain
+/// carries the reported file; this port's children are built before the
+/// report gives the head its file.
+fn set_chain_file(
+    diagnostic: &mut Diagnostic,
+    image: &std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>,
+) {
+    if diagnostic.message_chain().is_empty() {
+        return;
+    }
+    let mut children = diagnostic.message_chain().to_vec();
+    for child in &mut children {
+        if child.file().is_none() {
+            child.set_file(std::sync::Arc::clone(image));
+        }
+        set_chain_file(child, image);
+    }
+    diagnostic.set_message_chain(children);
+}
+
+/// [`Checker::plain_overload_arguments`]: a call's written arguments, which
+/// of them are re-checked under each candidate, and a tagged template's
+/// synthetic strings argument (shifting positions by `offset`).
+struct PlainOverloadArguments<'a> {
+    arguments: Vec<Expression<'a>>,
+    rechecked: Vec<bool>,
+    strings: Option<TypeId>,
+    offset: usize,
 }
 
 /// `CallState.candidatesForArgumentError` (`checker.go:8838`) after the
