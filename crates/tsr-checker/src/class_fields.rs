@@ -204,10 +204,20 @@ impl Checker<'_, '_> {
         self.immediately_invoked_call(location).is_none()
     }
 
-    /// `DeclarationNameToString` for a parameter or binding element name.
-    /// Upstream prints the pattern's source text, which the checker cannot
-    /// reach; a pattern is rebuilt from its element names (§2).
+    /// `DeclarationNameToString` for a parameter or binding element name: the
+    /// name's source text (`declaration_name_source_text`, r7-grammar §35), so
+    /// a pattern prints as written, computed keys and defaults included.
+    /// Without source text a pattern is rebuilt from its element names (§2).
+    /// Correction of the record: this used to say the checker cannot reach
+    /// the source text, and always rebuilt the pattern (r7-grammar §54).
     fn binding_name_text(&self, name: NodeId) -> String {
+        if let Some(text) = self.declaration_name_source_text(name) {
+            return text;
+        }
+        self.rebuilt_binding_name_text(name)
+    }
+
+    fn rebuilt_binding_name_text(&self, name: NodeId) -> String {
         match self.node_map.get(name) {
             Some(Node::Identifier(identifier)) => identifier.text.to_string(),
             Some(Node::BindingPattern(pattern)) => {
@@ -234,7 +244,7 @@ impl Checker<'_, '_> {
         let name = element
             .name
             .and_then(|name| Node::from(name).node_id())
-            .map(|name| self.binding_name_text(name))
+            .map(|name| self.rebuilt_binding_name_text(name))
             .unwrap_or_default();
         let rest = if element.dot_dot_dot_token.is_some() { "..." } else { "" };
         format!("{rest}{name}")
