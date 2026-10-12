@@ -452,7 +452,13 @@ impl Checker<'_, '_> {
                         .parent(parent)
                         .is_some_and(|outer| self.nodes.kind(outer) == SyntaxKind::LiteralType))
         });
-        if literal_type || self.has_ambient_flag(node) {
+        // Only `checkExpression` reaches the check, and a declaration's
+        // literal name (`enum E { 0n = 0 }`) is never checked as an
+        // expression.
+        let is_name =
+            parent.and_then(|parent| self.node_map.get(parent)).and_then(|typed| typed.name_id())
+                == Some(node);
+        if literal_type || is_name || self.has_ambient_flag(node) {
             return;
         }
         self.grammar_error_on_node(

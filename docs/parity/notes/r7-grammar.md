@@ -1148,6 +1148,11 @@ against `target/tsgo-pinned`.
   literal outside a literal type node (`1n`, or `-1n` as one) and outside an
   ambient context (`has_ambient_flag`) is a grammar error. Converted:
   `bigintAmbientMinimal`, `bigintWithoutLib` (es2015 variants).
+  Correction of the record: the first cut also reported a bigint literal
+  that is a declaration's name (`enum E { 0n = 0 }`, `enumWithBigint`).
+  `checkExpression` never reaches a name, so the check now skips the
+  parent's `name` slot. Measured on the exact oracle at `e50e75c2`: one
+  extra line in a case that was not EXACT.
 - **TS2439** (`checkExternalImportOrExportDeclaration`, `checker.go:5348`):
   an import or export in a string-named ambient module's block, whose module
   name is relative (`tspath.IsExternalModuleNameRelative`), is reported at
