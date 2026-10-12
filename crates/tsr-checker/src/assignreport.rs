@@ -2206,7 +2206,11 @@ impl<'a> Checker<'a, '_> {
         if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
             return None;
         }
-        if !self.binder.symbols().get(symbol).members.is_empty() {
+        // `getMembersOfSymbol` includes the late-bound members, which the
+        // binder's table does not hold (`private [x]: number`; r7-reports §88).
+        if !self.binder.symbols().get(symbol).members.is_empty()
+            || !self.late_bound_members_of(symbol, false).is_empty()
+        {
             return None;
         }
         if flags.contains(SymbolFlags::CLASS) {
@@ -2800,6 +2804,11 @@ impl<'a> Checker<'a, '_> {
         // checkTypeRelatedToEx's error chain under the head, retraced where
         // every step is decided (r7-reports §36).
         let explained = not_related && signature_error.is_none();
+        let (source, normalized, display_target) = if explained {
+            self.normalized_head_pair(source, normalized, display_target)
+        } else {
+            (source, normalized, display_target)
+        };
         let chain = if explained {
             self.relation_failure_chain(at, span, source, normalized)
         } else {
@@ -2822,6 +2831,125 @@ impl<'a> Checker<'a, '_> {
             chain,
         );
         true
+    }
+
+    /// The global `Object` interface's own declared type.
+    fn is_global_object_type(&mut self, ty: TypeId) -> bool {
+        matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
+            if self.global_type_symbol_with_arity("Object", 0) == Some(owner))
+            && !self.type_reference_targets.contains_key(&ty)
+    }
+
+    /// The enum symbol of a union-enum type (`getDeclaredTypeOfEnum`'s
+    /// union, which carries the enum symbol).
+    fn chain_enum_symbol(&self, ty: TypeId) -> Option<SymbolId> {
+        let TypeData::Union { symbol: Some(symbol), .. } = &self.type_of(ty).data else {
+            return None;
+        };
+        let symbol = self.binder.merged_symbol(*symbol);
+        self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ENUM).then_some(symbol)
+    }
+
+    /// `isEnumTypeRelatedTo` (`relater.go:282`) with its error reporter: the
+    /// first member that fails, as its chain entry; `None` when the enums
+    /// relate or fail without a report (different names, a const enum).
+    fn enum_relation_failure(&mut self, source: SymbolId, target: SymbolId) -> Option<ChainEntry> {
+        let symbols = self.binder.symbols();
+        let (source_data, target_data) = (symbols.get(source), symbols.get(target));
+        if source_data.name != target_data.name
+            || !source_data.flags.contains(SymbolFlags::REGULAR_ENUM)
+            || !target_data.flags.contains(SymbolFlags::REGULAR_ENUM)
+        {
+            return None;
+        }
+        let target_name = target_data.name.to_string();
+        let mut members: Vec<(String, SymbolId)> = source_data
+            .exports
+            .as_ref()
+            .map(|table| table.iter().map(|(name, &id)| (name.to_string(), id)).collect())
+            .unwrap_or_default();
+        members.sort_by_key(|&(_, id)| id);
+        for (name, source_member) in members {
+            let symbols = self.binder.symbols();
+            if !symbols.get(source_member).flags.contains(SymbolFlags::ENUM_MEMBER) {
+                continue;
+            }
+            let target_member = symbols
+                .get(target)
+                .exports
+                .as_ref()
+                .and_then(|table| table.get(name.as_str()).copied())
+                .filter(|&member| symbols.get(member).flags.contains(SymbolFlags::ENUM_MEMBER));
+            let Some(target_member) = target_member else {
+                let declared = self.get_declared_type_of_symbol(target);
+                let target_text = self.type_name_for_error_display(declared);
+                return Some(ChainEntry {
+                    message: &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1,
+                    args: vec![name, target_text],
+                });
+            };
+            let source_type = self.get_declared_type_of_symbol(source_member);
+            let target_type = self.get_declared_type_of_symbol(target_member);
+            let value = |checker: &Self, ty: TypeId| {
+                checker.enum_member_payload(ty).map(|(_, value)| match value {
+                    crate::types::EnumLiteralValue::Number(text) => (false, text.clone()),
+                    crate::types::EnumLiteralValue::String(text) => {
+                        (true, crate::printing::quote(text))
+                    }
+                })
+            };
+            let (source_value, target_value) = (value(self, source_type), value(self, target_type));
+            if source_value == target_value {
+                continue;
+            }
+            match (source_value, target_value) {
+                (Some((_, source_text)), Some((_, target_text))) => {
+                    return Some(ChainEntry {
+                        message: &messages::EACH_DECLARATION_OF_0_1_DIFFERS_IN_ITS_VALUE_WHERE_2_WAS_EXPECTED_BUT_3_WAS_GIVEN,
+                        args: vec![target_name, name, target_text, source_text],
+                    });
+                }
+                (Some((true, text)), None) | (None, Some((true, text))) => {
+                    return Some(ChainEntry {
+                        message: &messages::ONE_VALUE_OF_0_1_IS_THE_STRING_2_AND_THE_OTHER_IS_ASSUMED_TO_BE_AN_UNKNOWN_NUMERIC_VALUE,
+                        args: vec![target_name, name, text],
+                    });
+                }
+                // An unknown value beside a numeric one is assumed equal;
+                // two unknown values compare equal above.
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// `reportErrorResults` (`relater.go:4700`) names the pair `isRelatedTo`
+    /// normalized unless the original has an alias: an indexed access whose
+    /// object is a mapped type is printed as its substitution
+    /// (`Partial<T>[keyof T]` reads as `T[keyof T] | undefined`; as a target,
+    /// written to, `Readonly<U>[K]` is `U[K]`). An alias instantiation, which
+    /// the port records as a reference target, keeps its own name
+    /// (r7-reports §83).
+    fn normalized_head_pair(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        display_target: TypeId,
+    ) -> (TypeId, TypeId, TypeId) {
+        let normalize = |checker: &mut Self, ty: TypeId, writing: bool| {
+            if !checker.deferred_indexed_access_types.contains_key(&ty)
+                || checker.type_reference_targets.contains_key(&ty)
+            {
+                return ty;
+            }
+            checker.chain_simplified_indexed_access_for(ty, writing)
+        };
+        let source = normalize(self, source, false);
+        if target != display_target {
+            return (source, target, display_target);
+        }
+        let target = normalize(self, target, true);
+        (source, target, target)
     }
 
     /// `reportRelationError`'s missing-property suppression (`relater.go:4816`)
@@ -3156,9 +3284,13 @@ impl<'a> Checker<'a, '_> {
         source_text: String,
         target_text: String,
     ) -> Diagnostic {
-        if !self.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
-            || self.variance_marker_types.contains(&target)
-        {
+        let target_flags = self.type_of(target).flags;
+        let explains_type_parameter = if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
+            self.indexed_access_target_explained(source, target) == Some(true)
+        } else {
+            target_flags.contains(TypeFlags::TYPE_PARAMETER)
+        };
+        if !explains_type_parameter || self.variance_marker_types.contains(&target) {
             return Diagnostic::with_args(message, span, [source_text, target_text]);
         }
         let generalized = self.assignability_source_for_error_display(source, target);
@@ -3188,6 +3320,28 @@ impl<'a> Checker<'a, '_> {
         let mut diagnostic = Diagnostic::with_args(message, span, [source_text, target_text]);
         diagnostic.add_message_chain(Some(child));
         diagnostic
+    }
+
+    /// `reportRelationError`'s target-flag choice (`relater.go:4760`): an
+    /// indexed-access target against a source that is not one is explained
+    /// by its object type's flags, so `T[K]` with a type-parameter `T` gets
+    /// the type-parameter explanation over `getBaseConstraintOfType(T[K])`.
+    /// `Some(false)` where no explanation applies, `None` where the target is
+    /// one `isRelatedTo` would first normalize (a mapped, alias or nested
+    /// object), which this retrace does not (r7-reports §81).
+    fn indexed_access_target_explained(&mut self, source: TypeId, target: TypeId) -> Option<bool> {
+        let &(object, _, _) = self.deferred_indexed_access_types.get(&target)?;
+        self.ensure_mapped_type_info(object);
+        if self.mapped_types.contains_key(&object)
+            || self.type_reference_targets.contains_key(&object)
+            || self.deferred_indexed_access_types.contains_key(&object)
+        {
+            return None;
+        }
+        if self.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS) {
+            return Some(false);
+        }
+        Some(self.type_of(object).flags.contains(TypeFlags::TYPE_PARAMETER))
     }
 
     /// An object literal against a union target, up to the outer report:
@@ -5811,17 +5965,17 @@ impl Checker<'_, '_> {
         target: TypeId,
     ) -> Option<()> {
         let target_flags = self.type_of(target).flags;
-        if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
-            return None;
-        }
+        let explains_type_parameter = if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
+            self.indexed_access_target_explained(source, target)?
+        } else {
+            target_flags.contains(TypeFlags::TYPE_PARAMETER)
+        };
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let mut source_text = self.type_to_string(displayed_source);
         let mut target_text = self.type_to_string(target);
         // The type-parameter target's explanation, pushed before the
         // relation error (`relater.go:4768`).
-        if target_flags.contains(TypeFlags::TYPE_PARAMETER)
-            && !self.variance_marker_types.contains(&target)
-        {
+        if explains_type_parameter && !self.variance_marker_types.contains(&target) {
             let constraint = self.base_constraint_of_type(target);
             let assignable = constraint.and_then(|constraint| {
                 if self.is_type_assignable_to(displayed_source, constraint) {
@@ -6136,8 +6290,45 @@ impl Checker<'_, '_> {
             return None;
         }
         let target = self.chain_normalized_target(source, target);
+        // `getNormalizedType`'s reference arm: the structural comparison
+        // reads a non-augmenting subtype as its single base, while the pair's
+        // own relation error keeps the original (`reportErrorResults`), so
+        // `Property 'foo' is private in type 'Base'` names the base of an
+        // empty `interface I extends Base {}` (r7-reports §88).
+        let source = self.single_base_normalized(source);
+        let target = self.single_base_normalized(target);
         let source_flags = self.type_of(source).flags;
         let target_flags = self.type_of(target).flags;
+        // The non-primitive `object` against an object type:
+        // `structuredTypeRelatedToWorker` relates its apparent type, the
+        // empty object type `{}` (`getApparentType`), whose structural
+        // report names `{}` (r7-reports §92).
+        if source_flags.contains(TypeFlags::NON_PRIMITIVE)
+            && target_flags.contains(TypeFlags::OBJECT)
+            && !target_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+        {
+            let empty = self.intrinsics.empty_object;
+            return self.explain_object_relation(stack, empty, target, depth, false);
+        }
+        // An `any` source fails only where `isSimpleTypeRelatedTo` decided
+        // it (a `never` target), and nothing structural reports below
+        // (r7-reports §90).
+        if source_flags.intersects(TypeFlags::ANY) {
+            return Some(());
+        }
+        // `isSimpleTypeRelatedTo`'s union-enum arm (`relater.go:243`) runs
+        // `isEnumTypeRelatedTo` with the error reporter: its member walk's
+        // first failure is the chain, and the union's members then relate
+        // without reporting (r7-reports §85).
+        if let (Some(source_enum), Some(target_enum)) =
+            (self.chain_enum_symbol(source), self.chain_enum_symbol(target))
+            && source_enum != target_enum
+        {
+            if let Some(entry) = self.enum_relation_failure(source_enum, target_enum) {
+                stack.push(entry);
+            }
+            return Some(());
+        }
         // `eachTypeRelatedToType`: the first source constituent that fails
         // (constituents in union order). A primitive union (`boolean`, an
         // enum) is related with `reportErrors` off (`relater.go:2873`).
@@ -6260,6 +6451,42 @@ impl Checker<'_, '_> {
             }
             return self.explain_object_relation(stack, source, target, depth, false);
         }
+        // Two indexed accesses (`structuredTypeRelatedToWorker`'s target arm,
+        // `relater.go:3542`): `S[K]` relates to `T[J]` when `S` relates to
+        // `T` and then `K` to `J`, each reporting. The write-constraint
+        // fallback that follows is skipped for a generic target index; any
+        // other target, or a mapped or alias object the pair would first
+        // normalize, declines (r7-reports §81).
+        if let Some(&(source_object, source_index, _)) =
+            self.deferred_indexed_access_types.get(&source)
+            && let Some(&(target_object, target_index, _)) =
+                self.deferred_indexed_access_types.get(&target)
+        {
+            for object in [source_object, target_object] {
+                self.ensure_mapped_type_info(object);
+            }
+            if !self.indexed_access_index_is_generic(target_index)
+                || [source_object, target_object].iter().any(|object| {
+                    self.mapped_types.contains_key(object)
+                        || self.type_reference_targets.contains_key(object)
+                        || self.deferred_indexed_access_types.contains_key(object)
+                })
+            {
+                return None;
+            }
+            return match self.chain_relate(stack, source_object, target_object) {
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, source_object, target_object, depth)
+                }
+                Ternary::Related => match self.chain_relate(stack, source_index, target_index) {
+                    Ternary::NotRelated => {
+                        self.explain_pair(stack, source_index, target_index, depth)
+                    }
+                    _ => None,
+                },
+                Ternary::Unknown => None,
+            };
+        }
         // An indexed-access source (the same type-variable case,
         // `relater.go:3665`) relates `getConstraintOfType`, reporting when
         // that is not `unknown` (a nil constraint reports nothing). Against
@@ -6371,7 +6598,7 @@ impl Checker<'_, '_> {
         if let Some(target_readonly) = self.array_reference_readonly(target)
             && let Some((_, source_readonly)) = self.tuple_element_lists.get(&source).cloned()
             && (target_readonly || !source_readonly)
-            && !self.tuple_optional_masks.contains_key(&source)
+            && !self.tuple_optional_masks.get(&source).is_some_and(|mask| mask.contains(&true))
         {
             let number = self.intrinsics.number;
             let source_index = self.array_or_tuple_element_access(source, number, false)?;
@@ -6400,13 +6627,15 @@ impl Checker<'_, '_> {
         self.explain_object_relation(stack, source, target, depth, false)
     }
 
-    /// `propertiesRelatedTo`'s tuple-target arm (`relater.go:4103`) for a
-    /// fixed tuple target (required elements only) against a fixed tuple or
-    /// an array source: the arity messages, then the first element that
-    /// fails (`Type at position i in source is not compatible with type at
-    /// position i in target.` when either side has more than one element).
-    /// A readonly source against a mutable target, an optional, rest or
-    /// variadic element on either side, decline (r7-reports §52).
+    /// `propertiesRelatedTo`'s tuple-target arm (`relater.go:4103`) for tuples
+    /// of required, optional and rest elements, and an array source (all
+    /// rest): the arity messages in native's order, then each source position
+    /// against its target position (`Source provides no match for required
+    /// element at position i in target.`, then the element relation, with
+    /// `Type at position(s) …` when either side has more than one element).
+    /// A readonly source against a mutable target, a variadic element, and an
+    /// element failure where either side is optional (whose types native
+    /// compares with `removeMissingType`) decline (r7-reports §52, §87, §89).
     fn explain_fixed_tuple_target(
         &mut self,
         stack: &mut ChainStack,
@@ -6415,17 +6644,60 @@ impl Checker<'_, '_> {
         depth: usize,
     ) -> Option<()> {
         use crate::relater::Ternary;
-        let fixed = |checker: &Self, ty: TypeId| {
-            if checker.tuple_optional_masks.contains_key(&ty)
-                || checker.variadic_tuple_elements.contains_key(&ty)
-                || checker.tuple_rest_tails.contains_key(&ty)
-            {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum Kind {
+            Required,
+            Optional,
+            Rest,
+        }
+        let shape = |checker: &Self, ty: TypeId| -> Option<(Vec<(TypeId, Kind)>, bool)> {
+            if let Some((elements, readonly)) = checker.variadic_tuple_elements.get(&ty) {
+                let mut shape = Vec::with_capacity(elements.len());
+                for element in elements {
+                    if element.spread {
+                        // A rest element over an array; a variadic `...T`
+                        // declines.
+                        checker.array_reference_readonly(element.r#type)?;
+                        let item =
+                            checker.type_reference_targets.get(&element.r#type)?.1.first()?;
+                        shape.push((*item, Kind::Rest));
+                    } else if element.optional {
+                        shape.push((element.r#type, Kind::Optional));
+                    } else {
+                        shape.push((element.r#type, Kind::Required));
+                    }
+                }
+                return Some((shape, *readonly));
+            }
+            if checker.tuple_rest_tails.contains_key(&ty) {
                 return None;
             }
-            checker.tuple_element_lists.get(&ty).cloned()
+            let (types, readonly) = checker.tuple_element_lists.get(&ty)?;
+            let mask = checker.tuple_optional_masks.get(&ty);
+            let kind = |index: usize| {
+                if mask.and_then(|mask| mask.get(index)).copied().unwrap_or(false) {
+                    Kind::Optional
+                } else {
+                    Kind::Required
+                }
+            };
+            Some((
+                types.iter().enumerate().map(|(index, &ty)| (ty, kind(index))).collect(),
+                *readonly,
+            ))
         };
-        let (target_elements, target_readonly) = fixed(self, target)?;
-        let target_arity = target_elements.len();
+        let (target_elements, target_readonly) = shape(self, target)?;
+        let (source_elements, source_readonly, source_is_array) =
+            if let Some(readonly) = self.array_reference_readonly(source) {
+                let element = *self.type_reference_targets.get(&source)?.1.first()?;
+                (vec![(element, Kind::Rest)], readonly, true)
+            } else {
+                let (elements, readonly) = shape(self, source)?;
+                (elements, readonly, false)
+            };
+        if source_readonly && !target_readonly {
+            return None;
+        }
         let push_count = |stack: &mut ChainStack,
                           message: &'static tsr_diagnostics::Message,
                           args: Vec<usize>| {
@@ -6435,49 +6707,96 @@ impl Checker<'_, '_> {
             });
             Some(())
         };
-        if let Some(readonly) = self.array_reference_readonly(source) {
-            if readonly && !target_readonly {
-                return None;
-            }
-            // An array source is all rest: its minimum length is 0.
-            let message = if target_arity > 0 {
-                &messages::TARGET_REQUIRES_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_FEWER
-            } else {
-                &messages::TARGET_ALLOWS_ONLY_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_MORE
-            };
-            return push_count(stack, message, vec![target_arity]);
-        }
-        let (source_elements, source_readonly) = fixed(self, source)?;
-        if source_readonly && !target_readonly {
-            return None;
-        }
+        let required = |elements: &[(TypeId, Kind)]| {
+            elements.iter().filter(|element| element.1 == Kind::Required).count()
+        };
         let source_arity = source_elements.len();
-        if source_arity < target_arity {
+        let target_arity = target_elements.len();
+        let source_rest = source_elements.iter().any(|element| element.1 == Kind::Rest);
+        let target_has_rest = target_elements.iter().any(|element| element.1 == Kind::Rest);
+        let source_min = if source_is_array { 0 } else { required(&source_elements) };
+        let target_min = required(&target_elements);
+        if !source_rest && source_arity < target_min {
             return push_count(
                 stack,
                 &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_REQUIRES_1,
-                vec![source_arity, target_arity],
+                vec![source_arity, target_min],
             );
         }
-        if target_arity < source_arity {
+        if !target_has_rest && target_arity < source_min {
             return push_count(
                 stack,
                 &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_ALLOWS_ONLY_1,
-                vec![source_arity, target_arity],
+                vec![source_min, target_arity],
             );
         }
-        for (position, (&from, &to)) in source_elements.iter().zip(&target_elements).enumerate() {
+        if !target_has_rest && (source_rest || target_arity < source_arity) {
+            return if source_min < target_min {
+                push_count(
+                    stack,
+                    &messages::TARGET_REQUIRES_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_FEWER,
+                    vec![target_min],
+                )
+            } else {
+                push_count(
+                    stack,
+                    &messages::TARGET_ALLOWS_ONLY_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_MORE,
+                    vec![target_arity],
+                )
+            };
+        }
+        let target_start =
+            target_elements.iter().take_while(|element| element.1 != Kind::Rest).count();
+        let target_end =
+            target_elements.iter().rev().take_while(|element| element.1 != Kind::Rest).count();
+        for (source_position, &(from, source_kind)) in source_elements.iter().enumerate() {
+            let from_end = source_arity - 1 - source_position;
+            let target_position = if target_has_rest && source_position >= target_start {
+                target_arity - 1 - from_end.min(target_end)
+            } else {
+                if source_position >= target_arity {
+                    return push_count(
+                        stack,
+                        &messages::TARGET_ALLOWS_ONLY_0_ELEMENT_S_BUT_SOURCE_MAY_HAVE_MORE,
+                        vec![target_arity],
+                    );
+                }
+                source_position
+            };
+            let (to, target_kind) = target_elements[target_position];
+            if target_kind == Kind::Required && source_kind != Kind::Required {
+                return push_count(
+                    stack,
+                    &messages::SOURCE_PROVIDES_NO_MATCH_FOR_REQUIRED_ELEMENT_AT_POSITION_0_IN_TARGET,
+                    vec![target_position],
+                );
+            }
             match self.chain_relate(stack, from, to) {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
+                    if source_kind == Kind::Optional || target_kind == Kind::Optional {
+                        return None;
+                    }
                     self.explain_pair(stack, from, to, depth)?;
                     if target_arity > 1 || source_arity > 1 {
-                        push_count(
-                            stack,
-                            &messages::TYPE_AT_POSITION_0_IN_SOURCE_IS_NOT_COMPATIBLE_WITH_TYPE_AT_POSITION_1_IN_TARGET,
-                            vec![position, position],
-                        );
+                        if target_has_rest
+                            && source_position >= target_start
+                            && from_end >= target_end
+                            && target_start != source_arity - target_end - 1
+                        {
+                            push_count(
+                                stack,
+                                &messages::TYPE_AT_POSITIONS_0_THROUGH_1_IN_SOURCE_IS_NOT_COMPATIBLE_WITH_TYPE_AT_POSITION_2_IN_TARGET,
+                                vec![target_start, source_arity - target_end - 1, target_position],
+                            );
+                        } else {
+                            push_count(
+                                stack,
+                                &messages::TYPE_AT_POSITION_0_IN_SOURCE_IS_NOT_COMPATIBLE_WITH_TYPE_AT_POSITION_1_IN_TARGET,
+                                vec![source_position, target_position],
+                            );
+                        }
                     }
                     return Some(());
                 }
@@ -6698,13 +7017,13 @@ impl Checker<'_, '_> {
             return Some(None);
         }
         let reliability = self.variance_reliability(symbol, variances.len());
-        let covariant_void =
-            target_arguments.iter().zip(&variances).any(|(&argument, variance)| {
-                *variance == Variance::Covariant
-                    && self.type_of(argument).flags.intersects(TypeFlags::VOID)
-            });
+        // A covariant `void` argument (`hasCovariantVoidArgument`) allows the
+        // structural fallback without restoring the error state: the type
+        // argument's report stays, and the structural pass then runs with
+        // `reportStructuralErrors` off because the chain has changed
+        // (`relater.go:3291`), so the argument's report is the chain
+        // (r7-reports §90).
         if reliability.iter().any(|flags| !flags.is_empty())
-            || covariant_void
             || variances.contains(&Variance::Invariant)
         {
             return None;
@@ -6762,13 +7081,25 @@ impl Checker<'_, '_> {
             if self.get_type_of_property_of_type(source, name).is_none()
                 && !self.chain_property_is_optional(target, name)?
             {
-                let properties = match self.unmatched_property_report(source, target) {
+                // Under `IntersectionStateTarget` a fresh literal meets no
+                // excess-property check (`isPerformingExcessPropertyChecks`),
+                // so its regular type answers (r7-reports §92).
+                let unmatched_source = if stack.intersection_target {
+                    self.get_regular_type_of_object_literal(source)
+                } else {
+                    source
+                };
+                let properties = match self.unmatched_property_report(unmatched_source, target) {
                     Some(properties) => properties,
                     // `getUnmatchedProperties` over an intersection source of
                     // plain objects: the target's required members its
                     // combined members lack, in target order (§71).
+                    // The same for the global `Object` source, which
+                    // `unmatched_property_report` leaves to its caller's head
+                    // because `reportErrorResults` wraps the message (§88).
                     None if self.type_of(source).flags.contains(TypeFlags::INTERSECTION)
-                        && !self.intersection_has_instantiable(source) =>
+                        && !self.intersection_has_instantiable(source)
+                        || self.is_global_object_type(source) =>
                     {
                         let mut missing = Vec::new();
                         for candidate in &names {
@@ -6867,13 +7198,15 @@ impl Checker<'_, '_> {
         if properties_only {
             return None;
         }
-        // `signaturesRelatedTo(Call)`, then `(Construct)`.
+        // `signaturesRelatedTo(Call)`, then `(Construct)`. A resolved
+        // (non-generic) mapped type has neither kind:
+        // `resolveMappedTypeMembers` sets no signatures (r7-reports §82).
         for kind in [SignatureKind::Call, SignatureKind::Construct] {
-            let target_signatures = self.signatures_of_type_kind(target, kind)?;
+            let target_signatures = self.chain_signatures_of_kind(target, kind)?;
             if target_signatures.is_empty() {
                 continue;
             }
-            let source_signatures = self.signatures_of_type_kind(source, kind)?;
+            let source_signatures = self.chain_signatures_of_kind(source, kind)?;
             // An abstract constructor type is not assignable to a
             // non-abstract one (`relater.go:4455`).
             if kind == SignatureKind::Construct
@@ -6885,6 +7218,28 @@ impl Checker<'_, '_> {
                 stack.push(ChainEntry {
                     message: &messages::CANNOT_ASSIGN_AN_ABSTRACT_CONSTRUCTOR_TYPE_TO_A_NON_ABSTRACT_CONSTRUCTOR_TYPE,
                     args: Vec::new(),
+                });
+                return Some(());
+            }
+            // `constructorVisibilitiesAreCompatible` (`relater.go:4520`), with
+            // its report (r7-reports §88).
+            if kind == SignatureKind::Construct
+                && let (Some(first_source), Some(first_target)) =
+                    (source_signatures.first(), target_signatures.first())
+                && let Some((source_visibility, target_visibility)) =
+                    self.constructor_visibility_mismatch(first_source, first_target)
+            {
+                let text = |visibility: Option<SyntaxKind>| match visibility {
+                    Some(SyntaxKind::PrivateKeyword) => "private",
+                    Some(SyntaxKind::ProtectedKeyword) => "protected",
+                    _ => "public",
+                };
+                stack.push(ChainEntry {
+                    message: &messages::CANNOT_ASSIGN_A_0_CONSTRUCTOR_TYPE_TO_A_1_CONSTRUCTOR_TYPE,
+                    args: vec![
+                        text(source_visibility).to_string(),
+                        text(target_visibility).to_string(),
+                    ],
                 });
                 return Some(());
             }
@@ -6916,6 +7271,21 @@ impl Checker<'_, '_> {
             };
         }
         self.explain_index_signatures(stack, source, target, depth)
+    }
+
+    /// The signatures of one kind for the retrace: an instance of a
+    /// non-generic mapped type has none (`resolveMappedTypeMembers`), which
+    /// the port's signature reader leaves undecided.
+    fn chain_signatures_of_kind(
+        &mut self,
+        ty: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Option<Vec<crate::signatures::Signature>> {
+        if let Some(signatures) = self.signatures_of_type_kind(ty, kind) {
+            return Some(signatures);
+        }
+        self.ensure_mapped_type_info(ty);
+        (self.mapped_types.contains_key(&ty) && !self.is_generic_mapped_type(ty)).then(Vec::new)
     }
 
     /// `indexSignaturesRelatedTo` (`relater.go:4578`): each target index
@@ -6976,11 +7346,30 @@ impl Checker<'_, '_> {
                     return None;
                 }
                 // A member without a readable optionality is a synthesized
-                // required one (an import-attributes literal).
-                if self.chain_property_is_optional(source, &name) == Some(true) {
+                // required one (an import-attributes literal). An optional
+                // member against a `string` index relates without its
+                // `undefined` (`getTypeWithFacts(NEUndefined)`, outside
+                // exactOptionalPropertyTypes); against a `number` index it
+                // keeps its optionality's `undefined`, and a member type
+                // without one where strict null checks would add it declines
+                // (r7-reports §91).
+                let optional = self.chain_property_is_optional(source, &name) == Some(true);
+                if optional && self.exact_optional_property_types {
                     return None;
                 }
                 let member = self.get_type_of_property_of_type(source, &name)?;
+                let member = if !optional || member == self.intrinsics.undefined {
+                    member
+                } else if info.key == string {
+                    self.get_type_with_facts(member, crate::flow::TypeFacts::NE_UNDEFINED)
+                } else if self.strict_null_checks
+                    && !matches!(&self.type_of(member).data, TypeData::Union { types, .. }
+                        if types.contains(&self.intrinsics.undefined))
+                {
+                    return None;
+                } else {
+                    member
+                };
                 match self.chain_relate(stack, member, info.value) {
                     Ternary::Related => {}
                     Ternary::Unknown => return None,
@@ -7117,7 +7506,20 @@ impl Checker<'_, '_> {
 
     /// `isObjectTypeWithInferableIndex` is false: a class or interface
     /// instance (no type literal, object literal, enum or module symbol).
-    fn chain_source_index_not_inferable(&self, source: TypeId) -> bool {
+    fn chain_source_index_not_inferable(&mut self, source: TypeId) -> bool {
+        // `isObjectTypeWithInferableIndex` also refuses a type with call or
+        // construct signatures (`typeHasCallOrConstructSignatures`): a
+        // function type misses the signature (r7-reports §88).
+        if self.type_of(source).flags.contains(TypeFlags::OBJECT)
+            && [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+                .into_iter()
+                .any(|kind| {
+                    self.signatures_of_type_kind(source, kind)
+                        .is_some_and(|signatures| !signatures.is_empty())
+                })
+        {
+            return true;
+        }
         let symbol = match self.type_reference_targets.get(&source) {
             Some(&(symbol, _)) => symbol,
             None => match self.type_of(source).data {
@@ -7342,7 +7744,9 @@ impl Checker<'_, '_> {
                     depth,
                 ),
                 None if !target_predicate.asserts => {
-                    let signature = self.signature_to_string(source);
+                    // `signatureToString` without `WriteArrowStyleSignature`:
+                    // `(): void`, not `() => void` (r7-reports §86).
+                    let signature = signature_colon_form(&self.signature_to_string(source));
                     stack.push(ChainEntry {
                         message: &messages::SIGNATURE_0_MUST_BE_A_TYPE_PREDICATE,
                         args: vec![signature],
