@@ -1626,3 +1626,37 @@ reduces to `any` (`any & X`) and this port keeps as the intersection
 Measured (§60 with §61) on `370e40c4`: diagnostics **+2** cases, 0 lost;
 exact oracle +5, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir
 gi 0.9997, dm 1.0000.
+
+## §62 A narrowing arm's decided no-op is not a decline
+
+§49 counts every unchanged narrowing at a node that mentions the reference,
+because a declined arm and a decided no-op look alike from the result. An arm
+that knows it decided records the condition in `FlowState::decided`, and an
+unchanged answer there is not counted. The first such arm is
+`narrowTypeByConstructor`'s inequality guard (`flow.go:762`): an equality in
+the false branch or an inequality in the true one keeps the type, so
+`if (x.constructor != C1) { x.p }` reports on the declared union
+(`typeGuardConstructorClassAndNumber` ×8). Other arms with early `return t`
+(instanceof against `Object`/`Function` or a non-object false branch, the
+`any` reference arms) can join the list as they are read.
+
+Considered and dropped: certifying a receiver whose type is the declared type
+because `checkIdentifier`'s used-before-assigned arm answered it
+(`typeGuardRedundancy`'s `x.toFixed` after a TS2454). Telling that fallback
+from a declined narrowing that also answers the declared union needs the
+TS2454 decision itself, and this port reports it after the property access is
+checked.
+
+## §63 Object-literal members certify private-name misses
+
+`private_names_are_complete` refused a spread's result (`{ ...other }`,
+`{ ...C }`), whose owner symbol is the object literal: an object literal
+declares no private name and a spread copies none (`isSpreadableProperty`),
+so `ObjectLiteralExpression` joins the plain declaration kinds and
+`obj.#prop` reports TS2339 on `'{}'` (`privateNameAndObjectRestSpread` (10,13),
+(15,17)). A rest result (`const { ...rest } = other`) is a member-less named
+type here and stays declined.
+
+Measured (§62 with §63) on `dc2eefea`: diagnostics **+1** case
+(`typeGuardConstructorClassAndNumber`), 0 lost; exact oracle +1, 0 lost;
+jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0000.

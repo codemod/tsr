@@ -1101,6 +1101,9 @@ impl Checker<'_, '_> {
                     | SyntaxKind::ClassExpression
                     | SyntaxKind::InterfaceDeclaration
                     | SyntaxKind::TypeLiteral
+                    // An object literal declares no private name, and a
+                    // spread into it copies none (`isSpreadableProperty`).
+                    | SyntaxKind::ObjectLiteralExpression
             )
         });
         if !plain {
