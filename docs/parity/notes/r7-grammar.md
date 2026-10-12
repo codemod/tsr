@@ -1780,3 +1780,19 @@ takes isolated_alias.rs's `export_symbol_of_value_symbol_if_exported`
 (made `pub(crate)`) first. Checked with the CLI against `target/tsgo-pinned`
 on module, namespace and default exports. The used-before-declaration
 cases above are unchanged.
+
+## §79 Decorators of a node that cannot be decorated are not checked
+
+`checkDecorators` (`checker.go:6025`) returns first when
+`!CanHaveDecorators(node) || !HasDecorators(node) ||
+!NodeCanBeDecorated(legacyDecorators, node, …)`, so no decorator of such a
+node is checked: not its expression and not its names. A parameter under
+ES decorators is the common case. The grammar error for the misplaced
+decorator is `checkGrammarModifiers`', reported from the owner. check.rs's
+walk visited every decorator, so `constructor(@dec(C5) a: any)` drew TS2449
+(`useBeforeDeclaration_classDecorators.2`, `experimentalDecorators: false`).
+The walk now skips a Decorator child whose owner fails grammar.rs's
+`node_can_be_decorated` (check.rs `check_node_worker`, the child loop; the
+predicate runs only for a node with a decorator child). Checked with the
+CLI against `target/tsgo-pinned`: both variants of that case and the
+parameter-decorator cases.

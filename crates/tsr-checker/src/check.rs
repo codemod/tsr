@@ -1184,10 +1184,20 @@ impl Checker<'_, '_> {
             }
             count += 1;
         });
-        for child in children.into_iter().flatten() {
-            self.check_node(child, ambient, depth + 1);
-        }
-        for child in overflow {
+        // `checkDecorators` (`checker.go:6025`) returns before checking any
+        // decorator of a node that cannot be decorated
+        // (`!NodeCanBeDecorated(legacyDecorators, …)`: a parameter under ES
+        // decorators, say), so nothing inside those decorators is checked;
+        // the "not valid here" grammar error is the modifiers' (r7-grammar
+        // §79).
+        let mut decorators_checked: Option<bool> = None;
+        for child in children.into_iter().flatten().chain(overflow) {
+            if self.nodes.kind(child) == SyntaxKind::Decorator
+                && !*decorators_checked
+                    .get_or_insert_with(|| self.node_can_be_decorated(node, typed))
+            {
+                continue;
+            }
             self.check_node(child, ambient, depth + 1);
         }
     }
