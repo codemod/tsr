@@ -1023,6 +1023,33 @@ impl<'a> Checker<'a, '_> {
                 // whose parent has none of those sources; never replace a
                 // present source's property type with the implied pattern.
                 let root = self.root_declaration_of(parent);
+                // A variable root projects its annotation, else its
+                // initializer's type (`checkDeclarationInitializer`); one with
+                // neither, a for-of or for-in head's `let { … }`, leaves the
+                // implied pattern as the element initializer's context.
+                if let tsr_ast::Node::VariableDeclaration(declaration) = self.node_map.get(root)? {
+                    if declaration.r#type.is_some()
+                        || declaration.initializer.is_some()
+                        || self.in_js_file(root)
+                    {
+                        return None;
+                    }
+                    let Some(tsr_ast::BindingName::BindingPattern(pattern)) = element.name else {
+                        return None;
+                    };
+                    let tsr_ast::Node::ObjectLiteralExpression(node) =
+                        self.node_map.get(literal)?
+                    else {
+                        return None;
+                    };
+                    return (self.nodes.kind(pattern.node_id?)
+                        == tsr_ast::SyntaxKind::ObjectBindingPattern
+                        && self.binding_default_pattern_context_available(
+                            pattern,
+                            tsr_ast::Expression::ObjectLiteralExpression(node),
+                        ))
+                    .then_some(pattern);
+                }
                 let tsr_ast::Node::ParameterDeclaration(declaration) = self.node_map.get(root)?
                 else {
                     return None;
