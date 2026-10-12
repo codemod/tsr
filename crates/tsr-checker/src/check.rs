@@ -3817,7 +3817,69 @@ impl Checker<'_, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(specifier) else { return };
         let span = self.error_span(specifier);
-        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        // `createModeMismatchDetails` (`checker.go:15339`) for a `.ts`, `.js`,
+        // `.tsx` or `.jsx` importer, chained under the message
+        // (`NewDiagnosticChainForNode`); the import-equals arm has none.
+        let details = (!in_import_equals)
+            .then(|| self.mode_mismatch_details(importing, specifier, span))
+            .flatten();
+        let diagnostic = match details {
+            Some(details) => Diagnostic::new_chain(Some(details), message, [text.to_string()]),
+            None => Diagnostic::with_args(message, span, [text.to_string()]),
+        };
+        self.report(file, diagnostic);
+    }
+
+    /// `CreateModeMismatchDetails` (`checker/utilities.go:1821`) as
+    /// `createModeMismatchDetails` places it (`checker.go:15524`): how to make
+    /// the importing file an ECMAScript module, from its extension and its
+    /// `package.json` scope. Only a `.ts`, `.js`, `.tsx` or `.jsx` importer
+    /// gets one (`TryGetExtensionFromPath`, so `.d.ts` is not `.ts`).
+    fn mode_mismatch_details(
+        &self,
+        importing: NodeId,
+        error_node: NodeId,
+        span: tsr_core::Span,
+    ) -> Option<Diagnostic> {
+        let host = self.module_host?;
+        let name = host.file_path(importing)?;
+        let lower = name.to_ascii_lowercase();
+        let extension = [".d.ts", ".tsx", ".jsx", ".ts", ".js"]
+            .into_iter()
+            .find(|extension| lower.ends_with(extension))?;
+        let target = match extension {
+            ".ts" => ".mts",
+            ".js" => ".mjs",
+            ".tsx" | ".jsx" => "",
+            _ => return None,
+        };
+        let (package_type, package_directory) = host.package_json_scope(importing)?;
+        let package_json = || tsr_path::combine_paths(&package_directory, &["package.json"]);
+        let (message, args): (&'static tsr_diagnostics::Message, Vec<String>) =
+            if !package_directory.is_empty() && package_type.is_empty() {
+                if target.is_empty() {
+                    (
+                        &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_ADD_THE_FIELD_TYPE_COLON_MODULE_TO_0,
+                        vec![package_json()],
+                    )
+                } else {
+                    (
+                        &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_CHANGE_ITS_FILE_EXTENSION_TO_0_OR_ADD_THE_FIELD_TYPE_COLON_MODULE_TO_1,
+                        vec![target.to_string(), package_json()],
+                    )
+                }
+            } else if target.is_empty() {
+                (
+                    &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_CREATE_A_LOCAL_PACKAGE_JSON_FILE_WITH_TYPE_COLON_MODULE,
+                    Vec::new(),
+                )
+            } else {
+                (
+                    &messages::TO_CONVERT_THIS_FILE_TO_AN_ECMASCRIPT_MODULE_CHANGE_ITS_FILE_EXTENSION_TO_0_OR_CREATE_A_LOCAL_PACKAGE_JSON_FILE_WITH_TYPE_COLON_MODULE,
+                    vec![target.to_string()],
+                )
+            };
+        Some(self.related_diagnostic_at(error_node, message, span, args))
     }
 
     /// The tail of `resolveExternalModule` (`checker.go:15420`-`:15441`) for a

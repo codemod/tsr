@@ -1413,6 +1413,12 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         self.files_by_source_file.get(&file).map_or(&[], |&index| self.files[index].written_lists())
     }
 
+    fn package_json_scope(&self, file: NodeId) -> Option<(String, String)> {
+        let &index = self.files_by_source_file.get(&file)?;
+        let meta = self.meta_datas.get(index)?;
+        Some((meta.package_json_type.clone(), meta.package_json_directory.clone()))
+    }
+
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }
