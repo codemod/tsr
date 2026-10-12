@@ -1203,14 +1203,66 @@ impl Checker<'_, '_> {
         let class_name = self.type_to_string(receiver_type);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.nodes.span(at);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::THE_PROPERTY_0_CANNOT_BE_ACCESSED_ON_TYPE_1_WITHIN_THIS_CLASS_BECAUSE_IT_IS_SHADOWED_BY_ANOTHER_PRIVATE_IDENTIFIER_WITH_THE_SAME_SPELLING,
-                span,
-                [text.to_string(), class_name],
-            ),
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::THE_PROPERTY_0_CANNOT_BE_ACCESSED_ON_TYPE_1_WITHIN_THIS_CLASS_BECAUSE_IT_IS_SHADOWED_BY_ANOTHER_PRIVATE_IDENTIFIER_WITH_THE_SAME_SPELLING,
+            span,
+            [text.to_string(), class_name],
         );
+        // `checker.go:11519-11520`: the shadowing (lexical) declaration, then
+        // the one on the receiver's type, each a value declaration: the
+        // class's first member spelling the name.
+        let related = [
+            (
+                self.private_name_declaration(nearest, text, None),
+                &messages::THE_SHADOWING_DECLARATION_OF_0_IS_DEFINED_HERE,
+            ),
+            (
+                self.private_name_declaration(other, text, Some(is_static)),
+                &messages::THE_DECLARATION_OF_0_THAT_YOU_PROBABLY_INTENDED_TO_USE_IS_DEFINED_HERE,
+            ),
+        ];
+        for (declaration, message) in related {
+            let Some(declaration) = declaration else { continue };
+            let related_span = self.error_span(declaration);
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                declaration,
+                message,
+                related_span,
+                vec![text.to_string()],
+            )));
+        }
+        self.report(file, diagnostic);
+    }
+
+    /// The first member of `class` named `#text` (on the given side, when
+    /// asked): the private name symbol's value declaration.
+    fn private_name_declaration(
+        &self,
+        class: NodeId,
+        text: &str,
+        is_static: Option<bool>,
+    ) -> Option<NodeId> {
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class)? {
+            Node::ClassDeclaration(n) => n.members,
+            Node::ClassExpression(n) => n.members,
+            _ => return None,
+        };
+        members.iter().find_map(|member| {
+            let (name, modifiers) = match member {
+                tsr_ast::ClassElement::PropertyDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::MethodDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) => (n.name, n.modifiers),
+                _ => return None,
+            };
+            (matches!(name, tsr_ast::PropertyName::PrivateIdentifier(p) if p.text == text)
+                && is_static.is_none_or(|is_static| {
+                    tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword)
+                        == is_static
+                }))
+            .then(|| tsr_ast::Node::from(*member).node_id())
+            .flatten()
+        })
     }
 
     /// TS2540 — `Cannot assign to '{0}' because it is a read-only property.`

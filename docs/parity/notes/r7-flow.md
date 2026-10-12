@@ -1567,3 +1567,30 @@ those, so `x.m(); x.onlyInOne` on a declared union reports again
 Measured on `44169174`: diagnostics **+1** case (`unionTypeMembers`), 0 lost;
 exact oracle +1, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir
 gi 0.9998, dm 1.0003.
+
+## §58 A related declaration's range is `GetErrorRangeForNode`'s
+
+`NewDiagnosticForNode(suggestion.ValueDeclaration, …)` places TS2551's
+`'{0}' is declared here.` by `GetErrorRangeForNode` (`scanner.go:2585`), whose
+name list covers functions, methods, variables, classes, interfaces, modules,
+enums and their members, accessors, type aliases, property declarations and
+signatures, and namespace imports; every other kind reports its whole node.
+A lib suggestion is often a `MethodSignature` (`getOwnPropertyNames(o: any):
+string[];`, 38 characters), which `error_span` (check.rs) maps to its name
+(19). `declaration_error_range` (nonexistent_property.rs) applies the native
+list for the related row; `error_span` itself serves anchors whose callers
+already pass the name and is left alone (routed as a finding: other related
+rows built from `error_span(declaration)` may differ the same way).
+
+## §59 TS18014's two related declarations
+
+`checkPrivateIdentifierPropertyAccess` (`checker.go:11519-11520`) adds "The
+shadowing declaration of '{0}' is defined here" at the lexical class's
+`#name` and "The declaration of '{0}' that you probably intended to use is
+defined here" at the receiver class's. `check_private_name_shadowing` reports
+both now, at each class's first member spelling the name (the private name
+symbol's value declaration).
+
+Measured (§58 with §59) on `fd448171`: legacy verdicts unchanged; exact
+oracle +12, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir gi
+1.0000, dm 1.0000.

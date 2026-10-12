@@ -632,7 +632,7 @@ impl Checker<'_, '_> {
             if let Some(declaration) =
                 suggested.and_then(|symbol| self.binder.symbols().get(symbol).value_declaration)
             {
-                let related_span = self.error_span(declaration);
+                let related_span = self.declaration_error_range(declaration);
                 diagnostic.add_related_information(Some(self.related_diagnostic_at(
                     declaration,
                     &messages::_0_IS_DECLARED_HERE,
@@ -730,6 +730,43 @@ impl Checker<'_, '_> {
         match chain {
             Some(child) => Diagnostic::new_chain(Some(child), message, args),
             None => Diagnostic::with_args(message, span, args),
+        }
+    }
+
+    /// `GetErrorRangeForNode` (`scanner.go:2585`) for a declaration a related
+    /// diagnostic points at: the kinds its name list covers report their
+    /// name (`error_span`), and every other kind (a method or property
+    /// signature's sibling kinds such as `MethodSignature`, a property
+    /// assignment, a parameter) its whole node. `error_span` maps every
+    /// named declaration to its name, which is right for the anchors its
+    /// callers pass but not for these (`r7-flow.md` §58).
+    pub(crate) fn declaration_error_range(&self, declaration: NodeId) -> tsr_core::Span {
+        if matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::VariableDeclaration
+                | SyntaxKind::BindingElement
+                | SyntaxKind::ClassDeclaration
+                | SyntaxKind::InterfaceDeclaration
+                | SyntaxKind::ModuleDeclaration
+                | SyntaxKind::EnumDeclaration
+                | SyntaxKind::EnumMember
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::TypeAliasDeclaration
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::PropertySignature
+                | SyntaxKind::NamespaceImport
+                | SyntaxKind::ClassExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::Constructor
+                | SyntaxKind::SourceFile
+        ) {
+            self.error_span(declaration)
+        } else {
+            self.nodes.span(declaration)
         }
     }
 
