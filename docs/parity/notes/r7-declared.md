@@ -1825,3 +1825,58 @@ diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 1.0000, dm 0.9999; exact oracle
 +1 (mappedTypes4), 0 lost. keyofAndIndexedAccess2 itself stays WRONG on
 other rows (it was TSR_TIMEOUT before §52–§53 on `6559089e`); its run is
 0.07 s.
+
+## 56. A symbol-keyed member of a mapped type takes its source member's written name
+
+**Forcing constraint.** jsTyping's `resolutionCache.ts` 460/463 report
+TS2345 where tsgo reports nothing (r7-perf §32's `Readonly<array
+intersection>` cluster, routed here). Reduced:
+
+```ts
+type P = string[] & { __b: any };
+declare const r: Readonly<P>;
+declare function g(x: readonly string[]): void;
+g(r);   // tsgo: no error; TSR: TS2345
+```
+
+`Readonly<P>` is instantiateAnonymousType over the intersection
+(isArrayOrTupleOrIntersection needs every constituent to be an array), so
+its members are the intersection's, `[Symbol.iterator]` and
+`[Symbol.unscopables]` among them. TSR's member image had neither, so
+`ReadonlyArray<string>`'s `[Symbol.iterator]` was missing. Three gaps:
+
+1. The composite key walk (`composite_modifiers_property_names`) listed
+   binder members only; late-bound members are not among them (§54's gap
+   on the composite path).
+2. The template `P[K]` at `K = typeof Symbol.iterator` answered `error`:
+   `resolved_indexed_access_type` named only string, number and enum keys.
+   `string[][typeof Symbol.iterator]` was `error` too (native `() =>
+   ArrayIterator<string>`).
+3. A mapped member keyed by a unique symbol took the escaped name
+   (`__@iterator@id`, §54), while the written member it maps, and every
+   reader that matches by name (the relater's property walk among them),
+   use the written `[Symbol.iterator]`. Native's member and source share
+   one escaped name, so they always meet.
+
+**Port.** (1) the composite walk appends each part's late-bound names, as
+§54's single-source walk does. (2) `resolved_indexed_access_type` asks
+`unique_symbol_property_type` once no name matched;
+`written_unique_symbol_member_name` (split out of it) reads an
+intersection through its first constituent that declares the key. (3) In
+`resolve_mapped_type_members_worker`, a unique-symbol key that names a
+written member of the modifiers type takes that member's name, links its
+optional and readonly modifiers, and prints it as written
+(`[Symbol.iterator]`, native's `symbolToExpression` chain). A key with no
+written source member keeps §54's escaped name. No state.
+
+**Alternatives.** Making the relater match the escaped name to a written
+one would leave the member printed `[iterator]` (native prints
+`[Symbol.iterator]`) and is outside this lane. The written-name choice is
+the convention the rest of the port already reads (`r6-accessible.md` §4).
+
+**Measured** (unfiltered, against §55 on `1e4a24d9`): types **+2, 0
+lost** (extractInferenceImprovement 0:35, 0:37); diagnostics **+2 cases,
+0 lost** (extractInferenceImprovement, mappedTypeWithAsClauseAndLateBoundProperty);
+jsTyping **104 → 102** (the two resolutionCache.ts lines), new_false 0;
+Ir gi 0.9999, dm 1.0001; exact oracle +1 (extractInferenceImprovement),
+0 lost.

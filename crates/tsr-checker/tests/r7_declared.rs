@@ -515,3 +515,17 @@ fn a_self_instantiating_mapped_argument_alias_terminates() {
          const x = b;\n";
     assert_eq!(type_of_last_initializer(source), "B<{ a: string; }, string>");
 }
+
+/// §56: a homomorphic mapping over an intersection keeps a constituent's
+/// symbol-keyed members under their written names (tsgo: the mapping over
+/// `Arr & { b: 1 }` reads `[it]`, as `Readonly<string[] & {…}>` reads
+/// `[Symbol.iterator]`).
+#[test]
+fn a_readonly_array_intersection_keeps_symbol_members() {
+    let source = "declare const it: unique symbol;\n\
+         interface Arr { [it](): number; length: number }\n\
+         type P = Arr & { b: 1 };\n\
+         declare const r: { readonly [K in keyof P]: P[K] };\n\
+         const x = r[it];\n";
+    assert_eq!(type_of_last_initializer(source), "() => number");
+}

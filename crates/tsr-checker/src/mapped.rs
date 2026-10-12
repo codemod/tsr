@@ -1347,7 +1347,17 @@ impl<'a> Checker<'a, '_> {
             // (r7-declared §33).
             let part = if is_union { part } else { self.mapped_modifiers_instance(part) };
             let mapped_part = !is_union && self.mapped_types.contains_key(&part);
-            for name in self.property_names_of(part) {
+            // Late-bound members (`[Symbol.iterator]` of an array part) are
+            // no binder members; the part's full list has them (§54).
+            let mut part_names = self.property_names_of(part);
+            if let Some(all) = self.get_property_names_of_type(part) {
+                for name in all {
+                    if name.starts_with('[') && !part_names.contains(&name) {
+                        part_names.push(name);
+                    }
+                }
+            }
+            for name in part_names {
                 if checked.insert(name.clone())
                     && (mapped_part || self.get_property_of_type(source, &name).is_some())
                 {
@@ -1458,7 +1468,24 @@ impl<'a> Checker<'a, '_> {
         let mut property_names: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
         let mut indexes: Vec<crate::index_signatures::IndexInfo> = Vec::new();
         for (name_type, key, first_key) in members {
-            let Some(name) = self.mapped_key_property_name(name_type) else {
+            // A unique-symbol key that names a written member of the
+            // modifiers type (`[Symbol.iterator]` of `string[]`) takes that
+            // member's name: native's member and its source share the escaped
+            // name, and this port names a written symbol member by its
+            // bracketed text, so the shared name is the written one
+            // (`crate::unique_symbol_keys`; r7-declared §56).
+            let written = if self.store.get(name_type).flags.contains(TypeFlags::UNIQUE_ES_SYMBOL)
+                && name_type == first_key
+            {
+                modifiers.and_then(|source| {
+                    let apparent = self.apparent_type(source);
+                    self.written_unique_symbol_member_name(apparent, name_type)
+                })
+            } else {
+                None
+            };
+            let Some(name) = written.clone().or_else(|| self.mapped_key_property_name(name_type))
+            else {
                 // The index-signature arm instantiates templateType, which
                 // getTemplateTypeFromMappedType built with addOptionality
                 // (checker.go:22697): `Partial`-style `?` maps include
@@ -1504,7 +1531,7 @@ impl<'a> Checker<'a, '_> {
             if !property_names.insert(name.clone()) {
                 continue;
             }
-            let source_name = self.mapped_key_property_name(first_key);
+            let source_name = written.clone().or_else(|| self.mapped_key_property_name(first_key));
             let source_property = modifiers
                 .zip(source_name.as_deref())
                 .and_then(|(source, name)| self.get_property_of_type(source, name));
@@ -1556,7 +1583,9 @@ impl<'a> Checker<'a, '_> {
                         .or_else(|| composite.as_ref().and_then(|member| member.origin))
                 })
                 .flatten();
-            let printed_name = if let Some(symbol) = self.unique_symbol_type_symbol(name_type) {
+            let printed_name = if let Some(written) = &written {
+                written.clone()
+            } else if let Some(symbol) = self.unique_symbol_type_symbol(name_type) {
                 // getPropertyNameNodeForSymbolFromNameType's UniqueESSymbol
                 // arm, printed with no site (`nodebuilderimpl.go:2482`).
                 format!("[{}]", self.binder.symbols().get(symbol).name)
