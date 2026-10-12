@@ -485,7 +485,7 @@ impl Checker<'_, '_> {
         // A plan with declaration slots only keeps its baked print, which is
         // what this image printed before its reuse moved to print time.
         if self.rendering_composites.contains(&id) {
-            return accessor.then(|| "any".to_string());
+            return accessor.then(|| self.elided_information_placeholder());
         }
         let TypeData::Named { members: owner, .. } = self.store.get(id).data else {
             return None;
@@ -635,7 +635,7 @@ impl Checker<'_, '_> {
             return None;
         }
         if visit_identity && !self.rendering_composites.insert(id) {
-            return Some("any".to_string());
+            return Some(self.elided_information_placeholder());
         }
         let result = members
             .iter_mut()
