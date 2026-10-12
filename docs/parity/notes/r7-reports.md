@@ -1858,3 +1858,13 @@ not compared, as upstream does.
   (`indexedAccessConstraints`). Through a conditional target
   (`deepComparisons`) it is undecided. Measured on those two files, then
   reverted; not in this commit.
+
+## 56. A class's `prototype` is not compared
+
+`propertiesRelatedTo` (`relater.go:4256`) skips every target property
+with `SymbolFlagsPrototype`, so `typeof Ctor2 → typeof Ctor1` is explained
+by the construct signatures' instance types. The dotted reduction then
+reads `The types of '(new a.b.c.d.e.f()).g'…`. The port mints a class's
+static-side `prototype` without a symbol (`members.rs`, §117 slice 2).
+The property loop therefore skips `prototype` on a class's anonymous
+static type, as well as any symbol carrying `PROTOTYPE`.

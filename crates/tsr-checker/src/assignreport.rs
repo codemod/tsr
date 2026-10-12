@@ -6343,6 +6343,19 @@ impl Checker<'_, '_> {
             }
         }
         for name in &names {
+            // A class's `prototype` is never compared (`relater.go:4256`);
+            // the construct signatures relate the instances.
+            // The port mints a class's `prototype` without a symbol.
+            let class_prototype = name == "prototype"
+                && matches!(self.type_of(target).data, TypeData::Anonymous { symbol, .. }
+                    if self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags.contains(SymbolFlags::CLASS));
+            if class_prototype
+                || self.get_property_of_type(target, name).is_some_and(|symbol| {
+                    self.binder.symbols().get(symbol).flags.contains(SymbolFlags::PROTOTYPE)
+                })
+            {
+                continue;
+            }
             let Some(source_member) = self.get_type_of_property_of_type(source, name) else {
                 continue;
             };
