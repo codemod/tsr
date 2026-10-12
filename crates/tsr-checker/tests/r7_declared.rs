@@ -326,8 +326,8 @@ fn a_homomorphic_mapping_over_a_mapped_alias_reference_has_its_keys() {
 }
 
 /// §33: an intersection of mapped-alias references lists every constituent's
-/// members, optional only where each constituent is (tsgo prints the same
-/// members, `foo?` first).
+/// members, optional only where each constituent is, in declaration order
+/// (§47; tsgo: `{ foo?: boolean | undefined; bar: number; }`).
 #[test]
 fn an_intersection_of_mapped_aliases_lists_its_members() {
     let source = "type M = { foo: boolean; bar: number };\n\
@@ -336,7 +336,7 @@ fn an_intersection_of_mapped_aliases_lists_its_members() {
          type I = P<M, \"bar\"> & O<P<M, \"foo\">>;\n\
          declare const m: { [K in keyof I]: I[K] };\n\
          const x = m;\n";
-    assert_eq!(type_of_last_initializer(source), "{ bar: number; foo?: boolean | undefined; }");
+    assert_eq!(type_of_last_initializer(source), "{ foo?: boolean | undefined; bar: number; }");
 }
 
 /// §35: a non-distributive infer conditional infers from the whole union
@@ -444,4 +444,13 @@ fn keyof_a_non_generic_object_mentioning_a_parameter_resolves() {
              const x = k;\n\
          }\n";
     assert_eq!(type_of_last_initializer(source), "string | number");
+}
+
+/// §47: mapped members are ordered by name when nothing links them
+/// (compareSymbols; tsgo: `{ 1: 1; 10: 1; 2: 1; }`).
+#[test]
+fn mapped_members_are_ordered_by_name() {
+    let source = "declare const m: { [K in 2 | 10 | 1]: 1 };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ 1: 1; 10: 1; 2: 1; }");
 }
