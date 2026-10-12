@@ -1266,8 +1266,15 @@ impl<'a> Scanner<'a> {
             }
         }
 
+        // `scanString` (`scanner.go:1586`) writes `text[start:pos]` before
+        // the closing quote is consumed; an unterminated literal keeps every
+        // character up to the line break or end of text.
         self.value = Some(decoded.unwrap_or_else(|| {
-            let end = self.pos.saturating_sub(1).max(start);
+            let end = if flags.contains(TokenFlags::UNTERMINATED) {
+                self.pos
+            } else {
+                self.pos.saturating_sub(1).max(start)
+            };
             self.source[start as usize..end as usize].to_string()
         }));
         SyntaxKind::StringLiteral
