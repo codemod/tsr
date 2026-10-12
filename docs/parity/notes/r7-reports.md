@@ -1601,3 +1601,70 @@ infos). With that supplied, `` `bool${P}` → keyof T `` is still `Unknown`
 in the port. That needs the index-target arm's `getSimplifiedTypeOrConstraint`
 and the template-source arm against an instantiable target. It was tried
 and reverted in this commit. The case's verdict stays as it was.
+
+## 42. The argument head's chain, and reference variances
+
+- **TS2345 carries the chain.** `report_argument_failure` reported its
+  head through `report_argument_head`, which never retraced the relation:
+  every argument mismatch printed the head alone. Its final branch now
+  builds `relation_failure_chain` exactly as `report_relation_failure`
+  does (when the relation is decided and there is no signature-arity
+  elaboration). The head goes through `attach_chain_file` and the
+  type-parameter hint like the TS2322 head.
+- **References to one class or interface** (`relateVariances`,
+  `relater.go:3266`; `typeArgumentsRelatedTo`, `:3903`). Each type
+  argument is related under its measured variance, and the first failure
+  explains the pair, with no `Types of property` above it:
+  `Container<Ref<string>> → Container<Ref<number>>` reads `Type
+  'Ref<string>' is not assignable to type 'Ref<number>'.` under it.
+  The structural comparison decides instead in three cases, and the arm
+  steps aside for each: a variance with `Unmeasurable`/`Unreliable`
+  flags (`AllowsStructuralFallback`), a covariant `void` target argument,
+  or an invariant parameter (upstream resets the variance errors to show
+  the structural reason). Aliases relate through their own variance path
+  in the relater and decline here.
+
+## 43. `Did you mean to call this expression?`
+
+`elaborateDidYouMeanToCallOrConstruct` (`relater.go:480`) reports the
+relation at the expression itself and adds `Did you mean to call this
+expression?` (TS6212) or `Did you mean to use 'new' with this expression?`
+(TS6213) to the first diagnostic, after anything the relation attached
+(`'x' is declared here.` under TS2741). The port's doc comment had said
+"the suite does not compare" related information. The exact oracle does,
+so the hint is now attached.
+
+## 44. TS7010 at a method signature spans the signature
+
+`GetErrorRangeForNode` (`scanner.go:2604`) narrows a function or method
+declaration, accessors, and property declarations and signatures to the
+name. `MethodSignature` is not on that list, so `foo(); // error` in an
+interface reports across `foo();`, semicolon included. The rank has 10
+`diag:span-only` cases (`implicitAnyAmbients`,
+`implicitAnyDeclareMemberWithoutType`, …). The shared `error_span` names a
+method signature by its name, and other report sites read it. So the fix
+is local to TS7010's report in `implicit_any.rs`, not a change to
+`error_span`. Whether `error_span` should drop `MethodSignature` for every
+caller is a question for its owner; it is proposed rather than changed.
+
+## 45. Heads that keep the missing-property message; TS2786's elaboration
+
+- **`isConversionOrInterfaceImplementationMessage`** (`relater.go:4934`).
+  `reportRelationError` suppresses its head when the message below is
+  the pair's missing-property message, except under six heads: the two
+  `Class … incorrectly implements …` heads, TS2352's conversion head, and
+  the three `Its … type '{0}' is not a valid JSX element.` heads.
+  `missing_property_chain` takes the caller's head and keeps it for those
+  six. TS2420/TS2720 in `heritage_conformance.rs` still report the bare
+  head ("That reporter does not make the exception"). That file's owner
+  can now route them through `report_relation_failure`; this commit
+  proposes that and leaves their file unchanged.
+- **TS2786's chain** (`checkJsxReturnAssignableToAppropriateBound`,
+  `jsx.go:169`). The bound check relates the tag's return or instance
+  type under `Its return type…` (function), `Its instance type…` (class)
+  or `Its element type…` (both), and wraps `diags[0]` in TS2786. The port
+  reported a bare TS2786. It now calls `report_relation_failure` with the
+  kind's head and moves the one diagnostic it produces under TS2786. The
+  chain's file goes through `attach_chain_file`, and `new_chain` copies
+  the child's related information up. When the reporter declines, or
+  produces anything but one diagnostic, the bare TS2786 stands as before.

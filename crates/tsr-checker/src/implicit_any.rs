@@ -1061,7 +1061,14 @@ impl Checker<'_, '_> {
         // **declaration**, and `GetErrorRangeForNode` narrows a named
         // function-like to its name: `FunctionDeclaration3.ts(1,10)` for
         // `function foo();` is the `foo`.
-        let span = self.error_span(node);
+        // A `MethodSignature` is not among the kinds `GetErrorRangeForNode`
+        // (`scanner.go:2604`) narrows to their name: the whole signature,
+        // `foo();` with its `;`, is the range (r7-reports §44).
+        let span = if self.nodes.kind(node) == SyntaxKind::MethodSignature {
+            self.nodes.span(node)
+        } else {
+            self.error_span(node)
+        };
         self.report(
             file,
             Diagnostic::with_args(
