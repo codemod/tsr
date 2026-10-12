@@ -6091,13 +6091,15 @@ impl Checker<'_, '_> {
                 _ => None,
             };
         }
-        if self.array_reference_readonly(source).is_some()
-            || self.array_reference_readonly(target).is_some()
-            || self.tuple_element_lists.contains_key(&source)
-            || self.tuple_element_lists.contains_key(&target)
-            || self.variadic_tuple_elements.contains_key(&source)
-            || self.variadic_tuple_elements.contains_key(&target)
-        {
+        // Array and tuple pairs have arms of their own (tuple elements,
+        // `tryElaborateArrayLikeErrors`), not retraced here. An array or
+        // tuple against a plain object, or the reverse, is structural.
+        let array_like = |checker: &Self, ty: TypeId| {
+            checker.array_reference_readonly(ty).is_some()
+                || checker.tuple_element_lists.contains_key(&ty)
+                || checker.variadic_tuple_elements.contains_key(&ty)
+        };
+        if array_like(self, source) && array_like(self, target) {
             return None;
         }
         if let Some(explained) = self.explain_reference_variances(stack, source, target, depth) {
@@ -6180,11 +6182,9 @@ impl Checker<'_, '_> {
     ) -> Option<()> {
         use crate::relater::Ternary;
         use crate::signatures::SignatureKind;
+        // `propertiesRelatedTo` walks the target's properties and looks each
+        // up on the source by name; the source's own list is never read.
         let names = self.get_property_names_of_type(target)?;
-        // The source's own members matter only against some target member.
-        if !names.is_empty() {
-            self.get_property_names_of_type(source)?;
-        }
         // `getUnmatchedProperty` first.
         for name in &names {
             if self.get_type_of_property_of_type(source, name).is_none()

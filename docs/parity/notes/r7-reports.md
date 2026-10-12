@@ -1756,3 +1756,20 @@ with the swapped pair. `(f: (x: Dog) => Dog) => void` against
 `(f: (x: Animal) => Animal) => void` reads `Types of parameters 'f' and
 'f' are incompatible.` → `Property 'dog' is missing…`. The callback's
 return marker is elided, as upstream does.
+
+## 50. The source's property list is not read; arrays against objects
+
+- `propertiesRelatedTo` walks the **target's** properties and looks each
+  one up on the source by name. `explain_object_relation` also asked for
+  the source's full list and declined without one, which
+  `get_property_names_of_type` does not have for an interface extending
+  a type alias (`interface I1 extends T1 { a: string }`). The list was
+  never read, so the guard is gone: TS2430's `Types of property 'a' are
+  incompatible.` now appears under `I1`, `I12`, `I20` and `I21` in
+  `interfaceExtendsObjectIntersectionErrors`.
+- Array/tuple pairs keep their own arms (tuple elements,
+  `tryElaborateArrayLikeErrors`) and decline. A plain object against an
+  array or tuple, or the reverse, is the structural comparison and is
+  retraced as one. In that file, `I2 extends T1 & { b: number }` still
+  declines (the `I2 → T1` constituent verdict is `Unknown` under
+  `IntersectionStateTarget`), and so does `I3 extends number[]`.
