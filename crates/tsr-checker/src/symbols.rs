@@ -1516,7 +1516,15 @@ impl<'a> Checker<'a, '_> {
                     // Force the alias even on a cold query. A known module
                     // copy retains its source's namespace meaning, not the
                     // callable value meaning of a plain exported function.
-                    let value = self.get_type_of_symbol(found);
+                    // An alias whose own resolution fails (`import Cycle =
+                    // Loop; import Loop = Cycle`, both locals of a namespace)
+                    // has no value to force; native's `getSymbol` asks only
+                    // its flags (r7-shared.md §30).
+                    let value = if self.resolve_alias(found).is_some() {
+                        self.get_type_of_symbol(found)
+                    } else {
+                        self.intrinsics.error
+                    };
                     if let Some(&(_, source)) = self.module_value_clones.get(&value)
                         && let crate::types::TypeData::Anonymous { symbol, .. } =
                             self.store.get(source).data
