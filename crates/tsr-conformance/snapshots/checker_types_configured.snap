@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1829/1928 (94.87%)
-Assertion lines: 77998/78552 (99.29%)  — a gradient, not a pass rate
-Failed         : 99
+Passed         : 1830/1928 (94.92%)
+Assertion lines: 77999/78552 (99.30%)  — a gradient, not a pass rate
+Failed         : 98
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -129,8 +129,6 @@ conformance/asyncArrowFunctionCapturesThis_es5(target=es2015)
   asyncArrowFunctionCapturesThis_es5.ts: >fn : error — expected >fn : () => Promise<this>
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
   asyncFunctionDeclaration15_es5.ts: >fn13 : any — expected >fn13 : () => Promise<any>
-conformance/asyncGetter_es5(target=es2015)
-  asyncGetter_es5.ts: >foo : any — expected >foo : void
 conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)
   file.ts: >mod : typeof mod — expected >mod : any
 conformance/decoratorOnClassMethod11(target=es2015)
