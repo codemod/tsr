@@ -1687,3 +1687,35 @@ lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir gi 0.9999, dm
 `members.rs` (the property access's `silentNeverType` arm) and `calls.rs`
 (`resolve_call_expression`'s `silentNeverSignature` arm), with
 `tests/r7_flow_silent_never.rs`.
+
+## §65 A call receiver whose every signature returns its written, non-generic type
+
+`receiver_type_is_the_declared_one` certified a call-expression receiver only
+when it is `never` (§30: an inferred return is this port's inference, which
+`superPropertyAccessNoError`'s `super.returnThis()` gets wrong). A call whose
+callee's every call signature has a written return annotation, no type
+parameters, and returns exactly the receiver's type needs no inference or
+overload choice to agree with native, so `call_result_is_written` certifies
+it: `"…".match(re).groups`, `re.exec(s).groups`, `Symbol("foo").description`
+now report TS2550 (`doYouNeedToChangeYourTargetLibraryES2016Plus` 25 of 27).
+A `super.m()` callee, an inferred or generic return, a `this`-typed return
+and an optional call all stay uncertified.
+
+## §66 Routed consumer hunks applied under the grant
+
+The integration thread now grants small consumer hunks in other lanes'
+files when they share the commit's native root cause. Three of this lane's
+routed diffs are applied in this commit, each with its test:
+
+- `r7-flow-undefined-initializer.diff` (§31): `nullish.rs`' and `symbols.rs`'
+  `isNullOrUndefined` identifier arms compare with the binder's synthesized
+  `undefined` symbol, not with resolving to nothing.
+- `r7-flow-auto-array-reporter.diff` (§18): `implicit_any.rs`' TS7034/TS7005
+  reporter for the evolving-array track (`tests/r7_flow_auto_array_report.rs`).
+- `r7-flow-conditional-substitution-constraint.diff` (§17): `declared.rs`'
+  base constraint of `Extract<T, U>` reads the true branch's substitution
+  (`tests/r7_flow_conditional_substitution.rs`).
+
+Measured (§65 with §66) on `74f08416`: types **+10**, diagnostics **+3**
+cases, 0 lost; exact oracle +6, 0 lost; jsTyping gap 22 → 22, new_false 0,
+lost_true 0; Ir gi 1.0000, dm 1.0003.

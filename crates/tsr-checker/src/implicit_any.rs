@@ -1289,9 +1289,9 @@ impl Checker<'_, '_> {
         ) else {
             return;
         };
-        if !self.identifier_flow_type_is_auto(node, symbol) {
+        let Some(kind) = self.identifier_flow_auto_kind(node, symbol) else {
             return;
-        }
+        };
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return;
         };
@@ -1320,7 +1320,7 @@ impl Checker<'_, '_> {
                     Diagnostic::with_args(
                         &messages::VARIABLE_0_IMPLICITLY_HAS_TYPE_1_IN_SOME_LOCATIONS_WHERE_ITS_TYPE_CANNOT_BE_DETERMINED,
                         span,
-                        [name.clone(), "any".to_string()],
+                        [name.clone(), kind.text().to_string()],
                     ),
                 );
             }
@@ -1332,7 +1332,7 @@ impl Checker<'_, '_> {
             Diagnostic::with_args(
                 &messages::VARIABLE_0_IMPLICITLY_HAS_AN_1_TYPE,
                 span,
-                [name, "any".to_string()],
+                [name, kind.text().to_string()],
             ),
         );
     }

@@ -181,10 +181,9 @@ impl Checker<'_, '_> {
                     | self.syntactic_nullishness_semantics(when_false, depth + 1)
             }
             SyntaxKind::NullKeyword => ALWAYS,
-            // `getResolvedSymbol(node) == c.undefinedSymbol`: the global
-            // `undefined` is not in this binder's tables, so an unshadowed
-            // `undefined` is the one that resolves to nothing — the same
-            // reading as `truthiness.rs`'s identifier arm.
+            // `getResolvedSymbol(node) == c.undefinedSymbol`: the binder's
+            // synthesised global `undefined` (or, without it, nothing), the
+            // same reading as `truthiness.rs`'s identifier arm.
             SyntaxKind::Identifier => {
                 let Some(Node::Identifier(identifier)) = self.node_map.get(node) else {
                     return SOMETIMES;
@@ -199,7 +198,7 @@ impl Checker<'_, '_> {
                             identifier.text,
                             tsr_binder::SymbolFlags::VALUE,
                         )
-                        .is_none()
+                        .is_none_or(|symbol| Some(symbol) == self.binder.undefined_symbol())
                 {
                     ALWAYS
                 } else {
