@@ -1886,3 +1886,19 @@ error type and on an undecided signature list. The JS per-function hook
 `check.rs` is not this lane's. A quick oracle over `conformance/jsdoc`
 against c49 read 3 gained and 0 lost (`checkJsdocTypeTag5`,
 `checkJsdocTypeTagOnObjectProperty1`, `jsdocFunction_missingReturn`).
+
+## 58. A protected source member; abstract constructor types
+
+- `propertyRelatedTo`'s last modifier arm (`relater.go:4296`): a
+  protected source member against a public target member reads `Property
+  'x' is protected in type 'S' but public in type 'T'.`. A protected
+  *target* needs `isValidOverrideOf`'s class derivation (`…is protected
+  but type 'S' is not a class derived from 'T'`), which this retrace does
+  not make, so it still declines. The private arms now print the target
+  member's written name (§55).
+- `signaturesRelatedTo(Construct)` (`relater.go:4455`): when the first
+  source construct signature is abstract and the first target one is not,
+  the pair fails with `Cannot assign an abstract constructor type to a
+  non-abstract constructor type.` (`classAbstractAssignabilityConstructorFunction`).
+  `constructorVisibilitiesAreCompatible` (private and protected
+  constructors) is not retraced.

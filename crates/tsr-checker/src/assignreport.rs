@@ -6413,6 +6413,20 @@ impl Checker<'_, '_> {
                 continue;
             }
             let source_signatures = self.signatures_of_type_kind(source, kind)?;
+            // An abstract constructor type is not assignable to a
+            // non-abstract one (`relater.go:4455`).
+            if kind == SignatureKind::Construct
+                && let (Some(first_source), Some(first_target)) =
+                    (source_signatures.first(), target_signatures.first())
+                && first_source.kind == SignatureKind::AbstractConstruct
+                && first_target.kind != SignatureKind::AbstractConstruct
+            {
+                stack.push(ChainEntry {
+                    message: &messages::CANNOT_ASSIGN_AN_ABSTRACT_CONSTRUCTOR_TYPE_TO_A_NON_ABSTRACT_CONSTRUCTOR_TYPE,
+                    args: Vec::new(),
+                });
+                return Some(());
+            }
             return match (source_signatures.as_slice(), target_signatures.as_slice()) {
                 ([], [first, ..]) => {
                     let source_text = self.type_to_string(source);
@@ -6993,7 +7007,7 @@ impl Checker<'_, '_> {
             if same {
                 return Some(false);
             }
-            let display = chain_property_display(name);
+            let display = self.chain_property_symbol_display(target, name);
             if source_private && target_private {
                 stack.push(ChainEntry {
                     message: &messages::TYPES_HAVE_SEPARATE_DECLARATIONS_OF_A_PRIVATE_PROPERTY_0,
@@ -7011,8 +7025,21 @@ impl Checker<'_, '_> {
             }
             return Some(true);
         }
-        if protected(self, source_property) || protected(self, target_property) {
+        // A protected target needs `isValidOverrideOf`'s class derivation,
+        // which this retrace does not make.
+        if protected(self, target_property) {
             return None;
+        }
+        // `propertyRelatedTo`'s last modifier arm (`relater.go:4296`).
+        if protected(self, source_property) {
+            let display = self.chain_property_symbol_display(target, name);
+            let source_text = self.type_to_string(source);
+            let target_text = self.type_to_string(target);
+            stack.push(ChainEntry {
+                message: &messages::PROPERTY_0_IS_PROTECTED_IN_TYPE_1_BUT_PUBLIC_IN_TYPE_2,
+                args: vec![display, source_text, target_text],
+            });
+            return Some(true);
         }
         Some(false)
     }
