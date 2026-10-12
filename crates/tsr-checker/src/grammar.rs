@@ -150,6 +150,24 @@ impl Checker<'_, '_> {
         {
             self.check_grammar_big_int_literal(id);
         }
+        // `Checker.checkGrammarExpressionWithTypeArguments`
+        // (`grammarchecks.go:885`), from `checkExpressionWithTypeArguments`
+        // and `checkGrammarHeritageClause`: `import<T>` is TS1326 on the
+        // node, a grammar error (r7-grammar §63).
+        if let Node::ExpressionWithTypeArguments(expression) = typed
+            && !expression.type_arguments.is_empty()
+            && !self.file_has_parse_errors
+            && let Some(id) = expression.node_id
+            && expression
+                .expression
+                .and_then(|inner| inner.node_id())
+                .is_some_and(|inner| self.nodes.kind(inner) == SyntaxKind::ImportKeyword)
+        {
+            self.grammar_error_on_node(
+                id,
+                &messages::THIS_USE_OF_IMPORT_IS_INVALID_IMPORT_CALLS_CAN_BE_WRITTEN_BUT_THEY_MUST_HAVE_PARENTHESES_AND_CANNOT_HAVE_TYPE_ARGUMENTS,
+            );
+        }
         // `Checker.checkExternalImportOrExportDeclaration` (`checker.go:5333`):
         // a module name that is present but not a string literal is TS1141.
         let module_name = match typed {
