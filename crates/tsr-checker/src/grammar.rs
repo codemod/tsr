@@ -142,6 +142,9 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+        if let Node::ParameterDeclaration(parameter) = typed {
+            self.check_constructor_parameter_property_name(parameter);
+        }
         // `Checker.checkExternalImportOrExportDeclaration` (`checker.go:5333`):
         // a module name that is present but not a string literal is TS1141.
         let module_name = match typed {
