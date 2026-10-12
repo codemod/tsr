@@ -341,10 +341,7 @@ impl<'a> Checker<'a, '_> {
                     // Tuple shape is available, per-element pattern context is
                     // not. Missing slots still consume the native padding road.
                     && literal.elements.iter().enumerate().all(|(index, _)| {
-                        pattern.elements.get(index).is_none_or(|element| {
-                            element.initializer.is_none()
-                                && !matches!(element.name, Some(BindingName::BindingPattern(_)))
-                        })
+                        pattern.elements.get(index).is_none_or(|element| element.initializer.is_none())
                     })
             },
             Expression::ObjectLiteralExpression(literal) if pattern.node_id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ObjectBindingPattern) => literal.properties.iter().all(|property| {
