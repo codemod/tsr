@@ -1927,3 +1927,50 @@ assignreport.rs: `Type '…' is not assignable to type '…'` at depth, TS2741,
 TS2353, TS2559. Natively each prints with `TypeToString` or
 `getTypeNamesForErrorDisplay` (nil enclosing). §45's diff adopts the head
 sites; the chain sites are the reports lane's continuation of it.
+
+## 55. `needsQualification` is the table walk, also where the name resolves to the symbol
+
+**Forcing constraint.** `genericDefaults` 0:1050: `interface i07 { a: A; }`
+beside `interface i07<A = number> { b: A; }` prints natively as
+`a : globalThis.A`. The port printed `A`.
+
+**Cause.** Resolving `A` in the first declaration finds the global interface,
+since the type parameter belongs to the other declaration. That is the type
+both sides compute. The node builder's `needsQualification`
+(`symbolaccessibility.go:688`) does not resolve, though. It walks
+`someSymbolTableInScope`, whose class/interface arm is the merged symbol's
+`members` (`:766`), and that holds the type parameter `A` from the second
+declaration. So `A` is shadowed at the site, and `trySymbolTable`'s globals
+arm names it `globalThis.A`. The port's `chain_needs_qualification` asked
+`resolve_name_at_print_site` first and stopped at "resolves to the symbol",
+and `qualified_name_at`'s §509 same-spelling arm returned the bare name on
+the same answer.
+
+**The port.** When the site resolves the name to the symbol itself,
+`chain_needs_qualification` still asks `shadow_walk` (the transcribed table
+walk) and qualifies when a table holds another symbol first. The same-spelling
+arm keeps the bare name only when `is_shadowed_at` agrees. No cache or table.
+
+## 56. A member of a namespace its module's `export =` names is spelled through the module
+
+**Forcing constraint.** `declarationEmitImportInExportAssignmentModule`:
+`namespace m { export namespace c { export class c {} } … } export = m;` prints
+the namespace `c` natively as `typeof import("./declarationEmitImportInExportAssignmentModule").c`;
+the port printed `typeof m.c`. A native-read probe shows the rule is general:
+beside `export = m`, `new m.c()` prints `import("./a").c` and
+`typeof import("./a").c` even though `m` is in scope.
+
+**Cause.** When the member needs a qualifier, `getContainersOfSymbol` gives
+`[m, file]`: `getWithAlternativeContainers` adds the file module whose
+`export =` is `m` (`getFileSymbolIfFileSymbolExportEqualsContainer`).
+`getSymbolChain` sorts them with `sortByBestName`. Only the module has a
+specifier, so it falls back to `compareSymbols`, which puts the module
+(declared at position 0) first. The chain is therefore `[file, c]`, with the
+leaf found by `getAliasForSymbolInContainer` through the module's resolved
+exports. The port's namespace-parent step qualified by the in-scope `m`.
+
+**The port.** At the namespace-parent step, when the resolver's chain for the
+symbol is `[module, leaf]` (`module_rooted_chain_at`), the leaf keeps the
+symbol's name, and the module's `export =` resolves to the parent namespace,
+the segment is `import(<specifier>).`. Portability is reported as in §28. No
+cache or table. This completes §51's left item.
