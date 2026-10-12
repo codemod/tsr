@@ -2952,3 +2952,29 @@ port reported the bare head.
   same.
 - **Measured.** Quick oracles over `nheritance`, `tatic`, `lodule`,
   `erived` and `issing`: 0 lost.
+
+## 109. `keyof T` placeholders are reportable; a circular constraint-key `Maybe` is no proof
+
+Routed from r7-calls (`recursiveTypeRelations`).
+
+- **The `keyof T` type-node mint.** `declared.rs` mints `keyof T` for a
+  type-parameter operand as an unresolved placeholder that records its
+  operand in `deferred_keyof_operands`. The relater's index arms read that
+  operand, so their decided answers are real. The report gates
+  (`assignability_pair_is_reportable` and the retrace's own gap check)
+  treated the mint as a gap and dropped them, for example `let a: keyof S =
+  x` with `x: string`. Such a mint is now reportable
+  (`is_deferred_keyof_mint`).
+- **The constraint keys must relate with `TernaryTrue`.** The `keyof T`
+  target arm (`relater.go:3505`) relates the source to `keyof C` for `T`'s
+  constraint `C` and accepts only `TernaryTrue`. `S extends { [K in keyof
+  S]: string }` has `keyof S` as its constraint's keys, so the circular
+  answer is `Maybe`. A primitive source then has no other arm, and the pair
+  is False. `relater.rs` decided that only on a `NotRelated` constraint
+  answer. It now decides on `Maybe` too.
+- **Not this lane.** `recursiveTypeRelations`' TS2345 itself never reaches
+  the report. The argument is a callback whose parameter is the
+  unresolved `ClassNameObject` (an error type), and call resolution
+  declines before `report_argument_failure`. That is r7-calls'.
+- **Measured.** Quick oracles over `keyof`, `eyof`, `ndex`, `apped` and
+  `ecursive`: 0 lost.

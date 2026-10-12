@@ -2898,6 +2898,16 @@ impl<'a> Checker<'a, '_> {
             && !self.type_of(no).flags.contains(TypeFlags::NEVER)
     }
 
+    /// `keyof T` over a type parameter, minted from a type node as an
+    /// unresolved placeholder that still records its operand
+    /// (`declared.rs`): the relater's index arms read that operand, so its
+    /// decided answers are not a gap's (r7-reports §109).
+    fn is_deferred_keyof_mint(&self, ty: TypeId) -> bool {
+        self.deferred_keyof_operands
+            .get(&ty)
+            .is_some_and(|&operand| self.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER))
+    }
+
     /// The global `Object` interface's own declared type.
     fn is_global_object_type(&mut self, ty: TypeId) -> bool {
         matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
@@ -3696,7 +3706,7 @@ impl<'a> Checker<'a, '_> {
             // above describes, under a different type id — a type the port
             // could not build, which the relater cannot distinguish from one
             // that failed.
-            if self.is_gap(side) || side == any {
+            if (self.is_gap(side) && !self.is_deferred_keyof_mint(side)) || side == any {
                 return false;
             }
             // The `unknown` SOURCE is a real type that fails real relations
@@ -6520,7 +6530,9 @@ impl Checker<'_, '_> {
         depth: usize,
     ) -> Option<()> {
         use crate::relater::Ternary;
-        if depth > 12 || self.is_gap(source) || self.is_gap(target) {
+        let gap =
+            |checker: &Self, ty: TypeId| checker.is_gap(ty) && !checker.is_deferred_keyof_mint(ty);
+        if depth > 12 || gap(self, source) || gap(self, target) {
             return None;
         }
         let target = self.chain_normalized_target(source, target);
