@@ -1776,3 +1776,52 @@ diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 1.0000, dm 1.0002, exact oracle
 0 / 0. No corpus row reaches the three causes alone (keyRemappingKeyofResult
 needs the routed relation); kept for the prints above, which match native,
 and as §56's base.
+
+## 55. A reference to a non-conditional alias does not resolve its arguments for the conditional evaluator
+
+**Forcing constraint.** conformance/types/keyof/keyofAndIndexedAccess2 is
+the exact oracle's remaining TSR_TIMEOUT (60 s; native 156 ms), routed
+from r7-perf (`r7-perf.md`). Its trigger is four lines (#30920):
+
+```ts
+type StrictExtract<T, U> = T extends U ? U extends T ? T : never : never;
+type StrictExclude<T, U> = T extends StrictExtract<T, U> ? never : T;
+type A<T> = { [Q in { [P in keyof T]: P; }[keyof T]]: T[Q]; };
+type B<T, V> = A<{ [Q in keyof T]: StrictExclude<B<T[Q], V>, {}>; }>;
+```
+
+Native declares `B<T, V>` at once, because `A<…>` is a mapped instantiation
+whose template and members resolve on demand. TSR re-entered `B` with a
+longer `T` (`T[Q][Q]…`) at every level up to the 100-deep instantiation
+guard, fanning out three conditional evaluations per level, and took 40 s
+on the four lines. The backtrace cycle was:
+
+`evaluate_conditional_alias(B)` → `evaluate_conditional_alias_reference`
+resolved `A<…>`'s argument (the mapped type, whose template evaluates
+`StrictExclude<B<T[Q], V>, {}>`, whose check is `B<T[Q], V>`) before it
+asked whether `A` is a conditional at all. `A`'s body is a mapped type, so
+`evaluate_conditional_alias(A, …)` answers `None` whatever the arguments
+are.
+
+**Port.** `evaluate_conditional_alias_reference` returns `None` before
+resolving the arguments when `alias_chain_reaches_conditional` (the
+evaluator's own dispatch walk, over syntax only) says the target's chain
+ends elsewhere. The answer is unchanged; only the wasted resolution goes.
+No state.
+
+**Refused: a re-entry guard on `evaluate_alias_body`.** On `6559089e`, a
+second cycle went through the relater's alias image (`evaluate_alias_body(B,
+longer T)` from inside B's own evaluation), and a per-alias re-entry
+decline there (§10's union-body guard, widened) was needed too. That guard
+cost **19 rows** (deeplyNestedMappedTypes 10, a nested `Static<…>`;
+excessPropertyCheckIntersectionWithRecursiveType 9, a recursive
+`BuildTree<…>`), whose nested same-alias instances native does resolve when
+they are printed or related. On `1e4a24d9` the chain check alone ends the
+recursion (the four lines in 0.06 s, the whole case in 0.07 s) and the 19
+rows keep their answers, so the guard is not built.
+
+**Measured** (unfiltered, against §52–§54 on `1e4a24d9`): types 0 / 0,
+diagnostics 0 / 0, jsTyping 0 / 0, Ir gi 1.0000, dm 0.9999; exact oracle
++1 (mappedTypes4), 0 lost. keyofAndIndexedAccess2 itself stays WRONG on
+other rows (it was TSR_TIMEOUT before §52–§53 on `6559089e`); its run is
+0.07 s.

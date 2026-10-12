@@ -10933,6 +10933,16 @@ impl<'a> Checker<'a, '_> {
         if declarations.is_empty() || reference.type_arguments.len() > declarations.len() {
             return None;
         }
+        // getConditionalTypeInstantiation is reached only for a conditional:
+        // a target whose chain ends elsewhere (`type B<T, V> = A<{ [Q in
+        // keyof T]: … B<T[Q], V> … }>` over a mapped `A`) answers `None`
+        // below whatever its arguments are, so they are not resolved. Native
+        // instantiates such a body lazily; resolving its arguments here
+        // re-entered `B` with a longer `T` at every level
+        // (keyofAndIndexedAccess2; r7-declared §55).
+        if !self.alias_chain_reaches_conditional(target, 0) {
+            return None;
+        }
         let error = self.intrinsics.error;
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
@@ -10980,6 +10990,37 @@ impl<'a> Checker<'a, '_> {
         };
         self.instantiation_depth -= 1;
         result
+    }
+
+    /// Whether [`Checker::evaluate_conditional_alias`] of `symbol` can reach a
+    /// conditional body: its body (parentheses skipped) is a conditional, or
+    /// a reference to a generic type alias whose chain does. The same walk
+    /// as the evaluator's dispatch, over syntax only; bounded like the
+    /// instantiation guard.
+    fn alias_chain_reaches_conditional(&mut self, symbol: SymbolId, depth: usize) -> bool {
+        if depth >= 100 {
+            return false;
+        }
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else { return false };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        match alias.r#type.and_then(Self::skip_type_parentheses) {
+            Some(TypeNode::ConditionalTypeNode(_)) => true,
+            Some(TypeNode::TypeReferenceNode(reference))
+                if !self.local_type_parameters_of(symbol).is_empty() =>
+            {
+                let Some(name) = reference.type_name else { return false };
+                let Some(target) = self.resolve_entity_name_ex(name, SymbolFlags::TYPE, false)
+                else {
+                    return false;
+                };
+                self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS)
+                    && !self.local_type_parameters_of(target).is_empty()
+                    && self.alias_chain_reaches_conditional(target, depth + 1)
+            }
+            _ => false,
+        }
     }
 
     /// getTrueTypeFromConditionalType/getFalseTypeFromConditionalType for

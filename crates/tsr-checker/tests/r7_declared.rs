@@ -501,3 +501,17 @@ fn a_homomorphic_mapping_keeps_a_symbol_keyed_member() {
          const x = r[sym];\n";
     assert_eq!(type_of_last_initializer(source), "1");
 }
+
+/// §55: an alias whose body instantiates itself inside a mapped argument
+/// (#30920) is not re-entered with a longer argument at every level (tsgo:
+/// `B<{ a: string; }, string>`, in milliseconds).
+#[test]
+fn a_self_instantiating_mapped_argument_alias_terminates() {
+    let source = "type StrictExtract<T, U> = T extends U ? U extends T ? T : never : never;\n\
+         type StrictExclude<T, U> = T extends StrictExtract<T, U> ? never : T;\n\
+         type A<T> = { [Q in { [P in keyof T]: P; }[keyof T]]: T[Q]; };\n\
+         type B<T, V> = A<{ [Q in keyof T]: StrictExclude<B<T[Q], V>, {}>; }>;\n\
+         declare const b: B<{ a: string }, string>;\n\
+         const x = b;\n";
+    assert_eq!(type_of_last_initializer(source), "B<{ a: string; }, string>");
+}
