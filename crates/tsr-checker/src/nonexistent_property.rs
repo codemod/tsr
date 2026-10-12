@@ -404,6 +404,20 @@ impl Checker<'_, '_> {
                     );
                     return;
                 }
+                // `AccessFlagsSuppressNoImplicitAnyError` (`checker.go:26985`):
+                // a union key's constituents are asked in order, and once one
+                // has missed, the rest skip this whole noImplicitAny arm. An
+                // earlier literal with no property that no index signature
+                // certainly admits is taken as that miss.
+                if let Some(names) = self.literal_index_names(argument)
+                    && let Some(position) = names.iter().position(|name| name == name_text)
+                    && names[..position].iter().any(|earlier| {
+                        self.get_property_of_type(receiver_type, earlier).is_none()
+                            && self.no_index_signature_admits(receiver_type, earlier) != Some(false)
+                    })
+                {
+                    return;
+                }
                 // `typeHasStaticProperty`'s TS2576 at the access
                 // (`checker.go:27148-27150`), naming the static member as the
                 // printed type indexed by the argument's source text.
@@ -449,11 +463,6 @@ impl Checker<'_, '_> {
                     return;
                 }
                 let candidates = self.property_names_of(receiver_type);
-                // getSuggestionForNonexistentIndexSignature (TS7052) reads
-                // `get`/`set` call signatures; decline rather than guess.
-                if candidates.iter().any(|candidate| candidate == "get" || candidate == "set") {
-                    return;
-                }
                 if let Some(suggestion) = crate::check::spelling_suggestion(
                     name_text,
                     &candidates.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -472,12 +481,49 @@ impl Checker<'_, '_> {
                 }
                 let index_type = self.check_expression(argument);
                 let span = self.error_span(node);
+                // TS7052 (`checker.go:27161`): a `get`/`set` member that takes
+                // the key.
+                match self.suggestion_for_nonexistent_index_signature(
+                    receiver_type,
+                    node,
+                    index_type,
+                ) {
+                    crate::index_access_reports::IndexSignatureSuggestion::Undecided => return,
+                    crate::index_access_reports::IndexSignatureSuggestion::Call(suggestion) => {
+                        self.report(
+                            file,
+                            Diagnostic::with_args(
+                                &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_TYPE_0_HAS_NO_INDEX_SIGNATURE_DID_YOU_MEAN_TO_CALL_1,
+                                span,
+                                [printed, suggestion],
+                            ),
+                        );
+                        return;
+                    }
+                    crate::index_access_reports::IndexSignatureSuggestion::NoSuggestion => {}
+                }
                 // NewDiagnosticChainForNode: the string-literal index's
-                // "Property … does not exist" explains the outer TS7053.
-                let child = Diagnostic::with_args(
+                // "Property … does not exist" explains the outer TS7053; the
+                // child is `NewDiagnosticForNode(accessExpression, …)`, so it
+                // carries the file. An enum literal constituent is named
+                // `[E.a]` (`checker.go:27167`).
+                let constituents = match &self.store.get(index_type).data {
+                    crate::types::TypeData::Union { types, .. } => types.clone(),
+                    _ => vec![index_type],
+                };
+                let enum_member = constituents.into_iter().find(|&part| {
+                    self.store.get(part).flags.contains(crate::flags::TypeFlags::ENUM_LITERAL)
+                        && self.property_name_from_index(part).as_deref() == Some(name_text)
+                });
+                let child_name = match enum_member {
+                    Some(member) => format!("[{}]", self.type_to_string(member)),
+                    None => name_text.to_string(),
+                };
+                let child = self.related_diagnostic_at(
+                    node,
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
                     span,
-                    [name_text.to_string(), printed.clone()],
+                    vec![child_name, printed.clone()],
                 );
                 self.report(
                     file,
@@ -570,15 +616,31 @@ impl Checker<'_, '_> {
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
             let printed = self.type_to_string(containing);
-            self.report(
-                file,
-                Self::chained_miss(
-                    union_miss,
-                    &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
-                    span,
-                    [name_text.to_string(), printed, suggestion],
-                ),
+            let mut diagnostic = Self::chained_miss(
+                union_miss,
+                &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
+                span,
+                [name_text.to_string(), printed, suggestion.clone()],
             );
+            // `checker.go:11574`: the suggested symbol's value declaration,
+            // `'{0}' is declared here.` The symbol is the property the
+            // suggestion names on the type its candidates were read from.
+            let suggested = self.get_property_of_type(
+                if module_element_miss { receiver_type } else { apparent_receiver },
+                &suggestion,
+            );
+            if let Some(declaration) =
+                suggested.and_then(|symbol| self.binder.symbols().get(symbol).value_declaration)
+            {
+                let related_span = self.error_span(declaration);
+                diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                    declaration,
+                    &messages::_0_IS_DECLARED_HERE,
+                    related_span,
+                    vec![suggestion],
+                )));
+            }
+            self.report(file, diagnostic);
             return;
         }
         // Native's outer 7053 chain is at the whole expression; 27196's
@@ -592,10 +654,11 @@ impl Checker<'_, '_> {
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
             let span = self.error_span(node);
             let printed = self.type_to_string(receiver_type);
-            let child = Diagnostic::with_args(
+            let child = self.related_diagnostic_at(
+                node,
                 &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
                 span,
-                [name_text.to_string(), printed.clone()],
+                vec![name_text.to_string(), printed.clone()],
             );
             self.report(
                 file,
@@ -1105,6 +1168,12 @@ impl Checker<'_, '_> {
             } else {
                 self.intrinsics.empty_object
             });
+        }
+        // A `null` or `undefined` parent is its own apparent type in either
+        // mode (`getApparentType` maps neither), with no property and no index
+        // info: every name misses (`const { a } = null`).
+        if parent == self.intrinsics.null || parent == self.intrinsics.undefined {
+            return Some(parent);
         }
         let apparent =
             if matches!(self.store.get(parent).data, crate::types::TypeData::Union { .. }) {
@@ -2512,17 +2581,46 @@ fn class_member_name_is_bound(member: tsr_ast::ClassElement<'_>) -> bool {
     computed_name_is_bound(name)
 }
 
-/// A member name the binder recorded, or a computed name that is a
-/// well-known `Symbol.x` (late-bound to a unique-symbol key).
+/// A member name the binder recorded, a computed name that is a well-known
+/// `Symbol.x` (late-bound to a unique-symbol key), or a computed name that
+/// can never name a member: `isLateBindableName` (`checker.go`) requires an
+/// entity name expression (`isEntityNameExpression`: an identifier, or a
+/// dotted chain of identifiers), so `[this.c]` or `[f()]` adds no member
+/// and hides none.
 fn computed_name_is_bound(name: tsr_ast::PropertyName<'_>) -> bool {
     match name {
-        tsr_ast::PropertyName::ComputedPropertyName(computed) => matches!(
-            computed.expression,
+        tsr_ast::PropertyName::ComputedPropertyName(computed) => match computed.expression {
             Some(tsr_ast::Expression::PropertyAccessExpression(access))
                 if matches!(access.expression,
-                    Some(tsr_ast::Expression::Identifier(symbol)) if symbol.text == "Symbol")
-        ),
+                    Some(tsr_ast::Expression::Identifier(symbol)) if symbol.text == "Symbol") =>
+            {
+                true
+            }
+            Some(expression) => {
+                !is_entity_name_expression(expression)
+                    && !matches!(
+                        expression,
+                        tsr_ast::Expression::StringLiteral(_)
+                            | tsr_ast::Expression::NumericLiteral(_)
+                            | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
+                    )
+            }
+            None => false,
+        },
         _ => true,
+    }
+}
+
+/// `isEntityNameExpression` (`utilities.go`): an identifier, or a property
+/// access whose name is an identifier over an entity name expression.
+fn is_entity_name_expression(expression: tsr_ast::Expression<'_>) -> bool {
+    match expression {
+        tsr_ast::Expression::Identifier(_) => true,
+        tsr_ast::Expression::PropertyAccessExpression(access) => {
+            matches!(access.name, Some(tsr_ast::MemberName::Identifier(_)))
+                && access.expression.is_some_and(is_entity_name_expression)
+        }
+        _ => false,
     }
 }
 

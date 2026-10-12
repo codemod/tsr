@@ -1948,14 +1948,21 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(right) else { return };
         let span = self.nodes.span(right);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::PROPERTY_0_IS_USED_BEFORE_ITS_INITIALIZATION,
-                span,
-                [text.to_string()],
-            ),
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::PROPERTY_0_IS_USED_BEFORE_ITS_INITIALIZATION,
+            span,
+            [text.to_string()],
         );
+        // `checker.go:11727`: `'{0}' is declared here.` at the property's
+        // value declaration (`NewDiagnosticForNode`, its error range).
+        let related_span = self.error_span(value_declaration);
+        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+            value_declaration,
+            &messages::_0_IS_DECLARED_HERE,
+            related_span,
+            vec![text.to_string()],
+        )));
+        self.report(file, diagnostic);
     }
 
     /// The `prop` `checkPropertyAccessExpressionOrQualifiedName` resolves:

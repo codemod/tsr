@@ -21,6 +21,16 @@ use crate::flags::TypeFlags;
 use crate::relater::{Relation, Ternary};
 use crate::types::{TypeData, TypeId};
 
+/// [`Checker::suggestion_for_nonexistent_index_signature`]'s answer.
+pub(crate) enum IndexSignatureSuggestion {
+    /// A member this port cannot read as native does; the report declines.
+    Undecided,
+    /// No `get`/`set` member takes the key.
+    NoSuggestion,
+    /// The call to suggest (`c.get`).
+    Call(String),
+}
+
 impl Checker<'_, '_> {
     /// `indexType.flags&TypeFlagsNullable == 0 &&
     /// isTypeAssignableToKind(indexType, StringLike|NumberLike|ESSymbolLike)`
@@ -305,10 +315,22 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        // getSuggestionForNonexistentIndexSignature asks a `get`/`set` member's
-        // single call signature; declined rather than guessed.
-        if ["get", "set"].iter().any(|name| self.get_property_of_type(apparent, name).is_some()) {
-            return;
+        match self.suggestion_for_nonexistent_index_signature(apparent, node, index_type) {
+            IndexSignatureSuggestion::Undecided => return,
+            IndexSignatureSuggestion::Call(suggestion) => {
+                let span = self.error_span(node);
+                let printed = self.type_to_string(object_type);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_TYPE_0_HAS_NO_INDEX_SIGNATURE_DID_YOU_MEAN_TO_CALL_1,
+                        span,
+                        [printed, suggestion],
+                    ),
+                );
+                return;
+            }
+            IndexSignatureSuggestion::NoSuggestion => {}
         }
         let span = self.error_span(node);
         let index_text = self.type_to_string(index_type);
@@ -317,14 +339,17 @@ impl Checker<'_, '_> {
         // `number` key's "No index signature with a parameter of type …";
         // any other key kind admitted here (a pattern literal, `symbol`)
         // has none.
+        // `NewDiagnosticForNode(accessExpression, …)`: the child carries the
+        // file.
         let child =
             self.store.get(missing).flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER).then(
                 || {
                     let missing_text = self.type_to_string(missing);
-                    Diagnostic::with_args(
+                    self.related_diagnostic_at(
+                    node,
                     &messages::NO_INDEX_SIGNATURE_WITH_A_PARAMETER_OF_TYPE_0_WAS_FOUND_ON_TYPE_1,
                     span,
-                    [missing_text, object_text.clone()],
+                    vec![missing_text, object_text.clone()],
                 )
                 },
             );
@@ -1246,6 +1271,127 @@ impl Checker<'_, '_> {
 
     /// Whether `ty` or a union/intersection constituent is instantiable, or is
     /// an alias reference this port keeps unevaluated over type arguments.
+    /// `getSuggestionForNonexistentIndexSignature` (`checker.go:27231`):
+    /// `get` (or `set` for an assignment target) when the object type has
+    /// that member, a single call signature taking at least one argument,
+    /// and the key assignable to its first parameter; prefixed by the
+    /// receiver's dotted text (`tryGetPropertyAccessOrIdentifierToString`)
+    /// when it has one. `Undecided` is a member whose single signature this
+    /// port cannot read as native does (an interface type, a generic
+    /// signature or parameter), which declines the report.
+    /// `object_type` is `getPropertyOfObjectType`'s: only an object type's
+    /// own resolved members are asked. No cache: run once per reported
+    /// element access.
+    pub(crate) fn suggestion_for_nonexistent_index_signature(
+        &mut self,
+        object_type: TypeId,
+        access: NodeId,
+        keyed_type: TypeId,
+    ) -> IndexSignatureSuggestion {
+        let Some(Node::ElementAccessExpression(element)) = self.node_map.get(access) else {
+            return IndexSignatureSuggestion::NoSuggestion;
+        };
+        let method = if self.assignment_target_kind(access)
+            == crate::expressions::AssignmentTargetKind::None
+        {
+            "get"
+        } else {
+            "set"
+        };
+        if !self.store.get(object_type).flags.intersects(TypeFlags::OBJECT) {
+            return IndexSignatureSuggestion::NoSuggestion;
+        }
+        let Some(property) = self.get_property_of_type(object_type, method) else {
+            return IndexSignatureSuggestion::NoSuggestion;
+        };
+        let member_type = self.get_type_of_symbol(property);
+        // getSingleCallSignature: an object type with one call signature and
+        // no construct signature, index info or property. A type whose
+        // signatures this port does not hold (an interface or class
+        // instance) is not read here.
+        if !self.store.get(member_type).flags.intersects(TypeFlags::OBJECT) {
+            return IndexSignatureSuggestion::NoSuggestion;
+        }
+        if !self.signature_types.contains_key(&member_type)
+            && !matches!(self.store.get(member_type).data, TypeData::Anonymous { .. })
+        {
+            return IndexSignatureSuggestion::Undecided;
+        }
+        let (Some(infos), Some(constructs), Some(signatures)) = (
+            self.get_index_infos_of_type(member_type),
+            self.signatures_of_type_kind(member_type, crate::signatures::SignatureKind::Construct),
+            self.call_signatures_of_type(member_type),
+        ) else {
+            return IndexSignatureSuggestion::Undecided;
+        };
+        if !self.property_names_of(member_type).is_empty()
+            || !infos.is_empty()
+            || !constructs.is_empty()
+        {
+            return IndexSignatureSuggestion::NoSuggestion;
+        }
+        let [signature] = signatures.as_slice() else {
+            return IndexSignatureSuggestion::NoSuggestion;
+        };
+        if !signature.type_parameters.is_empty() {
+            return IndexSignatureSuggestion::Undecided;
+        }
+        let signature = signature.clone();
+        if self.signature_min_argument_count(&signature) < 1 {
+            return IndexSignatureSuggestion::NoSuggestion;
+        }
+        let parameter =
+            self.signature_type_at_position(&signature, 0).unwrap_or(self.intrinsics.any);
+        // A parameter still mentioning a type parameter is a member read
+        // without its receiver's instantiation here; not certified.
+        if self.has_instantiable_constituent(parameter) || self.is_gap(parameter) {
+            return IndexSignatureSuggestion::Undecided;
+        }
+        if !self.is_type_assignable_to(keyed_type, parameter) {
+            return IndexSignatureSuggestion::NoSuggestion;
+        }
+        let receiver = element.expression.and_then(|expression| expression.node_id());
+        IndexSignatureSuggestion::Call(
+            match receiver.and_then(|receiver| self.property_access_or_identifier_text(receiver)) {
+                Some(text) => format!("{text}.{method}"),
+                None => method.to_string(),
+            },
+        )
+    }
+
+    /// `tryGetPropertyAccessOrIdentifierToString` (`utilities.go:1558`): an
+    /// identifier's text, or a dotted chain of property accesses and
+    /// element accesses with a property-name argument over one.
+    fn property_access_or_identifier_text(&self, node: NodeId) -> Option<String> {
+        match self.node_map.get(node)? {
+            Node::Identifier(identifier) => Some(identifier.text.to_string()),
+            Node::PropertyAccessExpression(access) => {
+                let base =
+                    self.property_access_or_identifier_text(access.expression?.node_id()?)?;
+                let name = match access.name? {
+                    tsr_ast::MemberName::Identifier(name) => name.text,
+                    tsr_ast::MemberName::PrivateIdentifier(name) => name.text,
+                };
+                Some(format!("{base}.{name}"))
+            }
+            Node::ElementAccessExpression(access) => {
+                let base =
+                    self.property_access_or_identifier_text(access.expression?.node_id()?)?;
+                let name = match access.argument_expression? {
+                    tsr_ast::Expression::StringLiteral(literal) => literal.text.to_string(),
+                    tsr_ast::Expression::NumericLiteral(literal) => literal.text.to_string(),
+                    tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal) => {
+                        literal.text.to_string()
+                    }
+                    tsr_ast::Expression::Identifier(identifier) => identifier.text.to_string(),
+                    _ => return None,
+                };
+                Some(format!("{base}.{name}"))
+            }
+            _ => None,
+        }
+    }
+
     fn has_instantiable_constituent(&self, ty: TypeId) -> bool {
         if self.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE) {
             return true;

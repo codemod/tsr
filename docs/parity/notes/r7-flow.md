@@ -1436,3 +1436,80 @@ now follows native's recursion, which happens only on a matching mutation.
 The index check reads `check_expression` (this port has no context-free
 expression type); a contextually typed index expression is the one place
 the two could differ.
+
+## §51 `'{0}' is declared here.` on TS2729 and TS2551; chain children carry their file
+
+`checkPropertyNotUsedBeforeDeclaration` (`checker.go:11727`) and
+`reportNonexistentProperty`'s suggestion arm (`:11574`) add the related
+`'{0}' is declared here.` at the property's (the suggested symbol's) value
+declaration. The port reported both heads without it; 52 oracle cases differed
+only by such related rows (67 TS2729, 16 TS2551 among them). The suggested
+symbol is the property the suggestion names on the type its candidates came
+from (`get_property_of_type`), so a union's synthetic property supplies
+whatever value declaration this port gives it.
+
+A chain child built with `NewDiagnosticForNode(accessExpression, …)` has a
+file and a location; the port's children were file-less (`Diagnostic::with_args`),
+so the oracle's C rows differed (16 cases differed only there). The TS7053
+children (`nonexistent_property.rs`' two element-access arms,
+`report_implicit_any_element_access`) are now built with
+`related_diagnostic_at`, which sets the file image. Children native builds
+with `chainDiagnosticMessages` (the union constituent miss,
+`elaborateNeverIntersection`) stay file-less, as there.
+
+## §52 TS7052, and one noImplicitAny report per union key
+
+`getSuggestionForNonexistentIndexSignature` (`checker.go:27231`) was declined
+wherever a `get`/`set` member existed. It is now
+`suggestion_for_nonexistent_index_signature` (index_access_reports.rs), shared
+by the literal-key and non-literal-key element-access arms: the member's
+single call signature (one call signature, no construct signature, index
+info or property), at least one required argument, and the key assignable to
+its first parameter; the suggestion prefixed by
+`tryGetPropertyAccessOrIdentifierToString` of the receiver. It declines (no
+report at all) for a member type whose signatures this port does not hold (an
+interface or class instance) and for a first parameter that still mentions a
+type parameter: `MyMap<string, string>`'s `get(key: K)` read through
+`get_type_of_symbol` was uninstantiated, and asking `"a"` against `K` made a
+TS7053 where native reports TS7052 (`noImplicitAnyStringIndexerOnObject`
+(102,1), now missing rather than wrong).
+
+`getIndexedAccessTypeOrUndefined` (`:26985`) asks a union key's constituents in
+order and sets `AccessFlagsSuppressNoImplicitAnyError` once one has missed,
+so `o[k]` with `k: "a" | "b" | "c"` reports one TS7053 (for `"b"`); the port
+reported per literal. The noImplicitAny arm now returns when an earlier
+literal of the same key has no property that no index signature certainly
+admits. The object-literal TS2339 arm and the const-enum final arm are not
+suppressed, as native. The TS7053 child names an enum literal constituent
+`[E.p]` (`:27167`).
+
+## §53 A `null`/`undefined` destructuring parent; computed names that cannot bind
+
+`const { a } = null` reports TS2339 "Property 'a' does not exist on type
+'null'." in either mode: `getBindingElementTypeFromParentType` passes the
+parent on and `getApparentType` maps neither `null` nor `undefined`, so
+`getPropertyTypeForIndexType` finds no property and no index info.
+`destructured_property_is_absent` now answers the parent itself for those two
+intrinsics (`usingDeclarations.6`/`.7` and their `await` forms).
+
+`computed_name_is_bound` (the class/interface member-table certificate)
+refused every computed member name but a well-known `Symbol.x`. A computed
+name whose expression is not an entity name expression (`[this.c]`, `[f()]`)
+can never be late-bound (`isLateBindableName`) and adds no member, so it no
+longer refuses the table; a computed name that is a string or numeric literal,
+or an entity name, still does. `typeOfThisInStaticMembers12`/`13` (three
+targets each) lacked the instance arm's TS2339 for this reason alone.
+
+Measured (§51–§53 together) on `06cb8ae9`: types unchanged; diagnostics **+8**
+cases (`usingDeclarations.6`, `awaitUsingDeclarations.6`,
+`typeOfThisInStaticMembers12`/`13` ×3 targets) and 21 more right TS7052/TS7053
+in `noImplicitAnyStringIndexerOnObject`, 0 lost; exact oracle 10816 → **10868**
+(+52), 0 lost; jsTyping gap 25 → 25, new_false 0, lost_true 0; Ir gi 0.9999,
+dm 0.9998.
+
+Finding (routed): a widened object literal's arrow member prints its return as
+`error` (`const c = { get: (key: string) => 'hello' }` prints
+`{ get: (key: string) => error; }`, native `string`), so the new TS7052 for
+such receivers carries that text; and a non-strict `[]` is `never[]` here
+where native has `undefined[]` (`downlevelLetConst16`'s `for (let {a: x} of
+[])`).
