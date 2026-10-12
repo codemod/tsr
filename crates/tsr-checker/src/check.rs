@@ -1455,6 +1455,25 @@ impl Checker<'_, '_> {
         if module.keyword.kind != SyntaxKind::GlobalKeyword {
             return;
         }
+        // `isGlobalAugmentation && node.Flags&NodeFlagsAmbient == 0`
+        // (`checker.go:5139`): TS2670 at the name, whatever the position
+        // (r7-grammar §50).
+        if !self.has_ambient_flag(node)
+            && let Some(name) = module.name.and_then(|name| name.node_id())
+            && let Some(file) = self.source_file_of_for_diagnostics(name)
+        {
+            let span = self.error_span(name);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AUGMENTATIONS_FOR_THE_GLOBAL_SCOPE_SHOULD_HAVE_DECLARE_MODIFIER_UNLESS_THEY_APPEAR_IN_ALREADY_AMBIENT_CONTEXT,
+                    span,
+                ),
+            );
+        }
+        // `ast.IsModuleAugmentationExternal`: at a module file's top level, or
+        // directly in the block of an **ambient module** (string-named, or a
+        // `global` augmentation) at a script's top level (r7-grammar §50).
         let legal = match self.nodes.parent(node).and_then(|p| self.node_map.get(p)) {
             Some(Node::SourceFile(source)) => tsr_binder::is_external_module_in(source, self.nodes),
             Some(Node::ModuleBlock(_)) => {
@@ -1463,8 +1482,10 @@ impl Checker<'_, '_> {
                 let file = outer.and_then(|o| self.nodes.parent(o));
                 matches!(
                     (outer.and_then(|o| self.node_map.get(o)), file.and_then(|f| self.node_map.get(f))),
-                    (Some(Node::ModuleDeclaration(_)), Some(Node::SourceFile(source)))
-                        if !tsr_binder::is_external_module_in(source, self.nodes)
+                    (Some(Node::ModuleDeclaration(outer)), Some(Node::SourceFile(source)))
+                        if (matches!(outer.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                            || outer.keyword.kind == SyntaxKind::GlobalKeyword)
+                            && !tsr_binder::is_external_module_in(source, self.nodes)
                 )
             }
             _ => false,
