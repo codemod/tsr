@@ -3207,6 +3207,30 @@ impl Checker<'_, '_> {
             return CallHead::Unknown;
         };
         if construct_count != 0 {
+            let Some(construct_signatures) =
+                self.head_signatures(apparent, SignatureKind::Construct)
+            else {
+                return CallHead::Unknown;
+            };
+            // `isConstructorAccessible(node, constructSignatures[0])`: an
+            // inaccessible constructor is reported and the call resolves as
+            // `resolveErrorCall`, with no arity or argument report.
+            match construct_signatures.first().map(|first| self.constructor_accessible(node, first))
+            {
+                Some(Some(false)) => return CallHead::Done,
+                Some(None) => return CallHead::Unknown,
+                _ => {}
+            }
+            // An abstract construct signature (a class declared `abstract`
+            // gives every one of its construct signatures that kind) is
+            // `resolveErrorCall` after TS2511, which the check pass reports
+            // (`check_new_on_abstract_class`).
+            if construct_signatures.iter().any(|signature| {
+                signature.kind == SignatureKind::AbstractConstruct
+                    || signature.union_contains_abstract
+            }) {
+                return CallHead::Done;
+            }
             return CallHead::Resolve(apparent);
         }
         let Some(call_signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
@@ -3264,6 +3288,95 @@ impl Checker<'_, '_> {
             }
             _ => CallHead::Resolve(apparent),
         }
+    }
+
+    /// `isConstructorAccessible` (`checker.go:8648`): a `private` or
+    /// `protected` constructor declaration is accessible only from within
+    /// its class (`isNodeWithinClass`: any enclosing class), or, when
+    /// protected, from a class whose base chain reaches it
+    /// (`typeHasProtectedAccessibleBase`). Otherwise TS2673/TS2674 name the
+    /// declaring class's declared type and the answer is `false`. A
+    /// signature without a constructor declaration (a constructor function,
+    /// a construct signature member) is accessible. `None` where this port
+    /// cannot decide: a JavaScript file (JSDoc accessibility tags), or a
+    /// base chain through an intersection (`findMixins`) or a base it
+    /// cannot name.
+    fn constructor_accessible(
+        &mut self,
+        node: tsr_ast::NodeId,
+        signature: &Signature,
+    ) -> Option<bool> {
+        use tsr_ast::SyntaxKind as K;
+        let declaration = signature.declaration;
+        let Some(tsr_ast::Node::ConstructorDeclaration(constructor)) =
+            self.node_map.get(declaration)
+        else {
+            return Some(true);
+        };
+        let private = crate::check::has_modifier(constructor.modifiers, K::PrivateKeyword);
+        let protected = crate::check::has_modifier(constructor.modifiers, K::ProtectedKeyword);
+        if self.in_js_file(declaration) {
+            return None;
+        }
+        if !private && !protected {
+            return Some(true);
+        }
+        let class = self.nodes.parent(declaration)?;
+        let mut enclosing = self.containing_class_of(node);
+        while let Some(current) = enclosing {
+            if current == class {
+                return Some(true);
+            }
+            enclosing = self.containing_class_of(current);
+        }
+        let class_symbol = self.binder.symbol_of(class)?;
+        if protected && let Some(containing) = self.containing_class_of(node) {
+            let containing_symbol = self.binder.symbol_of(containing)?;
+            if self.class_has_protected_accessible_base(class_symbol, containing_symbol, 0)? {
+                return Some(true);
+            }
+        }
+        let declared = self.get_declared_type_of_class_or_interface(class_symbol);
+        let printed = self.type_to_string(declared);
+        let message = if private {
+            &messages::CONSTRUCTOR_OF_CLASS_0_IS_PRIVATE_AND_ONLY_ACCESSIBLE_WITHIN_THE_CLASS_DECLARATION
+        } else {
+            &messages::CONSTRUCTOR_OF_CLASS_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_WITHIN_THE_CLASS_DECLARATION
+        };
+        self.report_at_node(node, Diagnostic::with_args(message, self.error_span(node), [printed]));
+        Some(false)
+    }
+
+    /// `typeHasProtectedAccessibleBase` (`checker.go:8680`) over a class
+    /// symbol: whether the first base type of `class`'s declared type is
+    /// `target`, or has it as a protected-accessible base, recursively. A
+    /// first base that is an intersection (mixin constructors) or whose
+    /// symbol this port cannot read is undecided.
+    fn class_has_protected_accessible_base(
+        &mut self,
+        target: tsr_binder::SymbolId,
+        class: tsr_binder::SymbolId,
+        depth: usize,
+    ) -> Option<bool> {
+        if depth > 64 {
+            return None;
+        }
+        let Some(&first) = self.get_base_types(class).first() else { return Some(false) };
+        if self.store.get(first).flags.contains(TypeFlags::INTERSECTION) {
+            return None;
+        }
+        let symbol = if let Some((symbol, _)) = self.type_reference_targets.get(&first) {
+            *symbol
+        } else if let TypeData::Named { members: Some(symbol), .. } = self.store.get(first).data {
+            symbol
+        } else {
+            return None;
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        if symbol == self.binder.merged_symbol(target) {
+            return Some(true);
+        }
+        self.class_has_protected_accessible_base(target, symbol, depth + 1)
     }
 
     /// The signature `resolveNewExpression`'s `resolveCall` picks over a
