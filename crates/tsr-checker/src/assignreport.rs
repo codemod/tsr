@@ -6587,6 +6587,41 @@ impl Checker<'_, '_> {
                 Ternary::Unknown => None,
             };
         }
+        // A template literal or string mapping source (`relater.go:3770`,
+        // `:3782`) relates its base constraint, reporting; two string
+        // mappings of one intrinsic relate their operands (r7-reports §101).
+        if source_flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+            && !target_flags
+                .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::INTERSECTION)
+        {
+            if let Some((source_symbol, source_operand)) =
+                self.string_mapping_types.get(&source).cloned()
+                && let Some((target_symbol, target_operand)) =
+                    self.string_mapping_types.get(&target).cloned()
+            {
+                if source_symbol != target_symbol {
+                    return Some(());
+                }
+                return match self.chain_relate(stack, source_operand, target_operand) {
+                    Ternary::NotRelated => {
+                        self.explain_pair(stack, source_operand, target_operand, depth)
+                    }
+                    _ => None,
+                };
+            }
+            if source_flags.contains(TypeFlags::TEMPLATE_LITERAL)
+                && target_flags.contains(TypeFlags::TEMPLATE_LITERAL)
+            {
+                return Some(());
+            }
+            // No constraint other than itself: nothing reports below.
+            return match self.base_constraint_of_type(source) {
+                Some(constraint) if constraint != source => {
+                    self.explain_constraint_descent(stack, constraint, target, depth)
+                }
+                _ => Some(()),
+            };
+        }
         // An indexed-access source (the same type-variable case,
         // `relater.go:3665`) relates `getConstraintOfType`, reporting when
         // that is not `unknown` (a nil constraint reports nothing). Against

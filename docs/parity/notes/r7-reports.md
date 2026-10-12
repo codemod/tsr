@@ -2792,3 +2792,23 @@ a template literal or string mapping is a leaf. Quick oracles over
   is a printing difference outside this lane.
 - **Measured.** Quick oracles over `onditional`, `ntersection`, `nfer` and
   `xtract`: 0 lost.
+
+## 101. Template-literal and string-mapping sources
+
+`structuredTypeRelatedToWorker`'s source arms for a template literal
+(`relater.go:3770`) and a string mapping (`:3782`) relate
+`getBaseConstraintOfType(source)` against a non-object target, with
+reporting:
+
+- `` `AA${Uppercase<string>}` → "AA" `` explains as `` `AA${string}` ``.
+- A constraint that is the source itself reports nothing below.
+- Two string mappings of the same intrinsic relate their operands:
+  `Uppercase<string> → Uppercase<Lowercase<string>>` explains as `Type
+  'string' is not assignable to type 'Lowercase<string>'.`.
+- Two different intrinsics fail without a report.
+
+The retrace now has these arms, using `explain_constraint_descent` for the
+constraint, which is a source-only recursion as in §78. Union and
+intersection targets decline. `stringMappingOverPatternLiterals` and
+`templateLiteralTypes5` are EXACT. Quick oracles over `emplate`,
+`tringMapping` and `ntrinsic`: 0 lost.
