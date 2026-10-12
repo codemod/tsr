@@ -994,7 +994,7 @@ impl Checker<'_, '_> {
                 // TS18014, reported by `check_private_name_shadowing`.
                 return;
             }
-            let class_name = self.class_name_text(type_class).unwrap_or_default();
+            let class_name = self.class_symbol_name_as_written(type_class);
             self.report_at_name(
                 at,
                 &messages::PROPERTY_0_IS_NOT_ACCESSIBLE_OUTSIDE_CLASS_1_BECAUSE_IT_HAS_A_PRIVATE_IDENTIFIER,
@@ -1019,7 +1019,14 @@ impl Checker<'_, '_> {
         if !certified {
             return;
         }
-        let printed = self.type_to_string(receiver_type);
+        // `reportNonexistentProperty(right, IfElse(isThisTypeParameter(leftType),
+        // apparentType, leftType))`: a class's `this` prints as the class.
+        let shown = if self.this_types.values().any(|&this| this == receiver_type) {
+            self.apparent_type(receiver_type)
+        } else {
+            receiver_type
+        };
+        let printed = self.type_to_string(shown);
         self.report_at_name(
             at,
             &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
@@ -1094,6 +1101,9 @@ impl Checker<'_, '_> {
                     | SyntaxKind::ClassExpression
                     | SyntaxKind::InterfaceDeclaration
                     | SyntaxKind::TypeLiteral
+                    // An object literal declares no private name, and a
+                    // spread into it copies none (`isSpreadableProperty`).
+                    | SyntaxKind::ObjectLiteralExpression
             )
         });
         if !plain {
@@ -1428,6 +1438,22 @@ impl Checker<'_, '_> {
     }
 
     /// The written name of a class declaration. §628.
+    /// `SymbolToString` of a class's symbol (`getNameOfSymbolAsWritten`,
+    /// `checker.go`): its name, else for an anonymous class expression the
+    /// name of the variable it initializes, else `(Anonymous class)`.
+    fn class_symbol_name_as_written(&self, class: NodeId) -> String {
+        if let Some(name) = self.class_name_text(class) {
+            return name;
+        }
+        if let Some(parent) = self.nodes.parent(class)
+            && let Some(Node::VariableDeclaration(variable)) = self.node_map.get(parent)
+            && let Some(tsr_ast::BindingName::Identifier(name)) = variable.name
+        {
+            return name.text.to_string();
+        }
+        "(Anonymous class)".to_string()
+    }
+
     fn class_name_text(&self, class: NodeId) -> Option<String> {
         match self.node_map.get(class)? {
             Node::ClassDeclaration(n) => n.name.and_then(|name| name.node_id),

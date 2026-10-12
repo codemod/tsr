@@ -110,6 +110,9 @@ impl Checker<'_, '_> {
                 &messages::THE_CONTAINING_ARROW_FUNCTION_CAPTURES_THE_GLOBAL_VALUE_OF_THIS,
             ),
             ThisTypeAnswer::Absent => {
+                if self.this_is_inside_with_statement(node) {
+                    return;
+                }
                 let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
                 let mut diagnostic = Diagnostic::new(
                     &messages::THIS_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_IT_DOES_NOT_HAVE_A_TYPE_ANNOTATION,
@@ -388,8 +391,30 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// Whether `node` is below a `with` statement's statement (not its
+    /// expression): `NodeFlagsInWithStatement`, recomputed from the tree as
+    /// `check.rs`' private `is_inside_with_statement` does.
+    fn this_is_inside_with_statement(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            if let Some(Node::WithStatement(with)) = self.node_map.get(parent)
+                && with.statement.and_then(|statement| statement.node_id()) == Some(current)
+            {
+                return true;
+            }
+            current = parent;
+        }
+        false
+    }
+
     /// `c.error(node, message)` at the keyword.
     fn report_this_error(&mut self, node: NodeId, message: &'static Message) {
+        // `checkWithStatement` (`checker.go:4156`) never checks its
+        // statement, so a `this` below a `with` reaches no diagnostic arm
+        // (`functionExpressionInWithBlock`); asked only when reporting.
+        if self.this_is_inside_with_statement(node) {
+            return;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.nodes.span(node);
         self.report(file, Diagnostic::new(message, span));
