@@ -1333,6 +1333,12 @@ impl Checker<'_, '_> {
         }
         visiting.push(owner);
         let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        let owner_is_class = declarations.iter().any(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        });
         let mut heritage = Vec::new();
         for declaration in declarations {
             match self.node_map.get(declaration) {
@@ -1394,6 +1400,22 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 let base = self.base_symbol_of_heritage_entry(entry, false)?;
+                // A class's base type is its base constructor's instance type
+                // (`getBaseConstructorTypeOfClass`): a class symbol's own
+                // declared type, but a value's construct signatures' returns
+                // otherwise (`declare const Base: { new <T = A>(): Base & T }`
+                // merged with `interface Base` is `Base & A`), which this walk
+                // does not read.
+                if owner_is_class
+                    && !self.binder.symbols().get(base).declarations.iter().any(|&declaration| {
+                        matches!(
+                            self.nodes.kind(declaration),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
+                    })
+                {
+                    return None;
+                }
                 if !self.class_chain_lacks(base, name, visiting, indexed)? {
                     return Some(false);
                 }

@@ -112,6 +112,9 @@ struct IntersectionModifierMember {
     optional: bool,
     readonly: bool,
     key: TypeId,
+    /// The providing constituent's property symbol, whose declarations the
+    /// mapped symbol links (resolveMappedTypeMembers' `modifiersProp`).
+    origin: Option<SymbolId>,
 }
 
 impl<'a> Checker<'a, '_> {
@@ -810,7 +813,7 @@ impl<'a> Checker<'a, '_> {
         }
         let mut member: Option<IntersectionModifierMember> = None;
         for part in parts {
-            let (optional, readonly) = if self.mapped_types.contains_key(&part) {
+            let (optional, readonly, origin) = if self.mapped_types.contains_key(&part) {
                 self.resolve_mapped_type_members(part);
                 let Some(property) = self
                     .anonymous_properties
@@ -819,20 +822,102 @@ impl<'a> Checker<'a, '_> {
                 else {
                     continue;
                 };
-                (property.optional, property.readonly)
+                (property.optional, property.readonly, property.origin)
             } else {
                 let Some(property) = self.get_property_of_type(part, name) else { continue };
-                (self.property_is_optional(property), self.is_readonly_property(property))
+                (
+                    self.property_is_optional(property),
+                    self.is_readonly_property(property),
+                    Some(property),
+                )
             };
             if let Some(member) = member.as_mut() {
                 member.optional &= optional;
                 member.readonly &= readonly;
             } else {
                 let key = self.literal_type_of_property(part, name);
-                member = Some(IntersectionModifierMember { optional, readonly, key });
+                member = Some(IntersectionModifierMember { optional, readonly, key, origin });
             }
         }
         member
+    }
+
+    /// `getPropertyNameNodeForSymbol` (`nodebuilderimpl.go:2426`) for a
+    /// mapped symbol, whose `nameType` is the key it was created for
+    /// (resolveMappedTypeMembers, checker.go:20940), so the name comes from
+    /// `getPropertyNameNodeForSymbolFromNameType` (`:2455`): a name that is
+    /// not an identifier is a string literal when the symbol is string-named
+    /// or the name is not numeric, a negative numeric name is computed, and
+    /// any other is classified (`classifyPropertyName`, `:2384`).
+    /// String-named and single-quoted are read over the declarations the
+    /// symbol links (`isStringNamed`, `:2405`; every declaration must agree),
+    /// which is why the same key prints `"12"` over `{ "12": … }` and `12`
+    /// over a bare key union. Reads only the declarations; no table. Ported
+    /// from the held r6-typesroots3 patch (`afeaa2bce`), r7-declared §48.
+    fn mapped_property_printed_name(
+        &mut self,
+        name: &str,
+        name_type: TypeId,
+        origin: Option<SymbolId>,
+    ) -> String {
+        use crate::types::TypeData;
+        if !matches!(
+            self.store.get(name_type).data,
+            TypeData::StringLiteral(_) | TypeData::NumberLiteral(_) | TypeData::EnumLiteral { .. }
+        ) {
+            return name.to_string();
+        }
+        let declarations = origin
+            .map(|origin| self.binder.symbols().get(origin).declarations.clone())
+            .unwrap_or_default();
+        let mut string_named = !declarations.is_empty();
+        let mut single_quote = !declarations.is_empty();
+        for declaration in declarations {
+            let written = match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::PropertySignatureDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::PropertyDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::PropertyAssignment(node)) => Some(node.name),
+                Some(tsr_ast::Node::MethodSignatureDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::MethodDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::GetAccessorDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::SetAccessorDeclaration(node)) => Some(node.name),
+                _ => None,
+            };
+            let (named, single) = match written {
+                Some(tsr_ast::PropertyName::StringLiteral(literal)) => {
+                    (true, literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE))
+                }
+                Some(tsr_ast::PropertyName::ComputedPropertyName(computed)) => {
+                    let named = computed.expression.is_some_and(|expression| {
+                        let ty = self.check_expression(expression);
+                        self.store.get(ty).flags.intersects(crate::flags::TypeFlags::STRING_LIKE)
+                    });
+                    (named, false)
+                }
+                _ => (false, false),
+            };
+            string_named &= named;
+            single_quote &= named && single;
+        }
+        let quoted = |name: &str| {
+            if single_quote { format!("'{name}'") } else { crate::printing::quote(name) }
+        };
+        let numeric = crate::index_signatures::is_numeric_literal_name(name);
+        if !crate::objects::is_identifier_text(name) && (string_named || !numeric) {
+            return quoted(name);
+        }
+        if numeric && let Some(magnitude) = name.strip_prefix('-') {
+            return format!("[-{magnitude}]");
+        }
+        // classifyPropertyName: an identifier, else a non-negative numeric
+        // name that is not string-named, else a string literal.
+        if crate::objects::is_identifier_text(name)
+            || (!string_named && numeric && name.parse::<f64>().is_ok_and(|value| value >= 0.0))
+        {
+            name.to_string()
+        } else {
+            quoted(name)
+        }
     }
 
     /// getIndexTypeForMappedType (checker.go:26871). Unremapped keys are
@@ -1385,38 +1470,21 @@ impl<'a> Checker<'a, '_> {
             let was_readonly = inherited.and_then(|modifiers| modifiers.1).unwrap_or(was_readonly);
             let optional = info.optionality.unwrap_or(was_optional);
             let readonly = info.readonly.unwrap_or(was_readonly);
+            let origin = link_declarations
+                .then(|| {
+                    captured
+                        .and_then(|property| property.origin)
+                        .or(source_property)
+                        .or_else(|| composite.as_ref().and_then(|member| member.origin))
+                })
+                .flatten();
             let printed_name = if let Some(symbol) = self.unique_symbol_type_symbol(name_type) {
                 // getPropertyNameNodeForSymbolFromNameType's UniqueESSymbol
                 // arm, printed with no site (`nodebuilderimpl.go:2482`).
                 format!("[{}]", self.binder.symbols().get(symbol).name)
-            } else if info.name_type.is_some() {
-                if crate::objects::is_identifier_text(&name)
-                    || matches!(self.store.get(name_type).data, TypeData::NumberLiteral(_))
-                {
-                    name.clone()
-                } else {
-                    crate::printing::quote(&name)
-                }
             } else {
-                // createPropertyNameNodeForIdentifierOrLiteral: a string-named
-                // key that is not an identifier prints quoted (`"12"`), a
-                // numeric one bare (`42`).
-                captured.map_or_else(
-                    || {
-                        if crate::objects::is_identifier_text(&name)
-                            || !matches!(self.store.get(name_type).data, TypeData::StringLiteral(_))
-                        {
-                            name.clone()
-                        } else {
-                            crate::printing::quote(&name)
-                        }
-                    },
-                    |property| property.printed_name.clone(),
-                )
+                self.mapped_property_printed_name(&name, name_type, origin)
             };
-            let origin = link_declarations
-                .then(|| captured.and_then(|property| property.origin).or(source_property))
-                .flatten();
             // getTypeOfMappedSymbol (checker.go:20984) instantiates the
             // template on the first read of the property's type, not here
             // (ADR-0050): the slot records the key and whether the modifier
@@ -1436,6 +1504,36 @@ impl<'a> Checker<'a, '_> {
                 slot: crate::objects::PropertySlot::of_mapped(id, index, key, strip_optional),
             });
         }
+        // setStructuredTypeMembers → getNamedMembers (checker.go:22049) sorts
+        // the members table with compareSymbols (utilities.go:366): a mapped
+        // symbol carries its modifiers property's declarations when they are
+        // linked, so linked members come first in declaration order (across an
+        // intersection's constituents, `foo?` of `Partial<Pick<M, "foo">>`
+        // before Omit's `"12"`), then the rest by name (`1`, `10`, `2`), then
+        // by creation order. Each slot's table index follows its member
+        // (r7-declared §47).
+        let mut keyed: Vec<_> = properties
+            .into_iter()
+            .enumerate()
+            .map(|(created, property)| {
+                let position =
+                    property.origin.and_then(|origin| self.compare_symbols_key(origin).1);
+                ((position.is_none(), position, property.name.clone(), created), property)
+            })
+            .collect();
+        keyed.sort_by(|left, right| left.0.cmp(&right.0));
+        let properties: Vec<_> = keyed
+            .into_iter()
+            .enumerate()
+            .map(|(index, (_, mut property))| {
+                if let Some((owner, _, key, strip_optional)) = property.slot.mapped() {
+                    let index = u32::try_from(index).expect("member count fits u32");
+                    property.slot =
+                        crate::objects::PropertySlot::of_mapped(owner, index, key, strip_optional);
+                }
+                property
+            })
+            .collect();
         self.anonymous_properties.insert(id, (properties, true));
         self.object_literal_index_infos.insert(id, indexes);
     }

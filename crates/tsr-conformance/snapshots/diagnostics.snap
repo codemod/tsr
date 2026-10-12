@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 5071/5502 (92.17%)
-Failed         : 431
+Passed         : 5077/5502 (92.28%)
+Failed         : 425
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,9 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 431 failures:
-compiler/abstractClassUnionInstantiation
-  5 missing (first TS2511 at abstractClassUnionInstantiation.ts(14,1))
+First 100 of 425 failures:
 compiler/abstractPropertyInConstructor
   10 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
@@ -102,8 +100,6 @@ compiler/classFieldSuperAccessibleJs1
   1 missing (first TS2565 at index.js(9,23))
 compiler/classWithEmptyTypeParameter
   1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
-compiler/coAndContraVariantInferences5
-  1 missing (first TS2322 at coAndContraVariantInferences5.ts(9,9))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
 compiler/complicatedGenericRecursiveBaseClassReference
@@ -181,7 +177,7 @@ compiler/errorForUsingPropertyOfTypeAsType03
 compiler/errorInUnnamedClassExpression
   1 missing (first TS2715 at errorInUnnamedClassExpression.ts(5,14))
 compiler/es6ExportEqualsInterop
-  12 missing (first TS2305 at main.ts(62,10))
+  10 missing (first TS2498 at main.ts(97,15))
 compiler/es6ImportNamedImportParsingError
   2 unexpected (first TS2695 at es6ImportNamedImportParsingError_1.ts(4,13)), 0 missing
 compiler/esModuleInteropPrettyErrorRelatedInformation
@@ -212,3 +208,7 @@ compiler/fallbackToBindingPatternForTypeInference
   5 missing (first TS2345 at fallbackToBindingPatternForTypeInference.ts(2,7))
 compiler/flatArrayNoExcessiveStackDepth
   1 missing (first TS2322 at flatArrayNoExcessiveStackDepth.ts(20,5))
+compiler/functionExpressionInWithBlock
+  1 unexpected (first TS2683 at functionExpressionInWithBlock.ts(4,10)), 0 missing
+compiler/genericCallAtYieldExpressionInGenericCall1
+  1 missing (first TS2488 at genericCallAtYieldExpressionInGenericCall1.ts(26,25))

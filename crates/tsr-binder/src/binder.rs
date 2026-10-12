@@ -172,6 +172,12 @@ pub(crate) struct Binder<'a, 'n> {
     /// Read only where a name is a *range* of the source that no single node
     /// holds; see [`FileInfo`].
     source: &'a str,
+    /// The file's path, as `b.file.FileName()`; with [`Self::source`] the
+    /// image a related diagnostic names its location by.
+    file_name: &'a str,
+    /// That image, built on the first related diagnostic (`createDiagnosticForNode`
+    /// on another declaration of this file); most files never need one.
+    diagnostic_file: Option<std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>>,
     /// Whether the file being bound is a `.d.ts`, where an unexported
     /// namespace local still prints qualified.
     in_declaration_file: bool,
@@ -635,6 +641,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             block: NodeId::ZERO,
             owner: None,
             source: "",
+            file_name: "",
+            diagnostic_file: None,
             in_declaration_file: false,
             in_js_file: false,
             file_node: NodeId::ZERO,
@@ -722,6 +730,7 @@ impl<'a, 'n> Binder<'a, 'n> {
     ) -> Self {
         let file_name = info.name;
         self.source = info.text;
+        self.file_name = info.name;
         let root = Node::SourceFile(file);
         let root_id = root.node_id().expect("the source file is registered");
 
@@ -4867,6 +4876,28 @@ impl<'a, 'n> Binder<'a, 'n> {
         tsr_core::Span::new(start, span.end)
     }
 
+    /// `createDiagnosticForNode` for a related location in this file: the
+    /// diagnostic names the file through its image, built once per file.
+    fn related_diagnostic(
+        &mut self,
+        message: &'static tsr_diagnostics::Message,
+        span: tsr_core::Span,
+        args: Vec<String>,
+    ) -> Diagnostic {
+        let file = self
+            .diagnostic_file
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(tsr_diagnostics::format::DiagnosticFile::new(
+                    self.file_name,
+                    self.source,
+                ))
+            })
+            .clone();
+        let mut diagnostic = Diagnostic::with_args(message, span, args);
+        diagnostic.set_file(file);
+        diagnostic
+    }
+
     fn declaration_name_span(&mut self, declaration: NodeId) -> tsr_core::Span {
         for &(id, name) in &self.name_nodes[self.name_indexed..] {
             self.name_index.insert(id, name);
@@ -5037,31 +5068,59 @@ impl<'a, 'n> Binder<'a, 'n> {
                 // (`es6ImportNamedImportIdentifiersParsing`,
                 // `docs/parity/notes/decls.md` §14).
                 //
-                // The related-info chain upstream attaches (`binder.go:265-275`:
-                // `Another_export_default_is_here`, `and_here`,
-                // `The_first_export_default_is_here`) is **not** ported: `Diagnostic`
-                // carries no related information yet, and the `diagnostics` suite
-                // compares codes and positions only. Tracked in bd tsr-y4u.23.
+                let mut multiple_default_exports = false;
                 if self.default_export_declaration == Some(declaration)
                     && !self.symbols.get(existing).declarations.is_empty()
                 {
                     message = &messages::A_MODULE_CANNOT_HAVE_MULTIPLE_DEFAULT_EXPORTS;
                     message_needs_name = false;
+                    multiple_default_exports = true;
                 }
 
-                let report = |binder: &mut Self, at: NodeId| {
+                let diagnostic_at = |binder: &mut Self, at: NodeId| {
                     let span = binder.declaration_name_span(at);
-                    binder.diagnostics.push(if message_needs_name {
+                    if message_needs_name {
                         Diagnostic::with_args(message, span, [name.to_string()])
                     } else {
                         Diagnostic::new(message, span)
-                    });
+                    }
                 };
+                // `binder.go:249-277`, in its order: the new declaration's
+                // diagnostic is built first and added last; each earlier
+                // declaration's is added in turn. For multiple default exports
+                // each earlier one relates "Another export default is here"
+                // (then "and here") at the new declaration, and the new one
+                // relates "The first export default is here" at each earlier one
+                // (r7-shared.md §35).
+                // Not ported: `binder.go:255`'s `Did you mean 'export type { T }'`
+                // related information on a type-less `export type T;`, which
+                // needs the declaration's node, not only its id.
+                let mut head = diagnostic_at(self, declaration);
+                let head_span = self.declaration_name_span(declaration);
                 let previous: Vec<NodeId> = self.symbols.get(existing).declarations.to_vec();
-                report(self, declaration);
-                for earlier in previous {
-                    report(self, earlier);
+                for (index, earlier) in previous.into_iter().enumerate() {
+                    let mut diagnostic = diagnostic_at(self, earlier);
+                    if multiple_default_exports {
+                        let message = if index == 0 {
+                            &messages::ANOTHER_EXPORT_DEFAULT_IS_HERE
+                        } else {
+                            &messages::AND_HERE
+                        };
+                        diagnostic.add_related_information(Some(self.related_diagnostic(
+                            message,
+                            head_span,
+                            Vec::new(),
+                        )));
+                        let earlier_span = diagnostic.span;
+                        head.add_related_information(Some(self.related_diagnostic(
+                            &messages::THE_FIRST_EXPORT_DEFAULT_IS_HERE,
+                            earlier_span,
+                            Vec::new(),
+                        )));
+                    }
+                    self.diagnostics.push(diagnostic);
                 }
+                self.diagnostics.push(head);
                 // **Upstream does NOT merge, and the comment that stood here
                 // saying it does was wrong for two sessions.** `binder.go:286`,
                 // the last statement of the conflict branch, is

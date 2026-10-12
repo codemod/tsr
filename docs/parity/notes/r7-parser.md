@@ -273,6 +273,7 @@ function whose recovery differed. Each landed as its own commit:
 | `parseTypedefTag`'s second `@type` (`jsdoc.go:1048`) | TS8033 carried no related report; native relates TS8034 "The tag was first specified here." at `(0, 0)`, the range it builds | typedefDuplicateTypeDeclaration (with the compiler's related-info file) |
 | `scanner.TokenToString` (`scanner.go:124`) | `'{0}' expected` knew twenty token texts and printed any other kind's name (`'LessThanSlashToken' expected.`) | message text only (the exact oracle; the diagnostics suite compares codes) |
 | `scanString` (`scanner.go:1586`) | an unterminated string literal's value dropped its last character: the slow path ended the value one before the cursor, as if a closing quote had been consumed | scannerStringLiterals (types) |
+| `parseMethodDeclaration`'s `parseFunctionBlockOrSemicolon` (`:1950`, `:3481`) for an object-literal method, with `checkGrammarMethod`'s missing-body arm (`grammarchecks.go:1451`, in `grammar.rs`) and the walk's dispatch (`check.rs`), both integrator's grants | an object-literal method always parsed a block, so `async * x: 1;` reported `'{' expected` at `;` and checked an empty body against the return type `1` (TS2322). The parser's `'{' expected` stood in for the grammar arm, which reports only when the file has no parse errors. With no body, the walk also had to stop running `checkFunctionOrConstructorSymbol` (TS2391/TS2393) on object-literal methods: native reaches them through `checkObjectLiteralMethod` (`checker.go:13865`), never `checkFunctionOrMethodDeclaration` | parser.asyncGenerators.objectLiteralMethods.es2018; objectLiteralMemberWithoutBlock1 now parses cleanly (printer_round_trip +1) |
 
 The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
 parseType)`; its diagnostics stand when the list is accepted and the
@@ -444,3 +445,40 @@ all of it inside the lib files' long comments:
 How it would be wrong: a `.ts` construct whose `@see`/`@link` comment is no
 longer attached, which shows up as lost `@link` references in the checker's
 JSDoc output (types suite) or in the exact oracle.
+
+## 12. Re-triage on `02301e3` with the exact oracle
+
+Measured 2026-10-12 by the replacement thread, after the queue's first four
+items turned out to be on main already (a206b053, bf980613, the scanner
+cluster, jsxAndTypeAssertion, importCallExpressionIncorrect2, the static-block
+await context). Native run frozen once (`oracle-native`, one worker, under
+`ulimit -v 4500000`: 12,796 cases, 1 `NATIVE_FAILED`, largeControlFlowGraph,
+which is the memory cap, not a parity fact). Base report: 10,295 / 12,797
+EXACT, the integrator's batch-48 number.
+
+`full_oracle_run rank` over the 2,502 non-exact cases, filtered to parse
+diagnostics (TS1xxx, TS17xxx), `parser.*`/`scanner.*` emitters and the
+`node-selection` class:
+
+- parse diagnostics are exact everywhere except the related-information file
+  (§6's `attachFileToDiagnostics` row, ≈21 cases);
+- `node-selection` is 3 cases: decoratorOnArrowFunction and
+  decoratorOnFunctionExpression wait on `Expression::MissingDeclaration` in
+  the generated AST (§1), manyCompilerErrorsInTheTwoFiles on §6's refused
+  full-start placement of missing identifiers (its other row was the
+  `scanString` fix);
+- every other parser-adjacent bucket is the checker's: TS1046 and TS1108
+  spans (`grammarErrorOnFirstToken`, `checkReturnStatement`), TS17004
+  (`checkJsxPreconditions`, unported), the list-fact readers of §10
+  (TS1098/TS1099/TS1092/TS1025/TS1013, 12 cases), TS1326, TS1200, TS1341,
+  TS1368, TS1141 on a JSDoc `@import` specifier, TS8023.
+
+Two parser ports need a checker partner. An object-literal method's
+`parseFunctionBlockOrSemicolon` landed with it, under the integrator's grant
+(§6's table; the parser half alone reports TS2391 on `var v = { foo(); }`).
+`parseEntityName` under `parseTypeReference` is still held (§6), waiting on
+`resolveEntityName`'s skip of a missing name.
+
+Parse time is not a wall bottleneck: on domain-model TSR's parse phase is
+17–36 ms against tsgo's 53–66 ms (`--extendedDiagnostics`, noisy 4-core box),
+and the scanner is 8% of single-threaded Ir.

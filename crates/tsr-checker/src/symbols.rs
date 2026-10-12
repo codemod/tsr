@@ -2622,10 +2622,28 @@ impl<'a> Checker<'a, '_> {
                 | SymbolFlags::CLASS
                 | SymbolFlags::FUNCTION
                 | SymbolFlags::ENUM;
-            if flags.intersects(SymbolFlags::ALIAS)
-                || !flags.intersects(SymbolFlags::MODULE | declaration_shaped)
-                || flags.intersects(SymbolFlags::VALUE - declaration_shaped)
-            {
+            let declared = !flags.intersects(SymbolFlags::ALIAS)
+                && flags.intersects(SymbolFlags::MODULE | declaration_shaped)
+                && !flags.intersects(SymbolFlags::VALUE - declaration_shaped);
+            // A type-only target (`export = I` of an interface) has no value
+            // and so no property: `getTypeOfSymbol` is `errorType`, and only
+            // its exports answer. A variable target's members are
+            // `getPropertyOfType` over its declared type, decided here once
+            // that type is one this port computed (not `any`, an error or a
+            // gap); `export = x` with `x: { a } | { b }` has neither `a` nor
+            // `b` (`namedImportNonExistentName`, r7-shared.md §36).
+            let type_only = !flags.intersects(SymbolFlags::ALIAS | SymbolFlags::VALUE)
+                && flags.intersects(SymbolFlags::TYPE);
+            let variable = !declared
+                && !type_only
+                && !flags.intersects(SymbolFlags::ALIAS)
+                && flags.intersects(SymbolFlags::VARIABLE)
+                && !flags.intersects(SymbolFlags::VALUE - SymbolFlags::VARIABLE)
+                && {
+                    let ty = self.get_type_of_symbol(target);
+                    !self.is_error(ty) && !self.is_type_any(ty) && !self.is_gap(ty)
+                };
+            if !(declared || type_only || variable) {
                 return None;
             }
             target
@@ -2826,6 +2844,16 @@ impl<'a> Checker<'a, '_> {
     ) -> bool {
         let target_type = self.get_type_of_symbol(target);
         if self.get_property_of_type_ex(target_type, name, true).is_some() {
+            return true;
+        }
+        // `getPropertyOfType` on a union is `createUnionOrIntersectionProperty`
+        // (every constituent has it); `get_property_of_type_ex` routes no
+        // union, and the type-read road projects across constituents.
+        if matches!(self.store.get(target_type).data, crate::types::TypeData::Union { .. })
+            && self
+                .get_type_of_property_with_this_argument(target_type, name, target_type, true)
+                .is_some()
+        {
             return true;
         }
         if self.get_export_of_module(target, name).is_some() {
