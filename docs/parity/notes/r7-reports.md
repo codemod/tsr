@@ -2853,3 +2853,219 @@ The unnamed rule and the object/index arm now apply only when neither side
 is an alias instantiation, whether recorded in `alias_of` or as a reference
 target. `deeplyNestedMappedTypes`' types match again, and
 `indexedAccessConstraints` stays EXACT.
+
+## 104. `findMostOverlappyType` with a `number` index
+
+`getBestMatchingType`'s last arm intersects `getIndexType(source)` with
+`getIndexType(target)` and counts the unit types in the result. A `number`
+index signature adds `number`, which is not a unit type and meets no
+string-literal key, so for array sources the count is the shared literal
+property names. The retrace had declined any source or constituent with an
+index signature. It now declines only for a `string` index, which meets
+every string-literal key. `symbol[] → number | ConcatArray<number>` picks
+`ConcatArray<number>` and explains through `slice(...)`
+(`iteratorSpreadInArray6`'s TS2769 argument chain). Quick oracles over
+`rray`, `pread`, `nion` and `terator`: 0 lost.
+
+## 105. JSX attributes heads: only the attributes object is decomposed
+
+`reportErrorResults`' JSX arm (`relater.go:4724`) drops the head when the
+source carries `ObjectFlagsJsxAttributes` and the target is an intersection
+holding `IntrinsicAttributes` or `IntrinsicClassAttributes`. In that case
+the failing constituent stands alone. `report_jsx_attributes_relation_failure`
+decomposed every such target. A spread type parameter (`<MyComponent
+{...props} />` with `props: P`) or an intersection source is not the
+attributes object, so native keeps the whole head: `Type 'P' is not
+assignable to type 'IntrinsicAttributes & P'.`, then its constituent line
+and the `extends` hints (`tsxNotUsingApparentTypeOfSFC`, whose remaining
+differences are the react16 lib's unresolved names). Such sources now go to
+`report_relation_failure`. Quick oracles over `tsx` and `jsx`: 0 lost.
+
+Refused here: in `contextuallyTypedStringLiteralsInJsxAttributes02`, `<MainButton
+{...{goTo: "home"}} extra />` prints `goTo: string` where native has the
+last candidate's contextual literal `"home"`. The spread operand's object
+literal is checked once and cached. Native re-checks it under each
+candidate's context, and the expression cache is not this lane's.
+
+## 106. TS2786's `JSX.ElementType` chain
+
+`checkJsxOpeningLikeElementOrOpeningFragment` relates the tag's type to
+`JSX.ElementType` with `checkTypeRelatedTo`, using `Its type '{0}' is not a
+valid JSX element type.` as the head message under `_0_cannot_be_used_as_a_JSX_component`.
+The relation's own chain hangs below that head. The port reported the two
+headers alone. `check_jsx_element_type_constraint` now attaches
+`relation_failure_chain` under the second one. In `jsxElementType`, the
+union constituent picked by best match (`(props: any) => React18ReactNode`)
+and its arity line now follow. That line still differs from native in the
+lib's `React.ForwardedRef` qualification, which is printing. Quick oracles
+over `tsx` and `lementType`: 0 lost.
+
+## 107. TS2352 carries the comparable relation's chain
+
+`checkAssertionDeferred` reports with `checkTypeComparableTo(exprType,
+targetType, errNode, Conversion_of_type_0_to_type_1_may_be_a_mistake…)`. The
+head message carries the pair's `reportRelationError` explanation
+(`'T' could be instantiated with an arbitrary type…`) and the comparable
+relation's chain below it (`Property 'anything' is missing in type …`). The
+port reported the bare head.
+
+- **A comparable mode in the retrace.** `ChainStack::comparable` makes
+  `chain_relate` and the constraint descent ask the comparable relation
+  (`relate_ternary_assuming` takes the relation now). The pair message
+  becomes `Type '{0}' is not comparable to type '{1}'.`, which is
+  `reportRelationError`'s first arm for that relation. A union source
+  reports only its last constituent (`someTypeRelatedToType` reports at
+  `i == len - 1`).
+- **The head.** `report_comparable_failure` builds the head through
+  `relation_diagnostic`, as the TS2322 heads do, with the chain and the
+  head's `extends` hint.
+- **Consumer hunk.** In `assertion_overlap.rs`,
+  `check_assertion_overlap_parts` now calls `report_comparable_failure`
+  instead of building the bare diagnostic. This is the integrator's default
+  grant for a small consumer hunk with the same root cause. Its unused
+  `Diagnostic` import is removed.
+- **Measured.** Quick oracles over `ssertion`, `asting`, `uzzy` and
+  `omparab`: `genericTypeAssertions4/5/6`, `typeAssertions`,
+  `typeAssertionsWithIntersectionTypes01`, `castingTuple`, `fuzzy` and
+  `genericWithNoConstraintComparableWithCurlyCurly` gained, 0 lost.
+
+## 108. TS2417's chain; missing-property names qualified when they print alike
+
+- **TS2417** (`checkKindSpecificInheritance`'s static side):
+  `checkTypeAssignableTo(staticType,
+  getTypeWithoutSignatures(staticBaseType), …,
+  Class_static_side_0_incorrectly_extends_base_class_static_side_1)`. The
+  port reported the bare head. `check.rs`'s static-side check (the TS2417
+  site) now attaches `relation_failure_chain` of the static types. This is a
+  consumer hunk under the default grant. Native compares against the base
+  without signatures. The retrace walks properties before signatures, so
+  the first failing member is the same:
+  - `Types of property 'x' are incompatible.`
+  - `Property 'r' is protected in type 'typeof Derived6' but public in type 'typeof Base'.`
+- **`getTypeNamesForErrorDisplay` in the missing-property messages.**
+  `reportUnmatchedProperty` names its pair through
+  `getTypeNamesForErrorDisplay`, which qualifies both types when they print
+  alike: `Property 'convert' is missing in type 'typeof Path.Utils' but
+  required in type 'typeof Shape.Utils'`. The unqualified names also failed
+  `chainArgsMatch`, so the pair line above was not suppressed
+  (`clodulesDerivedClasses`). `missing_properties_diagnostic` now does the
+  same.
+- **Measured.** Quick oracles over `nheritance`, `tatic`, `lodule`,
+  `erived` and `issing`: 0 lost.
+
+## 109. `keyof T` placeholders are reportable; a circular constraint-key `Maybe` is no proof
+
+Routed from r7-calls (`recursiveTypeRelations`).
+
+- **The `keyof T` type-node mint.** `declared.rs` mints `keyof T` for a
+  type-parameter operand as an unresolved placeholder that records its
+  operand in `deferred_keyof_operands`. The relater's index arms read that
+  operand, so their decided answers are real. The report gates
+  (`assignability_pair_is_reportable` and the retrace's own gap check)
+  treated the mint as a gap and dropped them, for example `let a: keyof S =
+  x` with `x: string`. Such a mint is now reportable
+  (`is_deferred_keyof_mint`).
+- **The constraint keys must relate with `TernaryTrue`.** The `keyof T`
+  target arm (`relater.go:3505`) relates the source to `keyof C` for `T`'s
+  constraint `C` and accepts only `TernaryTrue`. `S extends { [K in keyof
+  S]: string }` has `keyof S` as its constraint's keys, so the circular
+  answer is `Maybe`. A primitive source then has no other arm, and the pair
+  is False. `relater.rs` decided that only on a `NotRelated` constraint
+  answer. It now decides on `Maybe` too.
+- **Not this lane.** `recursiveTypeRelations`' TS2345 itself never reaches
+  the report. The argument is a callback whose parameter is the
+  unresolved `ClassNameObject` (an error type), and call resolution
+  declines before `report_argument_failure`. That is r7-calls'.
+- **Measured.** Quick oracles over `keyof`, `eyof`, `ndex`, `apped` and
+  `ecursive`: 0 lost.
+
+## 110. Signature members keep a type from its single base; numeric names print as written
+
+- **`getMembersOfSymbol` counts members bound under internal names.** A
+  class constructor (`__constructor`) and an interface's call and construct
+  signatures (`__call`, `__new`) are members natively, so a class with only
+  a constructor is not a non-augmenting subtype. The port's binder table
+  leaves them out. §88's single-base normalization therefore read `class C
+  extends B implements I { constructor() … }` as `B`, and printed *Property
+  'x' is missing in type 'B'*. It now checks the declarations for those
+  members (`declares_signature_members`, `bases`).
+- **A numeric property name prints as written.** `declarationNameToString`
+  gives the source text, `2.0`, not the normalized key `2`: *Types of
+  property '2.0' are incompatible.* `chain_property_symbol_display` reads
+  the numeric name's source text (`subtypingWithObjectMembers2` is EXACT).
+- **Measured.** Quick oracles over `ubtyping`, `nterface`, `lass`, `ases` and
+  `mplement`: 0 lost.
+
+## 111. Alias instantiations of tuple types read their bodies; computed names print as written
+
+- **`type T1<T> = [number, T1<{ x: T }>]`.** The port mints `T1<U>` under its
+  alias name, not as the tuple it stands for, so the retrace found no
+  tuple arm and declined. Native relates the tuple: `Type at position 0 in
+  source is not compatible with type at position 0 in target.` / `Type
+  'number' is not assignable to type '42'.` (`inferFromNestedSameShapeTuple`).
+  When either side is an alias instantiation whose evaluated body
+  (`evaluate_alias_body`) is a tuple, the tuple arm now reads the body.
+  Two instantiations of the same alias are left to alias variance.
+- **Measured.** Quick oracles over `uple`, `nfer`, `ecursive` and `lias`: 0
+  lost.
+
+## 112. Computed property names print as written in the chain
+
+`declarationNameToString` prints a computed name as its source text,
+`[c0]`, and the chain's `Types of property '[c0]' are incompatible.` uses
+it. `chain_property_symbol_display` printed the late-bound key instead
+(`1`). It now reads the computed name's source text, as §110 does for
+numeric names (`dynamicNamesErrors`' TS2322 chains match; its TS2717 is
+another lane's). Quick oracles over `ynamic` and `omputed`: 0 lost.
+
+## 113. Private names, never-reduced intersection targets, apparent-empty type parameters
+
+- **`#name` across classes.** Natively a private name is keyed per declaring
+  class (`GetSymbolNameForPrivateIdentifier`), so another class's `#foo` is
+  an unmatched property. `reportUnmatchedProperty`'s private-identifier arm
+  reports *Property '#foo' in type 'B' refers to a different member that
+  cannot be accessed from within type 'A'.* The port keys `#foo` once and
+  had reported *Types have separate declarations of a private property*.
+  The unmatched pass now checks `#` names first (`private_name_mismatch`;
+  `privateNamesUnique-1/5`).
+- **`reportErrorResults`' never-intersection arm.** A target intersection
+  reduced to `never` by a private or conflicting property reports *The
+  intersection 'A & B' was reduced to 'never' because property 'x' exists
+  in multiple constituents and is private in some.*, with nothing
+  structural, because the normalized target is `never`. The explanation
+  reads `never_reduced_property` (`intersectionWithConflictingPrivates` is
+  EXACT).
+- **`T & { a: boolean } → { a?: string }`.** The structural pass reads the
+  intersection's apparent type. A type parameter with no constraint, or
+  constrained to `unknown` or `object`, contributes no members, so the
+  combined-member arm applies: `Types of property 'a' are incompatible.`
+  (`intersectionPropertyCheck`'s second line).
+- **Measured.** Quick oracles over `ntersection`, `rivate`, `eneric` and
+  `bject`: 0 lost.
+
+## 114. `never` targets are leaves
+
+`isSimpleTypeRelatedTo` fails every source against `never`, and no
+structural arm reports below. Under callback comparison,
+`genericRestTypes`' `[x: string, ...rest: T] → never` (the rest type at
+position 0 against `...args: never`) ends with `Type '[x: string, ...rest:
+T]' is not assignable to type 'never'.`. The retrace had declined for a
+tuple source. A union source keeps the each-type arm: native reports its
+first constituent (`narrowingUnionToNeverAssigment`'s `Type '"c"' is not
+assignable to type 'never'.`), and a first version of this arm that came
+ahead of the union arm lost that case in a quick oracle. Quick oracles over
+`ever`, `estParam` and `allback`: 0 lost.
+
+## 115. A fixed tuple against a union of fixed tuples picks native's best match
+
+`getBestMatchingType` for `[] → [string] | [number, boolean]`:
+`findMatchingDiscriminantType` reads `length`, a literal per fixed tuple. A
+unique constituent of the source's length is the match. With none (or
+several), `findMostOverlappyType` counts the shared keys: the element names
+`"0"`, `"1"`, … up to the shorter length, the `Array` members and `length`
+being common to all, so ties go to the later constituent. That gives
+`Type '[]' is not assignable to type '[number, boolean]'.` / `Source has 0
+element(s) but target requires 2.` (`genericRestParameters3`). The retrace
+had no property list for tuples and declined. `tuple_union_best_match`
+handles fixed tuples only; optional, rest and variadic elements go through
+the general path. Quick oracles over `uple`, `estParam` and `pread`: 0 lost.

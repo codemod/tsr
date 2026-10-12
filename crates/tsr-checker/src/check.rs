@@ -2011,14 +2011,22 @@ impl Checker<'_, '_> {
         let printed = [self.type_to_string(static_type), self.type_to_string(base_static_type)];
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
         let span = self.error_span(name_id);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::CLASS_STATIC_SIDE_0_INCORRECTLY_EXTENDS_BASE_CLASS_STATIC_SIDE_1,
-                span,
-                printed,
-            ),
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::CLASS_STATIC_SIDE_0_INCORRECTLY_EXTENDS_BASE_CLASS_STATIC_SIDE_1,
+            span,
+            printed,
         );
+        // `checkTypeAssignableTo`'s chain under the head (r7-reports §108).
+        // Native relates against `getTypeWithoutSignatures(baseStaticType)`;
+        // the retrace walks properties before signatures, so the first
+        // failing member is the same.
+        if let Some(chain) =
+            self.relation_failure_chain(name_id, span, static_type, base_static_type)
+        {
+            diagnostic.add_message_chain(Some(chain));
+            self.attach_chain_file(name_id, span, &mut diagnostic);
+        }
+        self.report(file, diagnostic);
     }
 
     /// TS2358 — `The left-hand side of an 'instanceof' expression must be of

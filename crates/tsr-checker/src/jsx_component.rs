@@ -1512,11 +1512,16 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(tag_id) else { return };
         let span = self.error_span(tag_id);
-        let detail = Diagnostic::with_args(
+        let mut detail = Diagnostic::with_args(
             &messages::ITS_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT_TYPE,
             span,
             [self.type_to_string_for_message(tag_type, tag_id)],
         );
+        // `checkTypeRelatedTo`'s chain under that head message: the
+        // retraced failure, where every step is decided (r7-reports §106).
+        if let Some(chain) = self.relation_failure_chain(tag_id, span, tag_type, constraint) {
+            detail.add_message_chain(Some(chain));
+        }
         let text = self.jsx_tag_text(tag_id);
         self.report(
             file,

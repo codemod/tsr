@@ -2043,20 +2043,12 @@ impl<'a> Checker<'a, '_> {
             budget.visiting.pop();
             printed
         } else {
-            // `addPropertyToElementList` → `serializeTypeForDeclaration(nil,
-            // type, propertySymbol, true)` (`nodebuilderimpl.go:2605`): a
-            // homomorphic member carries its source property's declarations,
-            // whose annotation is reused when equivalent (`a?: number` keeps
-            // `number`; r7-printer §62).
-            let reused = budget.site.and_then(|site| {
-                property
-                    .origin
-                    .and_then(|symbol| self.reused_property_type_text(symbol, ty, Some(site)))
-            });
-            let printed = match (reused, budget.site) {
-                (Some(text), _) => text,
-                (None, Some(site)) => self.mapped_slot_text(ty, Some(site)),
-                (None, None) => self.property_printed_type(property).into_owned(),
+            // The declaration-reuse test of `addPropertyToElementList` ran
+            // above, once and guarded (r7-declared §57, which r7-printer §62
+            // also ported here; r7-declared §61 keeps the one test).
+            let printed = match budget.site {
+                Some(site) => self.mapped_slot_text(ty, Some(site)),
+                None => self.property_printed_type(property).into_owned(),
             };
             // typeToTypeNode's string-literal arm counts the value and its
             // quotes; other kinds count their printed text.

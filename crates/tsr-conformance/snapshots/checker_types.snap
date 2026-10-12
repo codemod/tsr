@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 9061/9538 (95.00%)
-Assertion lines: 476510/478853 (99.51%)  — a gradient, not a pass rate
-Failed         : 477
+Passed         : 9063/9538 (95.02%)
+Assertion lines: 476556/478853 (99.52%)  — a gradient, not a pass rate
+Failed         : 475
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 477 failures:
+First 100 of 475 failures:
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a2 : (name: string, mixed: any, args_0: any) => any — expected >a2 : a2
 compiler/allowJscheckJsTypeParameterNoCrash
@@ -108,7 +108,7 @@ compiler/contextualPropertyOfGenericFilteringMappedType
 compiler/contextualSignatureConditionalTypeInstantiationUsingDefault
   contextualSignatureConditionalTypeInstantiationUsingDefault.ts: >(ev) => {  ev.type; // should be `string`} : (ev: any) => void — expected >(ev) => {  ev.type; // should be `string`} : (ev: { type: string; }) => void
 compiler/contextualTypeFunctionObjectPropertyIntersection
-  contextualTypeFunctionObjectPropertyIntersection.ts: >{  schema: {    events: {} as { type: "FOO" } | { type: "BAR" },  },  on: {    FOO: (ev) => {      ev.type; // should be 'FOO'    },  },} : any — expected >{  schema: {    events: {} as { type: "FOO" } | { type: "BAR" },  },  on: {    FOO: (ev) => {      ev.type; // should be 'FOO'    },  },} : { schema: { events: { type: "FOO"; } | { type: "BAR"; }; }; on: { FOO: (ev: { type: "FOO"; }) => void; }; }
+  contextualTypeFunctionObjectPropertyIntersection.ts: >{  schema: {    events: {} as { type: "FOO" } | { type: "BAR" },  },  on: {    "*": (ev) => {      ev.type; // should be 'FOO' | 'BAR'    },  },} : { schema: { events: { type: "FOO"; } | { type: "BAR"; }; }; on: { "*": (ev: { type: string; }) => void; }; } — expected >{  schema: {    events: {} as { type: "FOO" } | { type: "BAR" },  },  on: {    "*": (ev) => {      ev.type; // should be 'FOO' | 'BAR'    },  },} : { schema: { events: { type: "FOO"; } | { type: "BAR"; }; }; on: { "*": (ev: { type: "FOO"; } | { type: "BAR"; }) => void; }; }
 compiler/contextualTypeSelfReferencing
   contextualTypeSelfReferencing.ts: >result : { a: string; }[] — expected >result : [{ a: "foo"; }]
 compiler/contextualTypingWithGenericSignature
@@ -125,8 +125,6 @@ compiler/contextuallyTypedJsxChildren2
   contextuallyTypedJsxChildren2.tsx: >selector : (state: NoInfer<{ foo: number; }>) => any — expected >selector : (state: NoInfer<{ foo: number; }>) => number
 compiler/contextuallyTypedParametersWithInitializers1
   contextuallyTypedParametersWithInitializers1.ts: >g1((x = 1) => 0) : (x?: number) => number — expected >g1((x = 1) => 0) : (x?: number) => 0
-compiler/contextuallyTypedSymbolNamedProperties
-  contextuallyTypedSymbolNamedProperties.ts: >{    [A]: ap => { ap.description },    [B]: bp => { bp.description },} : error — expected >{    [A]: ap => { ap.description },    [B]: bp => { bp.description },} : { [A]: (ap: unique symbol) => void; [B]: (bp: unique symbol) => void; }
 compiler/contravariantOnlyInferenceFromAnnotatedFunction
   contravariantOnlyInferenceFromAnnotatedFunction.ts: >result : error — expected >result : [string, { bar: string; }]
 compiler/contravariantOnlyInferenceFromAnnotatedFunctionJs
@@ -213,3 +211,5 @@ compiler/discriminantPropertyCheck
   discriminantPropertyCheck.ts: >test : AllTests — expected >test : TestA | TestB
 compiler/discriminateWithDivergentAccessors1
   discriminateWithDivergentAccessors1.ts: >weirdoBox : { get done(): true; set done(v: T | null); value: number; } — expected >weirdoBox : { get done(): true; set done(v: number | null); value: number; }
+compiler/discriminatedUnionJsxElement
+  discriminatedUnionJsxElement.tsx: >variant : ListItemVariant.OneLine | ListItemVariant — expected >variant : ListItemVariant

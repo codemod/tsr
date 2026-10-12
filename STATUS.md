@@ -23,26 +23,25 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 ## 1. Where the port stands
 
 Round 7 (`tsr-2zk.47`), Amp orb boxes, integrating straight onto **main**.
-Ten lanes with whole-file ownership ([round7.md](docs/parity/round7.md));
-44 gated batches so far. Batches 21–44 were landed by the continuous gate
-loop (`scripts/integration/autoloop.sh`). Pinned native `5b1047d`. Coverage
-bin, full corpus, measured on main `374ca4ea` (batch 44):
+Ten lanes with whole-file ownership ([round7.md](docs/parity/round7.md)).
+82 gated batches so far, most landed by the continuous gate loop
+(`scripts/integration/autoloop.sh`). Pinned native `5b1047d`. Coverage bin,
+full corpus, measured on main `a8012982` (batch 82):
 
-| Suite | Round-6 close (`83c6f58d`) | Now (`374ca4ea`) | Change |
+| Suite | Round-6 close (`83c6f58d`) | Now (`a8012982`) | Change |
 |---|---|---|---|
-| `checker_types` | 8,677/9,538 (90.97%) | **8,952/9,538 (93.86%)** | +275 |
-| `checker_types_configured` | 1,752/1,928 (90.87%) | **1,829/1,928 (94.87%)** | +77 |
-| `diagnostics` | 4,786/5,502 (86.99%) | **5,046/5,502 (91.71%)** | +260 |
-| `diagnostics_configured` | 955/1,091 (87.53%) | **1,016/1,091 (93.13%)** | +61 |
+| `checker_types` | 8,677/9,538 (90.97%) | **9,063/9,538 (95.02%)** | +386 |
+| `checker_types_configured` | 1,752/1,928 (90.87%) | **1,853/1,928 (96.11%)** | +101 |
+| `diagnostics` | 4,786/5,502 (86.99%) | **5,131/5,502 (93.26%)** | +345 |
+| `diagnostics_configured` | 955/1,091 (87.53%) | **1,036/1,091 (94.96%)** | +81 |
 
 **Exact native oracle** (full output: messages, chains, related information,
-spans, order and type text; `parity_gate.sh exact-candidate`): **9,761 /
-12,797 EXACT (76.28%)** at batch 44, against 9,554 at batch 17 when it became
-a gate leg, and 8,303 at the round-6 owner continuation. This is the strict
-measure of the 99.9% goal.
+spans, order and type text; `parity_gate.sh exact-candidate`): **11,277 /
+12,797 EXACT (88.12%)** at batch 82, against 9,554 at batch 17 when it became
+a gate leg. This is the strict measure of the 99.9% goal.
 
-Legacy type lines RIGHT: 551,176 of 556,357 aligned → 553,876 of 557,343
-(+2,700). Every batch passed these legs:
+Legacy type lines RIGHT: 551,176 of 556,357 aligned → 554,676 of 557,344
+(+3,500). Every batch passed these legs:
 - the legacy compare and (from batch 19) the exact oracle, with zero
   previously RIGHT/EXACT keys lost or missing;
 - jsTyping against tsgo, with no new false and no lost true line;
@@ -50,11 +49,21 @@ Legacy type lines RIGHT: 551,176 of 556,357 aligned → 553,876 of 557,343
 - callgrind Ir on generic-imports and domain-model (from batch 13);
 - no suite's failure count rising.
 
-**Performance target not met.** TSR/tsgo-pinned median wall · CPU, measured
-by r7-perf after mimalloc (`4c765057`, batch 9), 21 samples, `dist`
-profile: domain-model 0.540 · 0.416, domain-model-large 0.716 · 0.479,
-generic-imports 0.598 · 0.303. Batch 17's lazy object-literal member text
-then cut domain-model Ir by another 4%. Later r7-perf work brings callgrind Ir to 191M on generic-imports (224M at batch 17) and 856M on domain-model (946M). Fresh wall ratios are pending from r7-perf.
+**Performance target not yet verified with margin.** TSR/tsgo-pinned median
+wall · CPU, measured by r7-perf on main `2d1b3a4c` (batch 64), dist profile:
+
+| Project | Session 1 (21) | Session 2 (31) |
+|---|---|---|
+| domain-model | 0.518 · 0.393 | 0.516 · 0.386 |
+| domain-model-large | 0.524 · 0.411 | 0.506 · 0.393 |
+| generic-imports | 0.575 · 0.298 | 0.602 · 0.304 |
+
+A third, interleaved session read dm 0.496. dm/dml sit at 0.49–0.52 across
+sessions, so the target is met in some sessions and missed in others.
+jsTyping (1.5–1.8×) is not yet equivalent work (100 vs 86 unique diagnostic
+lines). Since then, batch 78 cut generic-imports Ir to 176.7M (from 191M)
+through r7-perf's scanner/parser/binder items. ADR-0056 (rebasable node ids,
+per-file bind) is funded, and stage 4 (bind on the parsing worker) is next.
 
 jsTyping is not equivalent work: TSR reports 429 diagnostics against tsgo's
 86. Round 7 routed the delta to eight lane clusters (`tsr-2zk.1277.2`–`.9`).
@@ -8014,6 +8023,17 @@ same source with **three E0658 errors**. `--manifest-path` did not select TSR's
 toolchain pin. The guard rewrite restores that build without changing semantics.
 
 Round 7 (`tsr-2zk.47`). Refused or held by the number that measured it:
+- r7-perf scanner item 1 (stall in `Scanner::scan`'s token build): lib parse
+  0.979, 1.013 and 1.002 over three runs; the first measured gain did not
+  reproduce (r7-perf.md §41.1).
+- ADR-0056 stages 1–2 alone (NodeIdCell, publication as a rebase pass): they
+  pass every gate but pay nothing without stage 4.
+- Parsing the non-dom libs on worker threads: wall ×1.045, CPU ×1.176 over
+  41 pairs.
+- r7-reports' head suppression with the intersection-source arm: lost
+  intersectionAsWeakTypeSource (batch 65); repaired before landing.
+- r7-reports' first relation-chain stack: 4 EXACT TS2322 chain losses
+  (batch 55); repaired as batch 61 (+122 EXACT).
 - r7-printer's per-question accessibility cache: child CPU 1.10 on
   generic-imports. Refused in favour of checker-lifetime `accessibility_links`
   (r7-printer.md §1.4).
@@ -16540,3 +16560,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-10 | `5f2713fe` (round 7, batches 1–6 on main) / native `5b1047d` | +78 checker_types, +31 configured, +77 diagnostics, +17 configured cases; +1,419 type lines | 0 previously RIGHT losses (every batch gated against the previous freeze) | **Round 7 dispatched as ten Amp orb lanes, integrating directly onto main.** checker_types 8,755/9,538 (91.79%), diagnostics 4,863/5,502 (88.39%), configured 1,783/1,928 and 972/1,091. Strict workspace clippy made green (batch 4). Lazy JSDoc (ADR-0053) and the fat-LTO dist profile (ADR-0054) landed. The 0.50 wall target is still not met: dm 0.66, dml 0.75, gi 0.74 (release). jsTyping is not equivalent work. Held: `.1266`, the TS2775 port, export= pure alias, diff R. |
 | 2026-10-11 | `6842ea96` (round 7, batches 1–21 on main) / native `5b1047d` | +174 checker_types, +68 configured, +202 diagnostics, +52 configured cases since round-6 close; exact oracle 9,554 → 9,597 since batch 17 | 0 previously RIGHT or EXACT losses | **Round 7 continues; integration is automated.** The exact native oracle is a gate leg (74.99% EXACT), the jsTyping and callgrind legs were added, the gate scripts are committed under scripts/integration/, and a continuous loop lands green batches through session interruptions. The rejected alias/mapper cutover is retired in favour of a harvest. The 0.50 wall target is still not met (dist: dm 0.54, dml 0.72, gi 0.60). |
 | 2026-10-11 | `374ca4ea` (round 7, batches 1–44) / native `5b1047d` | +275 checker_types, +77 configured, +260 diagnostics, +61 configured cases since round-6 close; exact oracle 9,761 (76.28%) | 0 previously RIGHT or EXACT losses | **The gate loop landed batches 21–44 unattended**, and only two needed the owner: an OOM in the oracle leg and a newly judged round-trip case. The r7-flow lane was replaced after it stalled. Ir fell 15% on generic-imports and 10% on domain-model since batch 17. The 0.50 wall target is not yet re-measured. |
+| 2026-10-12 | `a8012982` (round 7, batches 1–82) / native `5b1047d` | +386 checker_types, +101 configured, +345 diagnostics, +81 configured since round-6 close; exact oracle 11,277 (88.12%) | 0 previously RIGHT or EXACT losses | **checker_types passed 95%.** The gate loop landed most batches; refusals were cut back and returned. Five lane threads were replaced after stalling. Lane reports were being lost, so the owner now reads lane threads directly, and small atomic consumer hunks are granted by default. Ratios: dm 0.49–0.52 dist; ADR-0056 funded. |
