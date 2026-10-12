@@ -8817,8 +8817,12 @@ impl Checker<'_, '_> {
             Some(_) => return,
             None => &messages::A_RETURN_STATEMENT_CAN_ONLY_BE_USED_WITHIN_A_FUNCTION_BODY,
         };
-        // `grammarErrorOnFirstToken(node, …)` — the `return` keyword.
-        self.report_grammar_at(Some(node), message);
+        // `grammarErrorOnFirstToken(node, …)` — the `return` keyword, not the
+        // statement (r7-grammar §52).
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let whole = self.nodes.span(node);
+        let span = self.first_token_span(node, whole.start).unwrap_or(whole);
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// `checkGrammarClassLikeDeclaration` and
