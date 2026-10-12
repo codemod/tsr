@@ -8164,7 +8164,9 @@ impl Checker<'_, '_> {
             let Some(file_id) = self.source_file_of_for_diagnostics(id) else { continue };
             // `grammarErrorOnFirstToken` — the node's own start, which is the
             // first token's start once trivia is skipped.
-            let span = self.nodes.span(id);
+            // `grammarErrorOnFirstToken`: the first token only (r7-grammar §51).
+            let whole = self.nodes.span(id);
+            let span = self.first_token_span(id, whole.start).unwrap_or(whole);
             self.report(
                 file_id,
                 Diagnostic::new(
