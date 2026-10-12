@@ -2087,3 +2087,23 @@ the integrator's default grant). Files and functions outside this lane:
 - `check.rs`: TS2507 prints its base type for a message.
 
 The measurement is in the commit's gate record.
+
+## 62. A mapped member reuses its source declaration (default consumer grant)
+
+**Forcing constraint.** `mappedTypeErrors`:
+`let x3: { [P in keyof T2]: T2[P] }` over `T2 { a?: number; … }` prints
+natively as `{ [x: string]: any; a?: number; }`. In
+`declarationEmitExactOptionalPropertyTypesNodeNotReused` (both
+configurations) the native print is `{ foo?: string; baz?: undefined; } & …`.
+The port printed `a?: number | undefined` and `foo?: string | undefined`.
+
+**Cause.** The same as §53. `addPropertyToElementList` serializes each member
+through `serializeTypeForDeclaration(nil, type, propertySymbol, true)`. A
+homomorphic mapped member carries its source property's declarations, so the
+written `a?: number` is reused, with the optional `undefined` removed for
+the comparison. `mapped_property_member` (mapped.rs) printed the type at
+the site without asking.
+
+**The change** (mapped.rs `mapped_property_member`, a consumer hunk of §53's
+root cause): with a print site, `reused_property_type_text` over the
+member's origin is asked first. No cache or table.

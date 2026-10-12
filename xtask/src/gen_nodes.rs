@@ -989,7 +989,7 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
         let fields =
             if name == "Token" { Vec::new() } else { resolve_fields(ast, nullability, name)? };
         let pushes: Vec<String> =
-            fields.iter().filter_map(|field| child_push_call(ast, field)).collect();
+            fields.iter().filter_map(|field| child_push_call(ast, field, "out.push")).collect();
         if pushes.is_empty() {
             childless.push(name.clone());
         } else {
@@ -1003,6 +1003,36 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
     if !childless.is_empty() {
         // Leaves — identifiers, literals, keyword types — share one arm; sixty
         // identical `=> {}` arms would be noise clippy is right to object to.
+        let arms: Vec<String> = childless.iter().map(|name| format!("Node::{name}(_)")).collect();
+        writeln!(out, "        {} => {{}}", arms.join("\n        | "))?;
+    }
+    out.push_str("    }\n}\n\n");
+
+    // The same children handed to a callback. A walk that recurses per child
+    // (the binder's `bindEachChild`) gets native's `ForEachChild` shape: no
+    // buffer to fill, read back and truncate around every node.
+    out.push_str(
+        "/// Call `f` with each of `node`'s immediate children, in source order:\n\
+         /// the children [`push_children`] appends, without a buffer.\n\
+         ///\n\
+         /// Does not recurse itself; a caller that recurses from `f` is bounded by\n\
+         /// tree depth and needs its own stack guard.\n\
+         pub fn for_each_child<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) {\n    \
+         match node {\n",
+    );
+    for name in ast.nodes.definitions.keys() {
+        if childless.contains(name) {
+            continue;
+        }
+        let fields =
+            if name == "Token" { Vec::new() } else { resolve_fields(ast, nullability, name)? };
+        writeln!(out, "        Node::{name}(n) => {{")?;
+        for call in fields.iter().filter_map(|field| child_push_call(ast, field, "f")) {
+            out.push_str(&call);
+        }
+        out.push_str("        }\n");
+    }
+    if !childless.is_empty() {
         let arms: Vec<String> = childless.iter().map(|name| format!("Node::{name}(_)")).collect();
         writeln!(out, "        {} => {{}}", arms.join("\n        | "))?;
     }
@@ -1120,11 +1150,12 @@ fn child_id_call(ast: &AstDefinition, field: &ResolvedField) -> Option<String> {
     })
 }
 
-/// How to push one field's children as `Node`, for `push_children`.
+/// How to hand one field's children as `Node` to `sink`: `out.push` for
+/// `push_children`, `f` for `for_each_child`.
 ///
 /// Mirrors [`child_visit_call`]'s type analysis but always widens to `Node`,
 /// because the caller wants a uniform list rather than a typed dispatch.
-fn child_push_call(ast: &AstDefinition, field: &ResolvedField) -> Option<String> {
+fn child_push_call(ast: &AstDefinition, field: &ResolvedField, sink: &str) -> Option<String> {
     let ty = &field.rust_type;
     let name = &field.rust_name;
 
@@ -1153,11 +1184,11 @@ fn child_push_call(ast: &AstDefinition, field: &ResolvedField) -> Option<String>
     // be named.
     let widen = |expr: &str| -> String {
         if base == "Node" {
-            format!("out.push({expr});")
+            format!("{sink}({expr});")
         } else if is_alias {
-            format!("out.push(Node::from({expr}));")
+            format!("{sink}(Node::from({expr}));")
         } else {
-            format!("out.push(Node::{base}({expr}));")
+            format!("{sink}(Node::{base}({expr}));")
         }
     };
 

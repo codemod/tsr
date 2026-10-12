@@ -235,6 +235,11 @@ fn block_comments_end_at_their_first_terminator_wherever_it_is() {
         ("a /* é\u{2028} * 🎉 */ b", true),
         ("a /* x\u{2029}*/ b", true),
         ("a /*\n * / * \n*/ b", true),
+        // After a line break the terminator is found from its `/` (§41.2 of
+        // `r7-perf.md`): a `/` not preceded by `*` is comment text.
+        ("a /*\n/*/ b", true),
+        ("a /*\n x // y / */ b", true),
+        ("a /*\n x **/ b", true),
     ] {
         let (tokens, diagnostics) = tokenize(source);
         assert!(diagnostics.is_empty(), "{source:?}");
@@ -245,7 +250,7 @@ fn block_comments_end_at_their_first_terminator_wherever_it_is() {
         assert_eq!(tokens[1].has_preceding_line_break(), line_break, "{source:?}");
         assert_eq!(&source[tokens[1].span.start as usize..tokens[1].span.end as usize], "b");
     }
-    for source in ["/* x\n * never closed *", "/* é\u{2028} *", "/*\n"] {
+    for source in ["/* x\n * never closed *", "/* é\u{2028} *", "/*\n", "/*\n / x /"] {
         let (tokens, diagnostics) = tokenize(source);
         assert_eq!(diagnostics.len(), 1, "{source:?}");
         assert_eq!(diagnostics[0].message.code(), 1010);
@@ -601,6 +606,44 @@ fn block_comments_still_record_jsdoc_in_the_token_flags() {
 
     let (plain, _) = tsr_scanner::tokenize("/* not jsdoc */\nlet a;");
     assert!(!plain[0].flags.contains(tsr_scanner::TokenFlags::PRECEDING_JSDOC_COMMENT));
+}
+
+/// The tags are tested during the comment walk (`r7-perf.md` §41.3), on the
+/// first line byte by byte and after it eight bytes at a time: every offset
+/// across a word boundary finds the same tags and the same terminator.
+#[test]
+fn jsdoc_tags_are_found_on_every_line_at_every_offset() {
+    use tsr_scanner::TokenFlags as F;
+    let both = F::PRECEDING_JSDOC_WITH_DEPRECATED | F::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
+    for pad in 0..20 {
+        let spaces = " ".repeat(pad);
+        for (body, want) in [
+            ("@deprecated", F::PRECEDING_JSDOC_WITH_DEPRECATED),
+            ("{@link x} / a", F::PRECEDING_JSDOC_WITH_SEE_OR_LINK),
+            ("@seeder @linked @deprecatedly", F::empty()),
+            ("@see\n * @deprecated", both),
+            ("x@deprecated**", F::PRECEDING_JSDOC_WITH_DEPRECATED),
+            ("a / b // c", F::empty()),
+        ] {
+            for source in [
+                format!("/**{spaces}{body} */\nlet a;"),
+                format!("/**\n *{spaces}{body} */\nlet a;"),
+                format!("/** x\n *\n{spaces}{body}\n */\nlet a;"),
+            ] {
+                let (tokens, diagnostics) = tsr_scanner::tokenize(&source);
+                assert!(diagnostics.is_empty(), "{source:?}");
+                assert_eq!(tokens[0].kind, SyntaxKind::LetKeyword, "{source:?}");
+                assert_eq!(tokens[0].flags & both, want, "{source:?}");
+                assert!(tokens[0].flags.contains(F::PRECEDING_JSDOC_COMMENT), "{source:?}");
+            }
+        }
+    }
+    // A tag running to the end of an unterminated comment still counts.
+    let (tokens, _) = tsr_scanner::tokenize("/**\n * @see");
+    assert!(tokens[0].flags.contains(F::PRECEDING_JSDOC_WITH_SEE_OR_LINK));
+    // Tags outside a `/**` comment are not recorded.
+    let (tokens, _) = tsr_scanner::tokenize("/* @deprecated\n @see */ let a;");
+    assert_eq!(tokens[0].flags & both, F::empty());
 }
 
 #[test]

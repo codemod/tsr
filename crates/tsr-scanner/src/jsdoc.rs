@@ -128,7 +128,7 @@ impl Scanner<'_> {
                         }
                         self.scan_jsdoc_identifier_parts(&mut value);
                         let kind = keyword_kind(&value).unwrap_or(SyntaxKind::Identifier);
-                        self.value = Some(value);
+                        self.value = Some(std::borrow::Cow::Owned(value));
                         kind
                     }
                     _ => {
@@ -152,7 +152,7 @@ impl Scanner<'_> {
                     self.scan_jsdoc_identifier_parts(&mut value);
                     if self.pos != end {
                         let kind = keyword_kind(&value).unwrap_or(SyntaxKind::Identifier);
-                        self.value = Some(value);
+                        self.value = Some(std::borrow::Cow::Owned(value));
                         return self.finish_jsdoc_token(kind, flags);
                     }
                 }

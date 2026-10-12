@@ -2272,6 +2272,20 @@ impl Checker<'_, '_> {
         if self.heritage_chain_contains(t_owner, c_owner, &mut visiting) {
             return Some(true);
         }
+        // `relater.go:4989`: a (mutable) `Array` target also takes a source
+        // derived from `ReadonlyArray`, so `x instanceof Array` removes a
+        // `readonly number[]` on the false branch (§70).
+        if self.global_type_symbol_with_arity("Array", 1) == Some(c_owner)
+            && let Some(readonly) = self.global_type_symbol_with_arity("ReadonlyArray", 1)
+        {
+            let mut visiting = Vec::new();
+            if t_owner == readonly
+                || self.class_extends_chain_contains(t_owner, readonly)
+                || self.heritage_chain_contains(t_owner, readonly, &mut visiting)
+            {
+                return Some(true);
+            }
+        }
         // Refutable only when BOTH chains are followable to their ends.
         let mut visiting_t = Vec::new();
         let mut visiting_c = Vec::new();
@@ -9481,6 +9495,15 @@ impl Checker<'_, '_> {
     /// possible either way; an index signature makes both possible; absence
     /// is possible only on the false branch.
     fn is_type_presence_possible(&mut self, t: TypeId, name: &str, assume_true: bool) -> bool {
+        // An anonymous object's own member, synthesized ones included (the
+        // optional `undefined` members `getWidenedType` adds across a union
+        // of object literals, `getUndefinedProperty`): its optionality is
+        // the image's (§71).
+        if let Some((properties, _)) = self.anonymous_properties.get(&t)
+            && let Some(property) = properties.iter().find(|property| property.name == name)
+        {
+            return property.optional || assume_true;
+        }
         if let Some(property) = self.get_property_of_type(t, name) {
             // Upstream reads `SymbolFlagsOptional`, which its binder stamps.
             // This port's binder writes no OPTIONAL flag — the first run of

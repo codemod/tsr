@@ -687,3 +687,17 @@ const x = <TabBar />;
         ],
     );
 }
+
+/// r7-printer §62: a homomorphic mapped member reuses its source
+/// declaration's annotation (native-read line, `mappedTypeErrors`).
+#[test]
+fn a_mapped_member_reuses_its_source_declaration() {
+    let lines = assertions(
+        "probe/mapped_member_reuse",
+        r"// @strict: true
+interface T2 { a?: number; [key: string]: any; }
+let x3: { [P in keyof T2]: T2[P] } = { a: 'no' };
+",
+    );
+    assert_has(&lines, &["x3 : { [x: string]: any; a?: number; }"]);
+}

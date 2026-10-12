@@ -909,6 +909,33 @@ impl Checker<'_, '_> {
     /// answers at the first binary: true exactly when the spine hangs off the
     /// LEFT of a simple assignment. Binding patterns (`var {x} = …`) never
     /// reach this — their pattern is not an expression.
+    /// The quote a string-named accessor pair's member prints with: single
+    /// only when EVERY declaration of the merged symbol spells its name
+    /// single-quoted, as the node builder's name quoting reads the symbol's
+    /// declarations. `{ get ''() { … }, set ""(n) { … } }` is `{ "": string; }`.
+    fn accessor_member_spelling(
+        &self,
+        symbol: tsr_binder::SymbolId,
+        name: &tsr_ast::PropertyName<'_>,
+        spelled: String,
+    ) -> String {
+        let tsr_ast::PropertyName::StringLiteral(literal) = name else { return spelled };
+        if is_identifier_text(literal.text) || !spelled.starts_with('\'') {
+            return spelled;
+        }
+        let every_single =
+            self.binder.symbols().get(symbol).declarations.iter().all(|&declaration| {
+                let name = match self.node_map.get(declaration) {
+                    Some(tsr_ast::Node::GetAccessorDeclaration(node)) => node.name,
+                    Some(tsr_ast::Node::SetAccessorDeclaration(node)) => node.name,
+                    _ => return false,
+                };
+                matches!(name, tsr_ast::PropertyName::StringLiteral(other)
+                if other.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE))
+            });
+        if every_single { spelled } else { printing::quote(literal.text) }
+    }
+
     pub(crate) fn is_assignment_pattern_target(&self, start: tsr_ast::NodeId) -> bool {
         let mut current = start;
         while let Some(parent) = self.nodes.parent(current) {
@@ -1728,6 +1755,8 @@ impl Checker<'_, '_> {
                     {
                         let Some(id) = accessor.node_id else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                        let spelled =
+                            self.accessor_member_spelling(symbol, &accessor.name, spelled);
                         let setter_sibling =
                             node.properties.iter().find_map(|sibling| match sibling {
                                 tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
@@ -1910,6 +1939,8 @@ impl Checker<'_, '_> {
                     {
                         let Some(id) = accessor.node_id else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
+                        let spelled =
+                            self.accessor_member_spelling(symbol, &accessor.name, spelled);
                         if self.accessor_type_deferred(symbol) {
                             upsert_member(
                                 &mut members,
@@ -3250,7 +3281,7 @@ pub(crate) fn written_property_name(name: &tsr_ast::PropertyName<'_>) -> Option<
         tsr_ast::PropertyName::StringLiteral(literal)
             if literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) =>
         {
-            Some(format!("'{}'", literal.text))
+            Some(single_quoted(literal.text))
         }
         tsr_ast::PropertyName::StringLiteral(literal) => Some(printing::quote(literal.text)),
         // A numeric name prints as its NORMALISED value, unquoted: `{ 1.0: x }`
@@ -3262,6 +3293,15 @@ pub(crate) fn written_property_name(name: &tsr_ast::PropertyName<'_>) -> Option<
         }
         _ => None,
     }
+}
+
+/// `escapeString` under a single quote (`printer/utilities.go`): the same
+/// escape table [`printing::quote`] applies, with `'` escaped in place of
+/// `"`. `{ get '\t'() { … } }` prints `{ '\t': string; }`, not the raw tab.
+fn single_quoted(text: &str) -> String {
+    let double = printing::quote(text);
+    let inner = &double[1..double.len() - 1];
+    format!("'{}'", inner.replace("\\\"", "\"").replace('\'', "\\'"))
 }
 
 /// The literal text a property name binds under, for the §489 match. Computed
