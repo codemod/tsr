@@ -458,8 +458,10 @@ enum PreparedDependency {
     Serial(Option<String>),
 }
 
-type DependencyPool =
-    crate::front_end::DynamicPool<(String, tsr_parser::ParseOptions), DependencyParse>;
+type DependencyPool = crate::front_end::DynamicPool<
+    (std::borrow::Cow<'static, str>, tsr_parser::ParseOptions),
+    DependencyParse,
+>;
 
 /// The walk (`compiler.fileLoader` + `compiler.filesParser`).
 ///
@@ -740,7 +742,11 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     return None;
                 }
                 let text = self.prefetched.get(&task.file_name)?.as_ref()?;
-                Some((task.path.clone(), text.as_str(), self.parse_options(&task.file_name)))
+                Some((
+                    task.path.clone(),
+                    std::borrow::Cow::<'static, str>::Owned(text.clone()),
+                    self.parse_options(&task.file_name),
+                ))
             })
             .collect();
         let workers = if inputs.iter().map(|(_, text, _)| text.len()).sum::<usize>() < 128 * 1024 {
@@ -755,9 +761,12 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // (`fileloader.go:157`), so `lib.dom.d.ts` parses beside them. This
         // walk visits the libs after every root; prepare them with the roots
         // (`r7-perf.md` §25).
+        // A lib's text lives for the process, so its parse borrows it rather
+        // than owning a copy: an adopted parse is kept for the program's life
+        // (ADR-0056), and `lib.dom.d.ts` alone is 2.35 MB.
         for (path, text, options) in self.predicted_lib_parses() {
             if seen.insert(path.clone()) {
-                inputs.push((path, text, options));
+                inputs.push((path, std::borrow::Cow::Borrowed(text), options));
             }
         }
         // Jobs start in the order the walk visits them, except the largest
@@ -768,10 +777,6 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             let file = inputs.remove(largest);
             inputs.insert(0, file);
         }
-        let inputs: Vec<_> = inputs
-            .into_iter()
-            .map(|(path, text, options)| (path, text.to_owned(), options))
-            .collect();
         self.start_dependency_pool(workers);
         let Some(pool) = &self.dependency_pool else { return };
         self.statistics.dependency_parse_workers = pool.workers();
@@ -789,7 +794,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         let measured = self.options.extended_diagnostics.is_true();
         self.dependency_pool = DependencyPool::new(requested, move |(text, options)| {
             let started = measured.then(Instant::now);
-            let file = tsr_parser::ParsedFile::parse_with_options(text, options);
+            let file = tsr_parser::ParsedFile::parse_text_with_options(text, options);
             DependencyParse {
                 file,
                 elapsed: started.map_or(Duration::ZERO, |start| start.elapsed()),
@@ -1065,7 +1070,9 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 // ~10k jobs averaging ~44us each). Keep those texts serial.
                 Some(text) if !oversized && text.len() >= 16 * 1024 => {
                     self.statistics.dependency_parse_jobs += 1;
-                    PreparedDependency::Parse(pool.submit((text, self.parse_options(name))))
+                    PreparedDependency::Parse(
+                        pool.submit((std::borrow::Cow::Owned(text), self.parse_options(name))),
+                    )
                 }
                 text => PreparedDependency::Serial(text),
             };
@@ -1146,8 +1153,10 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         }
         let read_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         let fs = self.host.fs();
-        let text: Option<&'a str> = if let Some(prepared) = &prepared_dependency {
-            Some(arena.alloc_str(prepared.source()))
+        // A prepared dependency brings its own text, which becomes the file's
+        // when the parse is adopted below (ADR-0056): no copy.
+        let text: Option<&'a str> = if prepared_dependency.is_some() {
+            None
         } else if let Some(text) = dependency_text {
             text.map(|text| &*arena.alloc_str(&text))
         } else {
@@ -1163,7 +1172,9 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         if let Some(started) = read_started {
             self.statistics.read_time += started.elapsed();
         }
-        let Some(text) = text else { return };
+        if prepared_dependency.is_none() && text.is_none() {
+            return;
+        }
         let name: &'a str = arena.alloc_str(&file_name);
 
         let lowered = name.to_ascii_lowercase();
@@ -1173,18 +1184,33 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // would give two files the same `NodeId`s.
         let parse_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         let is_prepared_dependency = prepared_dependency.is_some();
-        let parsed = match prepared_dependency.or_else(|| {
+        let (parsed, text) = match prepared_dependency.or_else(|| {
             self.prepared_roots.remove(&self.tasks[index].path).map(|ticket| ticket.wait().file)
         }) {
-            Some(prepared) if prepared.source() == text => {
+            Some(prepared) if text.is_none_or(|text| prepared.source() == text) => {
                 // Dependency cells have already been consumed by exact file
                 // spelling; root cells still validate their canonical text.
                 if is_prepared_dependency {
                     self.statistics.dependency_parses_published += 1;
                 }
-                prepared.publish(arena, text, &mut self.nodes, &mut self.node_map)
+                // Kept, not copied: the tree stays in the worker's arena and
+                // its ids are rebased in place. The parse's text becomes the
+                // file's, since the tree's strings point into it.
+                prepared.adopt(arena, &mut self.nodes, &mut self.node_map)
             }
-            _ => tsr_parser::parse_into(arena, text, options, &mut self.nodes, &mut self.node_map),
+            _ => {
+                let text = text.expect("a file without a prepared parse has its own text");
+                (
+                    tsr_parser::parse_into(
+                        arena,
+                        text,
+                        options,
+                        &mut self.nodes,
+                        &mut self.node_map,
+                    ),
+                    text,
+                )
+            }
         };
         if let Some(started) = parse_started {
             self.statistics.parse_time += started.elapsed();

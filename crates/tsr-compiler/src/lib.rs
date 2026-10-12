@@ -344,21 +344,25 @@ impl<'a> Program<'a> {
                 // symbol store outlives any per-file storage. See
                 // `ProgramFile`'s module docs.
                 let file_name: &'a str = arena.alloc_str(file_name);
-                let text: &'a str = arena.alloc_str(text);
                 let parse_options = tsr_parser::ParseOptions {
                     script_kind: tsr_parser::ScriptKind::from_file_name(file_name),
                     ..Default::default()
                 }
                 .deferring_ts_jsdoc(file_name);
-                let into = match private {
-                    Some(private) => private.publish(arena, text, &mut nodes, &mut node_map),
-                    None => tsr_parser::parse_into(
+                // A worker's parse is kept, not copied, and its text becomes
+                // the file's (ADR-0056; `ParsedFile::adopt`).
+                let (into, text) = if let Some(private) = private {
+                    private.adopt(arena, &mut nodes, &mut node_map)
+                } else {
+                    let text: &'a str = arena.alloc_str(text);
+                    let into = tsr_parser::parse_into(
                         arena,
                         text,
                         parse_options,
                         &mut nodes,
                         &mut node_map,
-                    ),
+                    );
+                    (into, text)
                 };
                 // Upstream's parser stamps `NodeFlagsJavaScriptFile` from its
                 // `ScriptKind`; this parser never sees the file name (ADR-0016),

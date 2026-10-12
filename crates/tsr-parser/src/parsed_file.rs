@@ -28,7 +28,9 @@ use tsr_diagnostics::Diagnostic;
 /// What a parsed file owns: the arena its nodes live in, and its source text.
 struct Owner {
     arena: Arena,
-    source: String,
+    /// Borrowed when the text lives for the process (a bundled lib), so a kept
+    /// parse does not hold a second copy of it.
+    source: std::borrow::Cow<'static, str>,
 }
 
 self_cell::self_cell! {
@@ -51,6 +53,14 @@ struct Ast<'a> {
     /// node table. See [`tsr_ast::NodeMap`].
     node_map: tsr_ast::NodeMap<'a>,
 }
+
+/// The part of an adopted parse the program keeps ([`ParsedFile::adopt`]).
+struct Kept(Cell);
+
+// SAFETY: as for `ParsedFile` below: the cell owns the arena together with the
+// tree that borrows it, and moving the cell moves both.
+#[allow(unsafe_code)]
+unsafe impl Send for Kept {}
 
 /// A parsed file: source, arena, tree, and diagnostics as one owned value.
 ///
@@ -107,6 +117,16 @@ impl ParsedFile {
     /// Parse privately using the same options as program-owned parsing.
     #[must_use]
     pub fn parse_with_options(source: String, options: crate::ParseOptions) -> Self {
+        Self::parse_text_with_options(std::borrow::Cow::Owned(source), options)
+    }
+
+    /// [`Self::parse_with_options`] for a text that may live for the process,
+    /// which the parse then borrows instead of owning.
+    #[must_use]
+    pub fn parse_text_with_options(
+        source: std::borrow::Cow<'static, str>,
+        options: crate::ParseOptions,
+    ) -> Self {
         let mut diagnostics = Vec::new();
         let mut nodes = NodeTable::new();
         let mut list_facts = Vec::new();
@@ -177,6 +197,59 @@ impl ParsedFile {
                 node_range,
             }
         })
+    }
+
+    /// Publish into the program's ordered tables **without copying**: the
+    /// zero-copy publication of ADR-0056.
+    ///
+    /// The parse moves into `arena`'s keeping ([`Arena::keep`]), so the tree,
+    /// its worker arena and its source text live as long as the program. Its
+    /// rows are appended to `nodes`, and its node ids are rebased in place
+    /// ([`tsr_ast::publication::rebase`]). The tree's child pointers are
+    /// unchanged. Returns the result together with the parse's own source
+    /// text: the program must use that text as the file's text, because the
+    /// tree's strings point into it.
+    ///
+    /// Lifetimes need no `unsafe` here. The dependent is covariant, so
+    /// `self_cell` lends it for as long as the kept cell is borrowed, which is
+    /// `'a`.
+    pub fn adopt<'a>(
+        self,
+        arena: &'a Arena,
+        nodes: &mut NodeTable,
+        node_map: &mut tsr_ast::NodeMap<'a>,
+    ) -> (crate::ParsedInto<'a>, &'a str) {
+        // Only the cell is kept. The private node table is copied into the
+        // program's and dropped here, as are the diagnostics and list facts,
+        // so that the kept parse holds nothing the program already has
+        // except the private node map.
+        let Self { cell, diagnostics, nodes: private_nodes, list_facts } = self;
+        let node_range = nodes.append_relocated(&private_nodes);
+        drop(private_nodes);
+        assert_eq!(node_map.len(), node_range.start as usize, "adoption must follow reservation");
+        let kept: &'a Kept = arena.keep(Kept(cell));
+        let ast: &'a Ast<'a> = kept.0.borrow_dependent();
+        let source: &'a str = &kept.0.borrow_owner().source;
+        tsr_ast::publication::rebase(&ast.node_map, node_range.start);
+        node_map.reserve(ast.node_map.len());
+        for index in 0..ast.node_map.len() {
+            let id = tsr_ast::NodeId::new(u32::try_from(index).expect("node count exceeds u32"));
+            node_map.push(ast.node_map.get(id).expect("every private row has a node"));
+        }
+        let parsed = crate::ParsedInto {
+            source_file: ast.source_file,
+            diagnostics: diagnostics.to_vec(),
+            jsdoc: ast.jsdoc.rebased(node_range.start),
+            file_references: crate::pragma::parse_file_references(source),
+            list_facts: list_facts
+                .iter()
+                .map(|&(owner, fact)| {
+                    (tsr_ast::NodeId::new(owner.as_u32() + node_range.start), fact)
+                })
+                .collect(),
+            node_range,
+        };
+        (parsed, source)
     }
 
     /// The source text.

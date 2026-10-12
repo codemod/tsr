@@ -643,6 +643,16 @@ pub fn generate_aliases(ast: &AstDefinition, nullability: &GoNullability) -> Res
     }
     out.push_str("        }\n    }\n}\n\n");
 
+    // The cell itself, for publication's in-place rebase (ADR-0056): the only
+    // write to a node's id through `&`.
+    out.push_str(
+        "impl Node<'_> {\n             /// This node's id cell, for [`crate::publication::rebase`].\n             pub(crate) fn node_id_cell(&self) -> &crate::NodeIdCell {\n                 match self {\n",
+    );
+    for name in ast.nodes.definitions.keys() {
+        writeln!(out, "            Node::{name}(n) => &n.node_id,")?;
+    }
+    out.push_str("        }\n    }\n}\n\n");
+
     out.push_str(&generate_named_child_accessors(ast, nullability)?);
     out.push_str(&generate_is_declaration(ast)?);
 

@@ -84,6 +84,8 @@ pub struct Arena {
     end: Cell<*mut u8>,
     /// Bytes handed out, for diagnostics and tests.
     allocated: Cell<usize>,
+    /// Values with destructors the arena owns, dropped with it ([`Arena::keep`]).
+    kept: RefCell<Vec<Box<dyn std::any::Any + Send>>>,
     /// `Arena` is not `Sync`: allocation mutates the bump pointer through `&self`.
     _not_sync: PhantomData<Cell<()>>,
 }
@@ -97,8 +99,26 @@ impl Arena {
             current: Cell::new(ptr::null_mut()),
             end: Cell::new(ptr::null_mut()),
             allocated: Cell::new(0),
+            kept: RefCell::new(Vec::new()),
             _not_sync: PhantomData,
         }
+    }
+
+    /// Take ownership of `value` until the arena drops, and lend it for as long
+    /// as the arena is borrowed.
+    ///
+    /// Unlike [`Arena::alloc`], `T` may have a destructor: it runs when the arena
+    /// drops. This is for an owner whose contents the program's tree borrows — a
+    /// worker's parse kept instead of copied into the arena (ADR-0056).
+    pub fn keep<T: Send + 'static>(&self, value: T) -> &T {
+        let boxed = Box::new(value);
+        let kept: *const T = &raw const *boxed;
+        self.kept.borrow_mut().push(boxed);
+        // SAFETY: the box's heap block is neither moved nor freed until the arena
+        // drops. `kept` is append-only and nothing removes from it before `Drop`;
+        // growing the vector moves the `Box` pointers, not the blocks they own.
+        // The borrow returned is tied to `&self`, so it cannot outlive the arena.
+        unsafe { &*kept }
     }
 
     /// Total bytes handed out so far.
@@ -251,6 +271,23 @@ impl std::fmt::Debug for Arena {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kept_values_stay_put_and_drop_with_the_arena() {
+        use std::sync::Arc;
+        let witness = Arc::new(());
+        let arena = Arena::new();
+        let first = arena.keep((String::from("first"), witness.clone()));
+        let address = std::ptr::from_ref(first);
+        for index in 0..1000 {
+            arena.keep(index.to_string());
+        }
+        assert_eq!(first.0, "first");
+        assert_eq!(std::ptr::from_ref(first), address);
+        assert_eq!(Arc::strong_count(&witness), 2);
+        drop(arena);
+        assert_eq!(Arc::strong_count(&witness), 1);
+    }
 
     #[test]
     fn allocates_and_reads_back() {

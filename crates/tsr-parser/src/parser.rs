@@ -110,6 +110,19 @@ impl<'a> JSDocTable<'a> {
             diagnostics: self.diagnostics.clone(),
         }
     }
+    /// This table with every host id moved up by `base`, for a parse
+    /// published in place ([`crate::ParsedFile::adopt`]).
+    pub(crate) fn rebased(&self, base: u32) -> Self {
+        JSDocTable {
+            entries: self
+                .entries
+                .iter()
+                .map(|&(host, docs)| (tsr_ast::NodeId::new(base + host.as_u32()), docs))
+                .collect(),
+            diagnostics: self.diagnostics.clone(),
+        }
+    }
+
     /// The JSDoc attached to `node`, or an empty slice.
     #[must_use]
     pub fn get(&self, node: tsr_ast::NodeId) -> &'a [&'a tsr_ast::JSDoc<'a>] {

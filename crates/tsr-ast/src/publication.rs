@@ -92,6 +92,32 @@ impl<'a> Publication<'a> {
     }
 }
 
+/// Publish a private parse **in place**: add `base` to the id of every node
+/// `local` registered, which the program's node table has already reserved
+/// with `NodeTable::append_relocated`. The zero-copy publication of ADR-0056.
+///
+/// Where [`Publication`] copies every node into the caller's arena and remaps
+/// each child edge, this leaves the tree where the worker built it, so the
+/// caller must keep the worker's arena alive for as long as the program
+/// borrows it (`tsr_core::Arena::keep`). Child edges are pointers and need no
+/// rewrite; only ids are file-relative. Each id is one relaxed store through
+/// the node's `NodeIdCell`. The tree's handover to this thread (a channel)
+/// orders the worker's writes before these.
+///
+/// # Panics
+///
+/// If `local` is not numbered `0..len` in order, which every private parse
+/// is, or if the program's ids would overflow `u32`.
+pub fn rebase(local: &NodeMap<'_>, base: u32) {
+    for index in 0..local.len() {
+        let id = NodeId::new(u32::try_from(index).expect("node count exceeds u32"));
+        let node = local.get(id).expect("every private row has a node");
+        let cell = node.node_id_cell();
+        assert_eq!(cell.get(), Some(id), "private node-map identity mismatch");
+        cell.set(NodeId::new(base.checked_add(id.as_u32()).expect("node count exceeds u32")));
+    }
+}
+
 /// A syntax field whose borrows must be rehomed during publication.
 pub trait Publish<'a>: Copy {
     /// The equivalent field in the caller-owned arena.
