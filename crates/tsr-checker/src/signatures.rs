@@ -1840,17 +1840,8 @@ impl<'a> Checker<'a, '_> {
                     // `serializeTypeForDeclaration` reuses the reparsed
                     // annotation as it reuses a written one; JSDoc-only
                     // node kinds are `nodecopy.go`'s rewrites, not ported.
-                    if *bracketed
-                        && let TypeNode::JSDocTypeExpression(expression) = annotation
+                    if let TypeNode::JSDocTypeExpression(expression) = annotation
                         && let Some(inner) = expression.r#type
-                        && !matches!(
-                            inner,
-                            TypeNode::JSDocOptionalType(_)
-                                | TypeNode::JSDocNullableType(_)
-                                | TypeNode::JSDocNonNullableType(_)
-                                | TypeNode::JSDocAllType(_)
-                                | TypeNode::JSDocVariadicType(_)
-                        )
                     {
                         parameter.written_text = self.reuse_annotation(inner, typed);
                     }
