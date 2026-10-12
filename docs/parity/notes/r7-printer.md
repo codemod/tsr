@@ -1654,3 +1654,62 @@ not text). The first measurement, without §43, §44 and the signatures.rs
 gates, was +41 / −2: `mismatchedGenericArguments1` and
 `assignmentCompatWithGenericCallSignaturesWithOptionalParameters` printed
 `<T_1>(x: T_1) => T_1` in messages, which §43 explains.
+
+**Not in the diff: report sites that print a type for a message and still use
+`type_to_string`.** Read from the measured report:
+- TS2741 `missing_properties_diagnostic` (assignreport.rs:2074; it also owes
+  the alike-names retry: `errorWithSameNameType` wants
+  `import("/.src/b").F` / `import("/.src/a").F`; `qualify`, `chained2`,
+  `differentTypesWithSameName`, `typeofExternalModules`,
+  `typeofAmbientExternalModules`, `typesOnlyExternalModuleStillHasInstance`);
+- TS2345 at calls.rs:2175 and call_reports.rs:391 (`functionCall7`,
+  `declarationEmitWithInvalidPackageJsonTypings`,
+  `visibilityOfCrossModuleTypeUsage`);
+- TS2353 (assignreport.rs excess-property sites, satisfies.rs;
+  `namespaceImportTypeQuery{,4}`, `checkJsdocTypeTagOnExportAssignment2`,
+  `nonObjectUnionNestedExcessPropertyCheck`, `strictSubtypeAndNarrowing`);
+- TS2559 (assignreport.rs:4673, `weakType`);
+- TS2367 (comparison_overlap.rs);
+- TS2507 (check.rs:1747, `importAsBaseClass`).
+
+Outside the printer: TS1192 names a module by its symbol name, which this
+binder strips of `.ts` only (`"/.src/other.d"`; native's
+`RemoveFileExtension` strips `.d.ts` whole); TS2300 and TS7006/TS7019/TS7010
+name a declaration by its source text (`declarationNameToString`: `'["a"]'`,
+`'0b11'`, `'0.0'`, `'"artist"'`, `'(Missing)'`), where the port writes the
+symbol name.
+
+## 46. A reused node's own type parameters are renamed where their names are taken
+
+**Forcing constraint.** `constraintSatisfactionWithAny` (2 lines): native prints
+`foo4 : <T extends <T_1>(x: T_1) => void>(x: T) => T`; the port printed the
+written constraint `<T>(x: T) => void`. A native-read probe shows the same
+for a parameter annotation:
+`function h<T>(cb: <T>(x: T) => T): T` prints
+`h : <T>(cb: <T_1>(x: T_1) => T_1) => T`.
+
+**Cause.** The node builder reuses the written node, and the reuse visitor
+names each type-parameter declaration in it through `typeParameterToName`
+(`nodebuilderimpl.go:1404`). That renames a name the render already holds
+(the outer `T`, named first by `enterNewScope`) or one that resolves at the
+site to another type parameter. The port's visitor does not allocate for
+declarations. `renamed_declarations_collide` refused only a node reached
+through a renamed clone (`WrittenAnnotation::renamed`), so the written text
+was reused verbatim.
+
+**The port.** `annotation_text_at_site` (node_reuse.rs) refuses any node
+that declares type parameters whose names collide. The type is then
+serialized, and that renames them (`rename_type_parameters_for_site`'s render
+shadow). `type_parameter_constraint_text` applies the same test to a
+constraint carried as text (`written_constraint`), reading the constraint
+node from the type parameter's declaration
+(`written_constraint_declares_taken_name`). Under `print_without_enclosing`
+nothing is renamed (§43). No cache or table.
+
+**A test expectation corrected to native.** `generic_indexed_key_relations.rs`
+expected `circular : <T extends { [K in keyof T]: string; }, K extends keyof T>(…)`.
+Pinned native, run on that test's own `SOURCE`, prints
+`{ [K_1 in keyof T]: string; }`: the reused mapped type's `K` enters
+`enterNewScope` (`nodecopy.go:845`) after the signature's own `K` holds the
+name. The expectation now reads native's line; the rest of the test is
+unchanged.

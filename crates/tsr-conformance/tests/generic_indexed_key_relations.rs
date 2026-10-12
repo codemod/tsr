@@ -37,7 +37,7 @@ fn generic_keys_keep_the_receiver_and_do_not_reverse_the_constraint() {
         "readonly : <T, U extends T, K extends keyof T>(value: Readonly<U>, key: K) => Readonly<U>[K]",
         "reverse : <T, U extends T>(value: T, key: keyof U) => any",
         "unrelated : <T, U>(value: T, key: keyof U) => any",
-        "circular : <T extends { [K in keyof T]: string; }, K extends keyof T>(value: T, key: K) => T[K]",
+        "circular : <T extends { [K_1 in keyof T]: string; }, K extends keyof T>(value: T, key: K) => T[K]",
         "remapped : <T>(value: DropText<T>, key: keyof T) => any",
         "concrete : string | number | boolean",
     ]);
