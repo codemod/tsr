@@ -13593,6 +13593,61 @@ impl Checker<'_, '_> {
             return self.error_span(name);
         }
         let span = self.nodes.span(node);
+        match self.nodes.kind(node) {
+            // The name-reporting kinds with no name (`errorNode == nil`,
+            // `scanner.go:2644`): the first token of the construct — an
+            // anonymous function expression's `function`, a class
+            // expression's `class`.
+            SyntaxKind::FunctionDeclaration
+            | SyntaxKind::MethodDeclaration
+            | SyntaxKind::ClassDeclaration
+            | SyntaxKind::ClassExpression
+            | SyntaxKind::FunctionExpression
+                if span.start != span.end =>
+            {
+                if let Some(token) = self.first_token_span(node, span.start) {
+                    return token;
+                }
+            }
+            // `scanner.go:2626`: a `satisfies` expression reports at its
+            // `satisfies` keyword, the token after the expression.
+            SyntaxKind::SatisfiesExpression => {
+                if let Some(Node::SatisfiesExpression(satisfies)) = self.node_map.get(node)
+                    && let Some(expression) = satisfies.expression.and_then(|e| e.node_id())
+                    && let Some(token) =
+                        self.first_token_span(node, self.nodes.span(expression).end)
+                {
+                    return token;
+                }
+            }
+            // `getErrorRangeForArrowFunction` (`scanner.go:2542`): a block
+            // body whose full start (`body.Pos()`, the end of `=>`) and end
+            // are on different lines reports from the arrow's start to the
+            // end of that first line, `GetECMAEndLinePosition(startLine) + 1`
+            // (`scanner.go:2703`): the position of its line break.
+            SyntaxKind::ArrowFunction => {
+                if let Some(Node::ArrowFunction(arrow)) = self.node_map.get(node)
+                    && let Some(body) = arrow.body.and_then(|body| Node::from(body).node_id())
+                    && self.nodes.kind(body) == SyntaxKind::Block
+                    && let Some(file) = self.source_file_of_for_diagnostics(node)
+                    && let Some(text) =
+                        self.module_host.and_then(|host| host.source_text(file, self.nodes))
+                {
+                    let body_span = self.nodes.span(body);
+                    let full_start = arrow
+                        .equals_greater_than_token
+                        .and_then(|token| token.node_id)
+                        .map_or(body_span.start, |token| self.nodes.span(token).end);
+                    if let Some(rest) = text.get(full_start as usize..body_span.end as usize)
+                        && let Some(line_break) = rest.find(['\n', '\r', '\u{2028}', '\u{2029}'])
+                        && let Ok(offset) = u32::try_from(line_break)
+                    {
+                        return tsr_core::Span::new(span.start, full_start + offset);
+                    }
+                }
+            }
+            _ => {}
+        }
         if matches!(
             self.nodes.kind(node),
             SyntaxKind::ReturnStatement | SyntaxKind::YieldExpression
