@@ -1289,6 +1289,13 @@ effective one, so it declines. So does a pair over type variables, the
 refusal elsewhere in this file: `f(...args)` against `...args: T` builds
 `[...T]`, which this port's relater rejects where native relates it.
 
+A rest that is a bare type parameter is the one type-variable side
+admitted: a concrete spread tuple against `T` fails the way native's does
+(`'[{ a: true; }]' is assignable to the constraint of type 'T', but 'T'
+could be instantiated with a different subtype…`;
+typeSatisfaction_errorLocations1's `f({ a: true } satisfies unknown)` under
+`(...args: T) => void`). The spread itself must hold no type variable.
+
 variadicTuples2 gets five of native's missing TS2345s (`[]`, `[1, 2]`,
 `["abc", 1, "def"]`, `["abc", "def", true]` against
 `[...strs: string[], n2: number]`, and `boolean` against `number`). The

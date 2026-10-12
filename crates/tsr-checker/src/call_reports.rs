@@ -433,7 +433,8 @@ impl<'a> Checker<'a, '_> {
             // `f(...args)` against `...args: T` builds `[...T]`.
             if self.is_gap(spread)
                 || self.could_contain_type_variables_at_head(spread, 3)
-                || self.could_contain_type_variables_at_head(rest, 3)
+                || (self.could_contain_type_variables_at_head(rest, 3)
+                    && !self.store.get(rest).flags.contains(TypeFlags::TYPE_PARAMETER))
                 || self.variadic_tuple_elements.get(&spread).is_some_and(|(elements, _)| {
                     elements.iter().any(|element| {
                         self.store.get(element.r#type).flags.intersects(TypeFlags::INSTANTIABLE)
