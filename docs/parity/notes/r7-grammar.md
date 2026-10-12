@@ -1455,3 +1455,23 @@ per-node hook. Converted: `importWithTypeArguments`. Not here:
 `import<T>("./0")`, a call. Its TS1326 is `checkGrammarImportCallExpression`'s,
 import_call_grammar.rs, along with `import<>` (an empty list, which this AST
 cannot tell from none). Routed.
+
+## §61 TS2702/TS2713, a type used as a namespace (needs namespace_not_found.rs grant)
+
+`onFailedToResolveSymbol`'s `checkAndReportErrorForUsingTypeAsNamespace`
+arm (`checker.go:1608`) applies to a name resolved with
+`SymbolFlagsNamespace` that resolves, with aliases followed, as `Type &^
+Namespace`. It is TS2713 on the whole qualified name when the left side's
+declared type has the right side as a property (`C2.Red`, did you mean
+`C2["Red"]`). Otherwise it is TS2702 on the name. namespace_not_found.rs's
+`report_cannot_find_namespace` returned silently in that case; its doc said
+the arm was unported. The arm is meaning_mismatch.rs's
+`report_type_used_as_namespace`, the cascade module's fifth arm. The
+early return in namespace_not_found.rs (integration owner's file) calls it.
+Checked with the CLI against `target/tsgo-pinned`:
+`invalidUseOfTypeAsNamespace`, `invalidImportAliasIdentifiers`,
+`decoratorMetadataWithImportDeclarationNameCollision7` now match.
+`errorForUsingPropertyOfTypeAsType03` gains its TS2702/TS2713 lines (it keeps
+a TS2749 gap). `strictModeReservedWordInClassDeclaration`'s
+`implements public.private.B` is a property-access heritage name, which
+check.rs does not resolve through this reporter.

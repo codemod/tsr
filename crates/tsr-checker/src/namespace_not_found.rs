@@ -62,9 +62,10 @@ impl Checker<'_, '_> {
     ///
     /// - **A type is a different error.** `checkAndReportErrorForUsingTypeAsNamespace`
     ///   (`:1608`) reports TS2702/TS2713 when the name resolves with
-    ///   `SymbolFlagsType &^ SymbolFlagsNamespace`. That arm is not ported
-    ///   (r5-smallcodes3 §3.2 holds it), so a type answers with no report, as
-    ///   the port did before.
+    ///   `SymbolFlagsType &^ SymbolFlagsNamespace`:
+    ///   [`Checker::report_type_used_as_namespace`] (`meaning_mismatch.rs`,
+    ///   r7-grammar §61). Correction of the record: this used to say the arm
+    ///   was not ported and a type answered with no report.
     /// - **A value is not.** No arm answers a value under a namespace meaning,
     ///   so `let intrinsic: intrinsic.intrinsic` with a local `intrinsic`
     ///   variable is TS2503 (`intrinsicKeyword.ts(10,20)`).
@@ -72,17 +73,7 @@ impl Checker<'_, '_> {
     ///   lib as an unused second argument); otherwise a spelling suggestion
     ///   is TS2833.
     pub(crate) fn report_cannot_find_namespace(&mut self, location: NodeId, name: &str) {
-        if self
-            .binder
-            .resolve_name(
-                self.nodes,
-                self.node_map,
-                location,
-                name,
-                SymbolFlags::TYPE.difference(SymbolFlags::NAMESPACE),
-            )
-            .is_some()
-        {
+        if self.report_type_used_as_namespace(location, name) {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(location) else { return };

@@ -79,6 +79,85 @@ impl Checker<'_, '_> {
         true
     }
 
+    /// `checkAndReportErrorForUsingTypeAsNamespace` (`checker.go:1608`): a
+    /// name resolved with `SymbolFlagsNamespace` that resolves as `Type &^
+    /// Namespace` (`resolveSymbol`, aliases followed) is TS2713 on the whole
+    /// qualified name when the declared type has the right side as a property
+    /// (`C2.Red` meaning `C2["Red"]`), and TS2702 on the name otherwise.
+    /// Returns whether it reported; the caller's `onFailedToResolveSymbol`
+    /// stops there (r7-grammar §61).
+    pub(crate) fn report_type_used_as_namespace(&mut self, node: NodeId, text: &str) -> bool {
+        let Some(symbol) = self.resolve_symbol_under(
+            node,
+            text,
+            SymbolFlags::TYPE.difference(SymbolFlags::NAMESPACE),
+        ) else {
+            return false;
+        };
+        // `@typedef`/`@callback NS.Nested.Inner` declares namespace `NS`
+        // upstream (`parseJSDocTypeNameWithNamespace`, then
+        // `bindJSDocTypeAlias`), so `NS` is a namespace there. This parser
+        // keeps only the first identifier as the tag's name and the alias is
+        // filed under `NS`, which reads as a type. Declining keeps the
+        // silence native has (`callbackTagNamespace`) until the parser keeps
+        // the namespaced name (routed to r7-parser). The cascade still
+        // stops here, unreported, as it did before this arm was ported.
+        if self.is_dotted_jsdoc_alias_name(symbol) {
+            return true;
+        }
+        if let Some(parent) = self.nodes.parent(node)
+            && let Some(Node::QualifiedName(qualified)) = self.node_map.get(parent)
+            && let Some(right) = qualified.right
+        {
+            let property = right.text.to_string();
+            let declared = self.get_declared_type_of_symbol(symbol);
+            if self.get_property_of_type(declared, &property).is_some() {
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+                let span = self.error_span(parent);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::CANNOT_ACCESS_0_1_BECAUSE_0_IS_A_TYPE_BUT_NOT_A_NAMESPACE_DID_YOU_MEAN_TO_RETRIEVE_THE_TYPE_OF_THE_PROPERTY_1_IN_0_WITH_0_1,
+                        span,
+                        [text.to_string(), property],
+                    ),
+                );
+                return true;
+            }
+        }
+        self.report_at(
+            node,
+            &messages::_0_ONLY_REFERS_TO_A_TYPE_BUT_IS_BEING_USED_AS_A_NAMESPACE_HERE,
+            text,
+        );
+        true
+    }
+
+    /// A `@typedef`/`@callback` alias whose written name continues with a
+    /// `.` after the identifier this parser kept (`NS` of `NS.Nested.Inner`).
+    fn is_dotted_jsdoc_alias_name(&self, symbol: tsr_binder::SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let name = match self.node_map.get(declaration) {
+                Some(
+                    Node::JSDocTypedefTag(tsr_ast::JSDocTypedefTag {
+                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
+                        ..
+                    })
+                    | Node::JSDocCallbackTag(tsr_ast::JSDocCallbackTag {
+                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
+                        ..
+                    }),
+                ) => *name,
+                _ => return false,
+            };
+            let Some(id) = name.node_id else { return false };
+            let end = self.nodes.span(id).end as usize;
+            self.source_file_of_for_diagnostics(id)
+                .and_then(|file| self.module_host?.source_text(file, self.nodes))
+                .is_some_and(|text| text.as_bytes().get(end) == Some(&b'.'))
+        })
+    }
+
     fn resolve_under(
         &self,
         node: NodeId,
