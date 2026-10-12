@@ -1833,6 +1833,41 @@ mod tests {
         }
     }
 
+    /// `getTypeNamesForErrorDisplay` (`relater.go:1277`): two names that
+    /// print alike with no enclosing declaration are retried fully
+    /// qualified; two that differ keep the short print (r7-printer §30).
+    #[test]
+    fn a_message_pair_retries_alike_names_fully_qualified() {
+        let source = "namespace M { export class C { m!: number } export class D {} }
+            namespace N { export class C { n!: string } }
+            let mc: M.C; let nc: N.C; let md: M.D;";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let type_of = |checker: &mut crate::Checker<'_, '_>, name: &str| {
+            let symbol = checker.binder.lookup_local(root, name).unwrap();
+            checker.get_type_of_symbol(symbol)
+        };
+        let (mc, nc, md) =
+            (type_of(&mut checker, "mc"), type_of(&mut checker, "nc"), type_of(&mut checker, "md"));
+        assert_eq!(
+            checker.type_names_for_error_display(mc, nc, root),
+            ("M.C".to_string(), "N.C".to_string())
+        );
+        assert_eq!(
+            checker.type_names_for_error_display(mc, md, root),
+            ("C".to_string(), "D".to_string())
+        );
+    }
+
     #[test]
     fn an_unparseable_literal_keeps_its_text_rather_than_inventing_a_value() {
         assert_eq!(normalise_number("not-a-number"), "not-a-number");

@@ -1208,3 +1208,64 @@ doing it (its host panics on `module_resolution_found`).
 The case's 3:x lines still differ:
 - the `{ default: … }` member text is baked (`_moment.Moment`);
 - the merged overloads of `strftime`.
+
+## 30. A message's pair of type names, as `getTypeNamesForErrorDisplay` writes them
+
+**Forcing constraint.** After §22's no-enclosing print, 27 naming-only
+message diffs remained in 15 cases. Most are the pair-printing messages
+whose sites §22's adoption did not reach: TS2741 "Property … is missing in
+type … but required in type …" (`qualify`, `importClause_namespaceImport`,
+`chained2`, `everyTypeWithAnnotationAndInvalidInitializer`,
+`inlineJsxFactory*`). Native prints both types through
+`getTypeNamesForErrorDisplay` (`relater.go:1277`). The port printed them
+site-free (`type_to_string`), so they kept the written qualifiers, and when
+both sides printed alike it never retried them fully qualified
+(`Element` / `Element` against native's
+`import("/.src/renderer").dom.JSX.Element` /
+`import("/.src/renderer2").predom.JSX.Element`).
+
+**Native.** Each side is `typeToString(t, t.symbol.ValueDeclaration)` when
+the symbol's value declaration is an expression that is not context
+sensitive (`symbolValueDeclarationIsContextSensitive`, `relater.go:1301`;
+the name reads inverted). Otherwise it is `TypeToString(t)` with no
+enclosing declaration. When the two strings are equal, both are re-printed
+by `getTypeNameForErrorDisplay` (fully qualified).
+
+**The port.** `Checker::type_names_for_error_display(left, right, at)`
+composes those three existing roads:
+- `type_to_string_at` at the value declaration. An object literal's symbol
+  stands in with its one declaration, because this binder leaves
+  `value_declaration` unset there.
+- `type_to_string_for_message` (§22).
+- `type_name_for_error_display` (§7).
+
+No cache or table. It changes no output by itself; the report lanes adopt
+it.
+
+**A fix in §7's fully qualified print, found by the retry.** With no
+enclosing file, `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1265`)
+spells a file module as `StripQuotes(symbol.Name)`. A file module's symbol
+is named `"` + `tspath.RemoveFileExtension(fileName)` + `"`
+(`bindSourceFileAsExternalModule`), so native writes
+`import("/.src/renderer")`. `fully_qualified_symbol_text` wrote the host's
+file path (`/.src/renderer.d.ts`). It now applies `tsr_path`'s
+`remove_file_extension`, which strips `.d.ts` whole.
+
+The port binder's own `remove_file_extension` (`tsr-binder`) cuts at the
+last dot only (`renderer2.d`), so the module symbol's name is not used here.
+That divergence is r7-shared's to correct.
+
+This can change output on its own, since `report_relation_head` already
+retries alike prints through `type_name_for_error_display`. Measured
+against main `bdd9ce108` + §29 it changes no corpus line: types 0/0,
+EXACT 0/0, naming-only message diffs 91 before and after. Only the
+adoption's retries reach file-module roots.
+
+**Measured adoption** (the report lanes' diff: §22's sites plus
+`report_relation_head` and TS2741's `missing_properties_diagnostic` through
+this entry), EXACT oracle against main `bdd9ce108` + §29:
+- **+16 / −0** cases; naming-only message diffs **91 → 19 lines**.
+- With the extension fix, `inlineJsxFactoryDeclarationsLocalTypes` and
+  `inlineJsxFactoryLocalTypeGlobalFallback` lose their 6 naming diffs, so
+  13 lines remain. Both cases still differ for other reasons (a missing
+  TS2609, related information).
