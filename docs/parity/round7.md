@@ -878,3 +878,16 @@ worker under `ulimit -v 4500000`, so such a case reads TSR_FAILED instead of
 killing the orb. It was never EXACT, so this is not a parity loss, but it is a
 resource regression, routed to r7-perf to attribute and to port native's
 instantiation-depth/count limits.
+
+### Batch 48 — r7-calls `2bc62c1c`, r7-contextual `ec9ebcaf`, r7-declared `58a511f1`, r7-shared `ee179acf`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **10295 / 12797 EXACT (80.45%)**, 110 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +8 RIGHT / 0 lost / 0 missing, diagnostics +4 cases / 0 lost / 0 missing. jsTyping 122 → 122 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0000, domain-model 1.0000. No suite's failure count rose.
+
+| Suite | Before | Batch 48 |
+|---|---|---|
+| `checker_types` | 8,962 | 8,963 |
+| `checker_types_configured` | 1,829 | 1,829 |
+| `diagnostics` | 5,059 | 5,062 |
+| `diagnostics_configured` | 1,018 | 1,019 |

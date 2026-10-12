@@ -411,3 +411,15 @@ fn a_bare_qualified_reference_fills_its_defaults() {
          const x = c;\n";
     assert_eq!(type_of_last_initializer(source), "NS.RT<number>");
 }
+
+/// §42: a partially written qualified reference fills its defaults
+/// (tsgo: `NS.CC<string, number>`).
+#[test]
+fn a_partial_qualified_reference_fills_its_defaults() {
+    let source = "declare namespace NS {\n\
+             interface CC<P = {}, S = number> { p: P; s: S }\n\
+         }\n\
+         declare const c: NS.CC<string>;\n\
+         const x = c;\n";
+    assert_eq!(type_of_last_initializer(source), "NS.CC<string, number>");
+}
