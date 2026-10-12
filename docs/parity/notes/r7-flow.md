@@ -1594,3 +1594,35 @@ symbol's value declaration).
 Measured (§58 with §59) on `fd448171`: legacy verdicts unchanged; exact
 oracle +12, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir gi
 1.0000, dm 1.0000.
+
+## §60 Private-name reports: the class name as written, `this` as its class, nothing below `with`
+
+- TS18013 names the declaring class with `SymbolToString(typeClass.Symbol())`
+  (`checker.go:11524`). For an anonymous class expression that is
+  `getNameOfSymbolAsWritten`'s variable-parent arm (`const C = class {}` is
+  `'C'`), else `(Anonymous class)`; the port printed `''`
+  (`privateNameMethodClassExpression`). `class_symbol_name_as_written`.
+- The private-name TS2339 prints `IfElse(isThisTypeParameter(leftType),
+  apparentType, leftType)` (`checkPropertyAccessExpressionOrQualifiedName`):
+  `this.#x` misses on the class, not on `this`
+  (`privateNameStaticFieldAccess`).
+- `checkWithStatement` (`checker.go:4156`) never checks its statement, so a
+  `this` below a `with` reports nothing (`functionExpressionInWithBlock`'s
+  false TS2683). `this_expression.rs` asks at report time only (an ancestor
+  walk per report, not per `this`).
+
+## §61 A type parameter constrained to `any` reads through `unknown`
+
+`getConstraintFromTypeParameter` (`checker.go:17085`) turns a constraint
+whose type is `any` (not the error type) into `unknownType`, or
+`stringNumberSymbolType` for a mapped type's key. `T extends any` therefore
+misses names as an unconstrained parameter does (`t.blah` is TS2339 on `T`),
+where the port read `apparent_type(T)` as `any` and reported nothing.
+`property_is_known_absent`'s type-parameter arm applies it. Not covered:
+`T extends Tree<any>` with `type Tree<T> = T & {…}`, whose constraint native
+reduces to `any` (`any & X`) and this port keeps as the intersection
+(intersections.rs; `typeParameterExplicitlyExtendsAny` (30,14) stays missing).
+
+Measured (§60 with §61) on `370e40c4`: diagnostics **+2** cases, 0 lost;
+exact oracle +5, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true 0; Ir
+gi 0.9997, dm 1.0000.
