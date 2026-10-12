@@ -2691,12 +2691,41 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::ModuleExportName::Identifier(name) => (name.text, name.node_id?),
             tsr_ast::ModuleExportName::StringLiteral(name) => (name.text, name.node_id?),
         };
+        // A missing name (parser recovery, `import { "a" } from …` with no
+        // `as`) names nothing to report on; the empty STRING name
+        // (`import { "" as foo }`) is a valid export name
+        // (`nameText != "" || name.Kind == KindStringLiteral`).
+        if text.is_empty() && matches!(name, tsr_ast::ModuleExportName::Identifier(_)) {
+            return None;
+        }
         if !has_export_equals {
             if self.get_export_of_module(module_symbol, text).is_some() {
                 return None;
             }
         } else if self.export_equals_module_member_exists(module_symbol, target, text) {
             return None;
+        } else if self.binder.symbols().get(target).flags.intersects(SymbolFlags::VARIABLE) {
+            // A variable target's miss is proof of absence only where the
+            // members road has established it (the TS2339 test without the
+            // augment gate, `augment_free_miss_is_established`): a mapped
+            // alias this port does not resolve
+            // (`createHttpError.NamedConstructors`, `importPropertyFromMappedType`)
+            // is not.
+            // A name the module file declares locally takes
+            // `reportNonExportedMember`'s local outcomes (TS2616 when it is
+            // the `export =` target, `es6ImportNamedImportNoNamedExports`),
+            // which the local decides, not the member walk.
+            let declared_locally = self
+                .binder
+                .symbols()
+                .get(module_symbol)
+                .value_declaration
+                .and_then(|file| self.binder.locals(file))
+                .is_some_and(|locals| locals.contains_key(text));
+            let target_type = self.get_type_of_symbol(target);
+            if !declared_locally && !self.augment_free_miss_is_established(target_type) {
+                return None;
+            }
         }
         // `getExternalModuleMember` (`checker.go`): a missing `default` is
         // answered by the module itself when `canHaveSyntheticDefault` holds,
@@ -2882,12 +2911,13 @@ impl<'a> Checker<'a, '_> {
             return true;
         }
         // `getPropertyOfType` on a union is `createUnionOrIntersectionProperty`
-        // (every constituent has it); `get_property_of_type_ex` routes no
-        // union, and the type-read road projects across constituents.
-        if matches!(self.store.get(target_type).data, crate::types::TypeData::Union { .. })
-            && self
-                .get_type_of_property_with_this_argument(target_type, name, target_type, true)
-                .is_some()
+        // (every constituent has it), and on a mapped type its resolved
+        // members (`{ [P in 'NotFound']: unknown }`, `importPropertyFromMappedType`).
+        // `get_property_of_type_ex` routes neither; the type-read road
+        // projects union constituents and resolves mapped members.
+        if self
+            .get_type_of_property_with_this_argument(target_type, name, target_type, true)
+            .is_some()
         {
             return true;
         }

@@ -1100,3 +1100,34 @@ reports `Module '"*.foo"' has no exported member 'onlyInA'`
 printed the specifier (`"b.foo"`). It now prints an ambient module's own
 declared name and keeps the specifier for a file module; the two agree for
 a non-pattern ambient module.
+
+## 38. §36 corrected: a variable target's miss must be established
+
+§36 decided TS2305 for an `export =` variable target whenever its type was
+computed. The batch-61 rank caught two extra TS2305s that showed it was too
+wide (bucket #173):
+
+- `importPropertyFromMappedType`: `declare const createHttpError:
+  createHttpError.NamedConstructors`, an alias of a mapped type whose
+  members this port does not resolve on this road. `e.NotFound` reads
+  nothing here either, so the miss is not proof of absence. The old guard's
+  caution was right for this shape. The variable arm now also requires the
+  members road to have established the miss,
+  `members.rs::augment_free_miss_is_established`. That is the TS2339 test
+  (`named_walk_is_complete`) without its Object/Function-family gate,
+  because this lookup skips the augment (`skipObjectFunctionPropertyAugment`).
+  It admits a type-literal owner, whose members table the binder fills
+  whole, and a union lacks the name when one constituent does. The
+  existence test now asks the type-read road for any receiver, not only a
+  union, so a mapped type's members count.
+- `arbitraryModuleNamespaceIdentifiers_syntax`: `import { "invalid 1" }
+  from …` (no `as`) is parser recovery with an empty name, and TS2305 was
+  reported for `''` at a zero-width span. An empty identifier name now declines; the empty *string* name
+  (`import { "" as foo }`) is a valid export name and is still decided
+  (`nameText != "" || name.Kind == KindStringLiteral`).
+
+Both were non-exact on the base already, which is why the exact gate showed
+no loss. A name the module file declares locally skips the gate: it takes
+`reportNonExportedMember`'s local outcomes, TS2616 when it is the `export =`
+target (`var a = 10; export = a` then `import { a }`,
+`es6ImportNamedImportNoNamedExports`).
