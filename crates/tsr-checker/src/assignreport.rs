@@ -6563,7 +6563,7 @@ impl Checker<'_, '_> {
         if let Some(target_readonly) = self.array_reference_readonly(target)
             && let Some((_, source_readonly)) = self.tuple_element_lists.get(&source).cloned()
             && (target_readonly || !source_readonly)
-            && !self.tuple_optional_masks.contains_key(&source)
+            && !self.tuple_optional_masks.get(&source).is_some_and(|mask| mask.contains(&true))
         {
             let number = self.intrinsics.number;
             let source_index = self.array_or_tuple_element_access(source, number, false)?;
@@ -6607,8 +6607,10 @@ impl Checker<'_, '_> {
         depth: usize,
     ) -> Option<()> {
         use crate::relater::Ternary;
+        // A labeled tuple carries an optional mask even when no element is
+        // optional; only a set bit makes it unfixed (r7-reports §87).
         let fixed = |checker: &Self, ty: TypeId| {
-            if checker.tuple_optional_masks.contains_key(&ty)
+            if checker.tuple_optional_masks.get(&ty).is_some_and(|mask| mask.contains(&true))
                 || checker.variadic_tuple_elements.contains_key(&ty)
                 || checker.tuple_rest_tails.contains_key(&ty)
             {
@@ -6616,6 +6618,33 @@ impl Checker<'_, '_> {
             }
             checker.tuple_element_lists.get(&ty).cloned()
         };
+        // A target with one trailing rest element (`[A, B, ...C[]]`): only
+        // the first arity check reads it, a fixed source shorter than the
+        // target's required elements (`relater.go:4110`, `minLength`).
+        if fixed(self, target).is_none()
+            && let Some((elements, target_readonly)) =
+                self.variadic_tuple_elements.get(&target).cloned()
+        {
+            let (last, leading) = elements.split_last()?;
+            if !last.spread
+                || self.array_reference_readonly(last.r#type).is_none()
+                || leading.iter().any(|element| element.spread || element.optional)
+            {
+                return None;
+            }
+            let (source_elements, source_readonly) = fixed(self, source)?;
+            if source_readonly && !target_readonly {
+                return None;
+            }
+            if source_elements.len() < leading.len() {
+                stack.push(ChainEntry {
+                    message: &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_REQUIRES_1,
+                    args: vec![source_elements.len().to_string(), leading.len().to_string()],
+                });
+                return Some(());
+            }
+            return None;
+        }
         let (target_elements, target_readonly) = fixed(self, target)?;
         let target_arity = target_elements.len();
         let push_count = |stack: &mut ChainStack,

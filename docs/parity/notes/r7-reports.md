@@ -2493,3 +2493,25 @@ inside a type. It now goes through `signature_colon_form`, as TS2658's `provides
 no match for the signature` already did. `typePredicateInherit` and
 `implementArrayInterface` are EXACT; quick oracles over `redicate` and
 `mplementArray` show 0 lost.
+
+## 87. Labeled tuples are fixed; a rest target's required elements
+
+- **A labeled tuple carries an optional mask with no bit set.** `[a: number,
+  b: string]` is recorded with an all-`false` `tuple_optional_masks` entry
+  (it keeps its labels). `explain_fixed_tuple_target` and the tuple-to-array
+  arm read the mask's presence as "has an optional element", so they
+  declined. They now decline only on a set bit. `strictBindCallApply1`'s
+  `apply` lines get `Source has 1 element(s) but target requires 2.` and
+  `Source has 3 element(s) but target allows only 2.`.
+- **A target with one trailing rest element.** `[any, any, [[any]],
+  ...any[]]` against a fixed `[number, number]`: in the tuple arm of
+  `propertiesRelatedTo` (`relater.go:4110`), a source with no rest element
+  that is shorter than the target's `minLength` reports `Source has 2
+  element(s) but target requires 3.`. Only this first arity check is
+  retraced. The arm declines in two cases: a target whose leading elements
+  include an optional or spread element, or whose trailing spread is not an
+  array (a variadic `...T`); and any other outcome, which continues into
+  element and rest comparisons. The three
+  `destructuringParameterDeclaration3*` cases are EXACT.
+- **Measured.** Quick oracles against base24 (`uple`,
+  `estructuringParameterDeclaration`, `ariadic`, `estParameter`): 0 lost.
