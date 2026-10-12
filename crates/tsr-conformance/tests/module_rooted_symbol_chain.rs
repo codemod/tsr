@@ -554,3 +554,21 @@ import { Fragment } from "react";
     );
     assert_has(&lines, &["Fragment : import(\"react\").ComponentType<{}>"]);
 }
+
+/// r7-printer §51: a symbol its module's `export =` names, with no name in
+/// scope at the site, is spelled as that module (native-read line).
+#[test]
+fn an_export_equals_target_is_spelled_as_its_module() {
+    let lines = assertions(
+        "probe/export_equals_target",
+        r"// @module: commonjs
+// @filename: a.ts
+namespace A {
+    export class B { constructor(b: number) {} }
+    export namespace B { export const b: number = 0; }
+}
+export = A.B;
+",
+    );
+    assert_has(&lines, &["A.B : typeof import(\"./a\")"]);
+}

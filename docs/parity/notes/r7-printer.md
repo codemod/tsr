@@ -1813,3 +1813,32 @@ expected `markedSlot` as `import("marked").Marked.Pair<string, number>`.
 Pinned native, run on that test's own `TYPE_NAMING_SOURCE`, prints
 `markedSlot : import("marked").Pair<string, number>` (`Marked` is the
 module's `export =`). The expectation now reads native's line.
+
+## 51. A symbol its module's `export =` names is spelled as the module
+
+**Forcing constraint.** `exportEqualsProperty`: `a.ts` writes `export = A.B;`,
+and native prints the expression `A.B : typeof import("./a")`; the port
+printed `typeof A.B`. The same holds for `duplicateExportAssignments`' `foo3.ts`
+(`namespace x { export var x = 10 }` … `export = x;` prints
+`x : typeof import("./foo3")`) and `declFileImportChainInExportAssignment`.
+
+**Cause.** `getSymbolChain` (`nodebuilderimpl.go:1087`) needs a qualifier
+here: nothing in scope names `B`, and the inner `var x` shadows the namespace
+`x` (`needsQualification`). Its containers include the file module, through
+`getAlternativeContainingModules` or as the parent of a top-level declaration.
+`sortByBestName` falls back to `compareSymbols`, which puts the file module
+(declared at position 0) first. Since that module's `export =` is the same
+reference, the module's own chain replaces the symbol (`:1117`), so the chain
+is `[module]`.
+
+**The port.** `qualified_name_at` asks `export_equals_module_text_at` before
+`symbol_chain`. When `chain_needs_qualification` holds and the resolver's
+faithful walk (`symbol_chain_at`) answers exactly one module other than the
+symbol, the name is `import(<specifier>)`, and portability is reported as in
+§28. No cache or table.
+
+Left: `declarationEmitImportInExportAssignmentModule` wants
+`typeof import("./…").c`, a two-element chain whose root is the module
+standing for `m`. That would need the module-rooted spelling for longer
+chains, which here only §1's file-module arm writes, and that arm requires
+the leaf to keep its own name.

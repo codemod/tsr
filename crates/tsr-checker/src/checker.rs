@@ -3449,6 +3449,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         // Value-only shadow qualify a Type reference.
         let meaning =
             if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
+        if let Some(root) = self.export_equals_module_text_at(symbol, name, reference, meaning) {
+            let mut out = String::with_capacity(printed.len() + root.len());
+            out.push_str(&printed[..suffix_at - name.len()]);
+            out.push_str(&root);
+            out.push_str(&printed[suffix_at..]);
+            return Some(out);
+        }
         let Some(qualifier) = self.symbol_chain(symbol, reference, meaning, 0) else {
             if let Some(spelled) = self.renamed_module_leaf_text_at(symbol, reference, meaning) {
                 let mut out = String::with_capacity(printed.len() + spelled.len());
@@ -4200,6 +4207,42 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
         let &[declaration] = record.declarations.as_slice() else { return None };
         self.alias_symbol_for_type_node(declaration).map(|alias| self.binder.merged_symbol(alias))
+    }
+
+    /// r7-printer §51: `getSymbolChain`'s `export =` arm
+    /// (`nodebuilderimpl.go:1117`) for the symbol itself. When no in-scope
+    /// name reaches it and its best container is a module whose `export =` is
+    /// the same reference (`compareSymbols` sorts the file module, declared at
+    /// position 0, ahead of a namespace container), the module's chain is the
+    /// whole chain: `export = A.B` prints `A.B` as `typeof import("./a")`.
+    /// The bare name may be in scope yet shadowed at the site
+    /// (`needsQualification`), as for `namespace x { export var x }` with
+    /// `export = x`.
+    /// Read from the resolver's faithful walk; only a one-element chain that
+    /// is a module other than the symbol answers. No cache or table.
+    fn export_equals_module_text_at(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        if self.module_host.is_none()
+            || self.is_module_symbol(symbol)
+            || self.is_ambient_module(symbol)
+            || !self.chain_needs_qualification(symbol, name, reference, meaning)
+        {
+            return None;
+        }
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let &[module] = chain.as_slice() else { return None };
+        if module == symbol || !(self.is_module_symbol(module) || self.is_ambient_module(module)) {
+            return None;
+        }
+        let specifier = self.module_specifier_for_symbol(module, reference)?;
+        self.track_unsafe_import(&specifier, symbol, module);
+        Some(format!("import({specifier})"))
     }
 
     /// r7-printer §39: `getSymbolChain` for a top-level declaration that its
