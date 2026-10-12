@@ -1134,3 +1134,72 @@ context answers `error` (`h<T>(fn: T): T` with `h(async () => 1)`, while
 `m<T>(fn: () => T)` is fine; awaitedType 0:163–172; signatures.rs). A JSDoc
 `@satisfies {Object.<string, boolean>}` gives the literal no boolean context
 (checkJsdocSatisfiesTag8; jsdoc_annotations.rs).
+
+## 39. An annotated parameter root reads a nested pattern's default under its projection
+
+`getBindingElementTypeFromParentType` (`checker.go:17782`) returns an annotated
+root's projected element type, and consults the default only for strict
+mode's `IsUndefined` facts. The implied-pattern padding
+(`check_binding_pattern_default`) is the annotation-less leg's road. The port
+sent every parameter-rooted nested pattern's default through that padding
+road. Its certifier refuses a default whose pattern elements carry their own
+initializers, so `function foo3([nameMA = "noName", [primarySkillA = "primary",
+secondarySkillA = "secondary"] = ["noSkill", "noSkill"]]: Robot)` answered
+`error` for both nested names
+(sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2:
+2 → 0 non-RIGHT lines). An annotated root now checks the default ordinarily.
+
+## 40. Refused: the signature-flag contextual instantiation waiting for a candidate or default
+
+`instantiateContextualType` (`checker.go:30817`) maps through the non-fixing
+mapper only when `core.Some(inferences, hasInferenceCandidatesOrDefault)`;
+otherwise a bare `T` keeps its constraint as the apparent type.
+`instantiate_contextual_inference_type` uses the live mapper unconditionally.
+Porting the gate fixed mappedTypeContextualTypesApplied (`mapped2<T extends
+{ [P in keyof T]: TakeString }>({ foo: s => 42 })`: 4 → 0 non-RIGHT lines,
+`s: string`), and lost nothing across 27,768 `*nfer*`/`*ontextual*` verdict
+lines. The corpus gate (cg1, against b67) still measured **+11 / −32 types,
+−1 diagnostics case**, every loss in correlatedUnions. In
+`processRecord({ kind: 'n', v: 42, f: v => v.toExponential() })`, native gets
+`K = "n"` in phase 1 by inferring into `UnionRecord<K> = { [P in K]: … }[K]`
+through the indexed-access-of-mapped simplification. This port's phase-1
+collector gets no candidate there (the gate saw none at either read). It only
+reached `K = "n"` through the live mapper, which the gate now skipped, so `v`
+widened to `string | number | boolean`. Not landed. It lands once phase-1
+inference into a `{ [P in K]: X }[K]` target yields that candidate natively,
+with the gate kept as written and the probe re-measured.
+
+## 41. Inference simplifies `{ [P in K]: E }[K]` with an instantiable index
+
+`inferFromTypes`' type-variable arm infers to `getSimplifiedType(target)`.
+For an indexed access, `getSimplifiedIndexedAccessType` (`checker.go`)
+distributes the object over the index only for a non-instantiable index, but
+its generic-mapped arm (`substituteIndexedMappedType`) takes any index, so
+`{ [P in K]: E }[K]` simplifies to `E` with `P := K`.
+`inference_simplified_indexed_access` returned `None` for every instantiable
+index, so `pr<K>(rec: UnionRecord<K>)` with `UnionRecord<K> = { [P in K]: {
+kind: P, … } }[K]` got no phase-1 candidate from `{ kind: 'n', … }` and gapped
+(probes: `UR2`/`UR3`-shaped calls now infer `"n"`, as tsgo d.ts emit does).
+The instantiable-index refusal now guards the intersection arm only.
+correlatedUnions: 12 → 5 non-RIGHT lines on the verdict dump; no loss across
+the 34,650 `*nfer*`/`*ontextual*`/`*apped*`/`*orrelated*`/`*ndexed*` verdict
+lines. Still divergent: `pr8<K>(rec: { [P in K]: { kind: P, f: (v:
+RecordMap[P]) => void } }[K])` with `{ kind: 'n', f: (v: number) => {} }` infers
+`keyof RecordMap` where native infers `"n"`. The written form `{ kind: K, f:
+(v: RecordMap[K]) => void }` is right, so the substituted template's
+`RecordMap[K]` contributes a contravariant candidate that the written one does
+not. That is the next step for §40's refusal as well.
+
+The first gate of §41 (against b67) measured types +18 / 0 lost, but
+correlatedUnions' diagnostics went EMPTY_RIGHT → EMPTY_WRONG: a false TS2345
+at `call(xx)`. `xx` is `{ letter: A, caller: ACaller } | { letter: B, caller:
+BCaller }`, and the simplified target is `{ letter: Record<K, …>, caller: (x:
+Record<K, …>) => void }`. tsgo's candidate log (TSGO_DBG) shows only the
+covariant `"A"`, `"B"`. `invokeOnce` memoizes the `(A, Record<K, …>)` pair from
+`letter`, so the contravariant visit from `caller`'s parameter is skipped. The
+port wrapped only the member walk in its invokeOnce; `infer_to_mapped_type`
+ran before the visited check, collected contravariant `"A"` and `"B"`, and
+inferred `never`. The visited-pair scope now covers the mapped-target arm and
+the unrelated test, as `inferFromObjectTypes` does inside `invokeOnce`
+(`call2(xx)` infers `"A" | "B"`, as tsgo's d.ts emit does). No loss across
+34,661 related verdict lines.
