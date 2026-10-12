@@ -1060,3 +1060,23 @@ Measured on `97cc68fc` unfiltered: diagnostics **+1**
 (`disallowedBlockScopedInPresenceOfParseErrors1`), types unchanged, 0 lost;
 exact oracle 9676 → 9677, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0;
 Ir gi 1.0001, dm 1.0001.
+
+## §38 `GetErrorRangeForNode` for an unnamed declaration and an arrow function (routed: `check.rs`)
+
+`GetErrorRangeForNode` (`scanner.go:2588`) reports a name-reporting kind with
+no name (`errorNode == nil`, `:2644`: an anonymous function expression, a
+class expression, a default-exported function or class) at the construct's
+first token, and an arrow function through `getErrorRangeForArrowFunction`
+(`:2542`: a block body spanning lines reports through the end of its first
+line). The port's `error_span` fell to the whole node's span for both, so
+TS2872 on `function () { … } || undefined` covered the function where native
+covers `function` (`generatedContextualTyping`, four rows).
+`r7-flow-error-span-unnamed.diff` adds both arms to `error_span` (a shared
+helper, not this lane's). Measured on `6efc0ae6` unfiltered: legacy verdicts
+unchanged (start positions do not move); exact oracle 9677 → 9682
+(`assignLambdaToNominalSubtypeOfFunction`, `commaOperatorLeftSideUnused`,
+`exportDefaultInterfaceAndTwoFunctions`, `generatedContextualTyping`,
+`parserUnaryExpression2`), 0 lost; jsTyping 122 → 122, new_false 0,
+lost_true 0; Ir gi 1.0000, dm 1.0002. Approximation: the arrow's "first line" is the line of the body's
+`{` (native: of the body's full start, the end of `=>`); they differ only when
+`{` starts a new line.
