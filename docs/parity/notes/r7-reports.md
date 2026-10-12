@@ -2338,3 +2338,29 @@ generic indexed-access source: `T[K] → object` explains as `T[keyof T]`, then
   `genericDerivedTypeWithSpecializedBase2`, in addition to §78's three,
   with 0 lost. In `conditionalTypes1`, the line-12 chain and its two hints
   match native now; the file is still non-exact on other lines.
+
+## 80. JSX attributes types order their members by declaration
+
+`<OneThing {...obj} {...{yy: true}} />` with `obj = { yy: 10, yy1: "hello" }`
+gives native `{ yy1: string; yy: boolean; }` and gave the port
+`{ yy: boolean; yy1: string; }` (`tsxStatelessFunctionComponentOverload4`,
+TS2769's inner line).
+
+- **The forcing constraint.** `createJsxAttributesTypeFromAttributesProperty`
+  mints every chunk through `newAnonymousType`: the written attributes
+  through `createJsxAttributesType`, and each spread through
+  `getSpreadType`. `getNamedMembers` (`checker.go:22049`) then sorts the
+  members with `compareSymbols`, by first declaration. A spread member
+  keeps its own declaration's place: `yy1` is declared in `obj`, before the
+  later literal's `yy`. The port replaced a spread member in place, which
+  kept the first writer's position.
+- **The change.** `mint_jsx_attributes_chunk` sorts its properties by origin
+  symbol, as `spreads.rs`'s `mint_anonymous_properties` does for object
+  spreads. A property without an origin (the synthesized `children`) sorts
+  last, which is where `compareSymbols` puts a symbol without declarations.
+  Written attributes come out in source order, as before.
+- **Measured.** Quick oracles over `tsx` and `jsx`, against the same tree
+  without the sort: 0 gained and 0 lost as whole cases. The
+  `tsxStatelessFunctionComponentOverload4` line now matches. The file's
+  other differences are the `| undefined` printing of optional members,
+  which belongs to another lane.
