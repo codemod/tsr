@@ -984,7 +984,10 @@ impl Checker<'_, '_> {
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
         self.check_grammar_type_arguments(node, typed);
-        self.check_grammar_parameter_list(node);
+        if !self.check_grammar_parameter_list(node) && !self.modifier_chain_reported.contains(&node)
+        {
+            self.check_grammar_use_strict_simple_parameter_list(node);
+        }
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {
             self.check_grammar_modifier_shapes(node, typed);
@@ -9167,15 +9170,15 @@ impl Checker<'_, '_> {
     /// One loop with a `seenOptionalParameter` flag, returning on the **first**
     /// offender, which is why this runs once per *list* and not once per
     /// parameter. §287.
-    fn check_grammar_parameter_list(&mut self, owner: NodeId) {
+    fn check_grammar_parameter_list(&mut self, owner: NodeId) -> bool {
         if self.file_has_parse_errors {
-            return;
+            return false;
         }
         // `checkGrammarFunctionLikeDeclaration`'s `||` chain (`:762`) and
         // `checkGrammarClassLikeDeclaration`'s (`:769`): an empty type
         // parameter list (TS1098) comes before the parameter list.
         if self.check_grammar_type_parameter_list(owner) {
-            return;
+            return true;
         }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
@@ -9215,7 +9218,7 @@ impl Checker<'_, '_> {
                     continue;
                 };
                 self.report_grammar_at(at, message);
-                return;
+                return true;
             }
             // `isOptionalDeclaration` is **`ast.HasQuestionToken` alone**
             // (`checker/utilities.go:299`) — an initialiser does *not* make a
@@ -9247,30 +9250,30 @@ impl Checker<'_, '_> {
                     name,
                     &messages::A_REQUIRED_PARAMETER_CANNOT_FOLLOW_AN_OPTIONAL_PARAMETER,
                 );
-                return;
+                return true;
             }
         }
         // `checkGrammarArrowFunction` (`grammarchecks.go:772`), the next link
         // of `checkGrammarFunctionLikeDeclaration`'s `||` chain.
-        self.check_grammar_arrow_line_terminator(owner);
+        self.check_grammar_arrow_line_terminator(owner)
     }
 
     /// TS1200 — `Line terminator not permitted before arrow.`
     /// `checkGrammarArrowFunction`'s tail (`grammarchecks.go:790`): the `=>`
     /// token's full text, from the previous token's end, holds a line break
     /// (in its trivia, a block comment's included), reported on the token.
-    fn check_grammar_arrow_line_terminator(&mut self, owner: NodeId) {
-        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(owner) else { return };
+    fn check_grammar_arrow_line_terminator(&mut self, owner: NodeId) -> bool {
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(owner) else { return false };
         let Some(token) = arrow.equals_greater_than_token.and_then(|token| token.node_id) else {
-            return;
+            return false;
         };
-        let Some(file) = self.source_file_of_for_diagnostics(token) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(token) else { return false };
         let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
         else {
-            return;
+            return false;
         };
         let start = self.nodes.span(token).start as usize;
-        let Some(mut before) = text.get(..start) else { return };
+        let Some(mut before) = text.get(..start) else { return false };
         let line_break = loop {
             let trimmed =
                 before.trim_end_matches(|c: char| c.is_whitespace() && !is_line_break_char(c));
@@ -9289,6 +9292,103 @@ impl Checker<'_, '_> {
                 &messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW,
             );
         }
+        line_break
+    }
+
+    /// `checkGrammarForUseStrictSimpleParameterList` (`grammarchecks.go:722`),
+    /// the last link of `checkGrammarFunctionLikeDeclaration`'s chain for a
+    /// function-like declaration: from ES2016, a body whose prologue holds
+    /// `"use strict"` makes each parameter with an initializer, a binding
+    /// pattern or a rest TS1346 (related: the directive), and the directive
+    /// TS1347 (related: each such parameter). `c.error`, so not gated on
+    /// parse errors.
+    fn check_grammar_use_strict_simple_parameter_list(&mut self, owner: NodeId) {
+        if self.language_version < tsr_core::ScriptTarget::ES2016 {
+            return;
+        }
+        let body = match self.node_map.get(owner) {
+            Some(Node::FunctionDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::FunctionExpression(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::MethodDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::ConstructorDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::GetAccessorDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::SetAccessorDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(Node::ArrowFunction(f)) => f.body.and_then(|b| b.node_id()),
+            _ => None,
+        };
+        let Some(Node::Block(block)) = body.and_then(|body| self.node_map.get(body)) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(owner) else { return };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return;
+        };
+        // `binder.FindUseStrictPrologue`: the prologue's string-literal
+        // statements, the first spelled exactly `"use strict"`/`'use strict'`.
+        let mut directive = None;
+        for statement in block.statements {
+            let tsr_ast::Statement::ExpressionStatement(expression) = statement else { break };
+            let Some(tsr_ast::Expression::StringLiteral(literal)) = expression.expression else {
+                break;
+            };
+            let Some(id) = literal.node_id else { break };
+            let span = self.nodes.span(id);
+            if matches!(
+                text.get(span.start as usize..span.end as usize),
+                Some("\"use strict\"" | "'use strict'")
+            ) {
+                directive = expression.node_id;
+                break;
+            }
+        }
+        let Some(directive) = directive else { return };
+        let non_simple: Vec<NodeId> = self
+            .parameters_of(owner)
+            .into_iter()
+            .filter(|&parameter| {
+                matches!(self.node_map.get(parameter), Some(Node::ParameterDeclaration(p))
+                    if p.initializer.is_some()
+                        || p.dot_dot_dot_token.is_some()
+                        || matches!(p.name, Some(tsr_ast::BindingName::BindingPattern(_))))
+            })
+            .collect();
+        if non_simple.is_empty() {
+            return;
+        }
+        let directive_span = self.error_span(directive);
+        for &parameter in &non_simple {
+            let mut diagnostic = Diagnostic::new(
+                &messages::THIS_PARAMETER_IS_NOT_ALLOWED_WITH_USE_STRICT_DIRECTIVE,
+                self.error_span(parameter),
+            );
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                directive,
+                &messages::USE_STRICT_DIRECTIVE_USED_HERE,
+                directive_span,
+                Vec::new(),
+            )));
+            self.report(file, diagnostic);
+        }
+        let mut diagnostic = Diagnostic::new(
+            &messages::USE_STRICT_DIRECTIVE_CANNOT_BE_USED_WITH_NON_SIMPLE_PARAMETER_LIST,
+            directive_span,
+        );
+        for (index, &parameter) in non_simple.iter().enumerate() {
+            let message = if index == 0 {
+                &messages::NON_SIMPLE_PARAMETER_DECLARED_HERE
+            } else {
+                &messages::AND_HERE
+            };
+            let span = self.error_span(parameter);
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                parameter,
+                message,
+                span,
+                Vec::new(),
+            )));
+        }
+        self.report(file, diagnostic);
     }
 
     /// A class member named `constructor` that is not one:
