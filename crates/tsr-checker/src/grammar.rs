@@ -570,38 +570,30 @@ impl Checker<'_, '_> {
     }
 
     /// `checkGrammarForInOrForOfStatement`'s `async` arm
-    /// (`grammarchecks.go:1251`): `for (async of xs)` outside an await context
-    /// is TS1106 on the identifier. The arm does not return true, so the list
-    /// checks after it still run (they cannot apply to an identifier).
+    /// (`grammarchecks.go:1251`): `for (async of xs)` on a statement without
+    /// `NodeFlagsAwaitContext` is TS1106 on the identifier. The arm does not
+    /// return true, so the list checks after it still run (they cannot apply
+    /// to an identifier). The `for await` arms above it are
+    /// `check_for_await_grammar` (`module_format.rs`, r7-grammar §9).
     ///
-    /// `NodeFlagsAwaitContext` is not set by this parser; the enclosing
-    /// function's `async` stands in for it, as in
-    /// `check_await_as_binding_name`. Not ported: the `for await` arms above
-    /// it, and a module's top-level await context.
+    /// Correction of the record: this arm used to read the enclosing
+    /// function's `async` modifier in place of the flag, from when the parser
+    /// did not set it. That stand-in disagreed in a class static block and on
+    /// a reparsed top-level statement, both of which are await contexts.
     fn check_grammar_for_of_async(
         &mut self,
         node: NodeId,
         statement: &tsr_ast::ForInOrOfStatement<'_>,
     ) {
-        if self.nodes.kind(node) != SyntaxKind::ForOfStatement {
+        if self.nodes.kind(node) != SyntaxKind::ForOfStatement
+            || self.nodes.flags(node).contains(NodeFlags::AWAIT_CONTEXT)
+        {
             return;
         }
         let Some(tsr_ast::ForInitializer::Identifier(identifier)) = statement.initializer else {
             return;
         };
         if identifier.text != "async" {
-            return;
-        }
-        let in_async_function = self
-            .nodes
-            .ancestors(node)
-            .find(|&ancestor| self.is_function_like_or_static_block(ancestor))
-            .and_then(|function| self.node_map.get(function))
-            .and_then(crate::check::modifiers_of)
-            .is_some_and(|modifiers| {
-                tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AsyncKeyword)
-            });
-        if in_async_function {
             return;
         }
         let Some(at) = identifier.node_id else { return };
