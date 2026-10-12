@@ -1238,6 +1238,37 @@ the line of `body.Pos()`, the end of `=>`, so `() =>\n{ … }` ends at the
 `=>` line's break. The ECMAScript line terminators (U+2028, U+2029) count as line breaks too. A probe file with all three shapes now prints
 byte for byte as tsgo does.
 
+## 39. The types dump reads `getTypeOfExpression`'s quick path (held: needs a types_producer.rs grant)
+
+Native's type writer asks `getTypeAtLocation`, which reaches
+`getTypeOfExpression`. That function answers first from
+`getQuickTypeOfExpression` (`checker.go`):
+
+- a call or `new` whose non-nullable callee has exactly one non-generic
+  signature of the kind (`getSingleSignature`) answers that signature's
+  return type, without resolving the call;
+- an `await` answers the awaited quick type of its operand;
+- a non-`const` assertion answers its written type.
+
+So `new A()` on an abstract class prints `A` natively, although
+`resolveNewExpression` reports TS2511 and the checked type is the error
+type. TSR's producer printed `check_expression`'s answer (`any`).
+
+`Checker::quick_type_of_expression` (calls.rs) ports the quick path. It
+excludes `super`, `import()`, `require("…")` and `Symbol()`/`Symbol.for()`
+calls, as native does. Call chains are excluded as well
+(`propagateOptionalTypeMarker` is not ported there), and so is a JavaScript
+parenthesized expression, which may carry a JSDoc cast that native reparses
+into an assertion. The producer still checks the expression first, because
+this port's later reads (a callback parameter's contextual type) depend on
+the call having been resolved, and then prints the quick type when there is
+one. Printing it without the check moved six `contextualOverloadListFromArrayUnion`
+lines to `any`.
+
+Types dump against main `41e3bf25`: +10 RIGHT, 0 lost (abstractClassInLocalScopeIsAbstract,
+fallbackToBindingPatternForTypeInference ×6, inferFromGenericFunctionReturnTypes3,
+inferredRestTypeFixedOnce ×2).
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

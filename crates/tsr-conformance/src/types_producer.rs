@@ -1336,7 +1336,15 @@ fn type_id_at_location_arm_inner<'a>(
     if predicates::is_expression_node(id, Tree { nodes, map })
         && let Ok(expression) = tsr_ast::Expression::try_from(node)
     {
-        let computed = checker.check_expression(expression);
+        // `getRegularTypeOfExpression` → `getTypeOfExpression`, whose
+        // quick path (`getQuickTypeOfExpression`) answers a call or `new`
+        // over a single non-generic signature, an `await` over one, or an
+        // assertion without checking the expression.
+        // The expression is still checked first: this port's later reads
+        // (a callback parameter's contextual type) depend on the call having
+        // been resolved, which native reaches on demand.
+        let expression_type = checker.check_expression(expression);
+        let computed = checker.quick_type_of_expression(expression).unwrap_or(expression_type);
         *arm = ProducerArm::Expression;
         return computed;
     }
