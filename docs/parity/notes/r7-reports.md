@@ -2602,3 +2602,17 @@ required, optional and rest elements:
   `(a: never) => void → (...args: any[]) => void`).
 - **Measured.** Quick oracles against base24 (`ariance`, `trictFunction`,
   `enericRest`, `allback`, `ssignmentCompat`, `unctionType`): 0 lost.
+
+## 91. Optional members against index signatures
+
+`membersRelatedToIndexInfo` (`relater.go`) relates an optional member's
+non-missing type. Against a `string` key, outside
+exactOptionalPropertyTypes, it removes `undefined`
+(`getTypeWithFacts(NEUndefined)`) unless the type is exactly `undefined`.
+Against a `number` key it keeps the optionality's `undefined`. The retrace
+had declined every optional member. It now follows both rules
+(`optionalPropertyAssignableToStringIndexSignature`, `{ k1?: undefined }`
+and `{ 1?: string }`). Under strict null checks, a member type that lacks
+the `undefined` its optionality should add declines. So does
+exactOptionalPropertyTypes. Quick oracles over `ndexSignature`, `ndexer`
+and `ptionalProp`: 0 lost.

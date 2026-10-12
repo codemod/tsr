@@ -7327,11 +7327,30 @@ impl Checker<'_, '_> {
                     return None;
                 }
                 // A member without a readable optionality is a synthesized
-                // required one (an import-attributes literal).
-                if self.chain_property_is_optional(source, &name) == Some(true) {
+                // required one (an import-attributes literal). An optional
+                // member against a `string` index relates without its
+                // `undefined` (`getTypeWithFacts(NEUndefined)`, outside
+                // exactOptionalPropertyTypes); against a `number` index it
+                // keeps its optionality's `undefined`, and a member type
+                // without one where strict null checks would add it declines
+                // (r7-reports §91).
+                let optional = self.chain_property_is_optional(source, &name) == Some(true);
+                if optional && self.exact_optional_property_types {
                     return None;
                 }
                 let member = self.get_type_of_property_of_type(source, &name)?;
+                let member = if !optional || member == self.intrinsics.undefined {
+                    member
+                } else if info.key == string {
+                    self.get_type_with_facts(member, crate::flow::TypeFacts::NE_UNDEFINED)
+                } else if self.strict_null_checks
+                    && !matches!(&self.type_of(member).data, TypeData::Union { types, .. }
+                        if types.contains(&self.intrinsics.undefined))
+                {
+                    return None;
+                } else {
+                    member
+                };
                 match self.chain_relate(stack, member, info.value) {
                     Ternary::Related => {}
                     Ternary::Unknown => return None,
