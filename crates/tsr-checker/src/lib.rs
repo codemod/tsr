@@ -151,6 +151,7 @@ mod import_call_grammar;
 mod import_meta;
 mod import_type_constraints;
 mod import_type_meaning;
+mod import_type_reports;
 mod import_type_value_meaning;
 mod index_access_reports;
 pub mod index_constraint;

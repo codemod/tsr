@@ -5896,11 +5896,18 @@ pub fn is_declaration_file(file_name: &str) -> bool {
 
 /// The file name with its extension removed, as `tspath.RemoveFileExtension`.
 fn remove_file_extension(file_name: &str) -> &str {
-    match file_name.rfind('.') {
-        // A leading dot is the whole name (`.gitignore`), not an extension.
-        Some(dot) if dot > 0 => &file_name[..dot],
-        _ => file_name,
-    }
+    // `tspath.RemoveFileExtension` (`tspath/extension.go:45`): the first
+    // known extension that ends the path, multi-dot ones first, so
+    // `a.d.ts` names its module `a` and not `a.d`; a path with no known
+    // extension is kept whole. r7-calls §47.
+    const EXTENSIONS_TO_REMOVE: [&str; 12] = [
+        ".d.ts", ".d.mts", ".d.cts", ".mjs", ".mts", ".cjs", ".cts", ".ts", ".js", ".tsx", ".jsx",
+        ".json",
+    ];
+    EXTENSIONS_TO_REMOVE
+        .iter()
+        .find_map(|extension| file_name.strip_suffix(extension))
+        .unwrap_or(file_name)
 }
 
 /// Whether a file contains an `export …` or `export =` statement.

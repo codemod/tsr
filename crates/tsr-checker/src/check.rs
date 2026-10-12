@@ -1080,6 +1080,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
+            self.check_import_type_resolution(node);
             self.check_import_type_attributes(node);
             // `checkImportType`'s `checkTypeReferenceOrImport` (`checker.go:3324`).
             if let Some((symbol, arguments)) = self.import_type_constraint_target(node) {

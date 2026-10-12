@@ -1534,6 +1534,59 @@ Consumer hunks under the default grant (same root):
 and does not report, outside the intended-type names. That would be a
 second JSDoc-only resolution rule.
 
+## 47. `import(…)` types: TS1340 and TS2694
+
+Buckets 12 and 16 of the JS rank (TS1340 4 cases, TS2694 4), with TypeScript
+cases on the same root (`importUsedAsTypeWithErrors`, `esmNoSynthesizedDefault`,
+`parseAssertEntriesError`, the `nodeModules*TypeModeDeclarationEmitErrors`
+families). `getTypeFromImportTypeNode` (`checker.go:24575`) resolves the
+module and then reports one of two things:
+
+- **unqualified, not `typeof`:** TS1340 at the node when
+  `getSymbolFlags(resolveExternalModuleSymbol(m))` has no type meaning;
+- **qualified:** TS2694 at the first segment missing from
+  `getSymbol(getExportsOfSymbol(ns), name, meaning)`. The meaning is
+  namespace for every segment but the last, and type for the last. Before
+  reporting, the CommonJS typedef fallback runs: the file module's own
+  exports, when `export=` is a `module.exports` assignment.
+
+Neither was ported. The typing road declined both shapes to `error`, so the
+types were already right and only the diagnostic was missing.
+`check_import_type_resolution` (`import_type_reports.rs`, new) is the
+diagnostic half. It runs beside `check_import_type_argument` from the
+`ImportTypeNode` arm of `check_node`.
+
+Declines, each where this port's table cannot vouch for a native miss:
+
+- `typeof import(…)`, whose value meaning goes through `getPropertyOfType`;
+- a namespace that is not a module or namespace bound from a body: a
+  late-binding class or function, a JS variable, or a shorthand ambient
+  module;
+- an alias whose target does not resolve;
+- a namespace-meaning miss on a name a JSDoc alias declares. Native parses
+  `@typedef {T} A.B` as a dotted name and makes `A` a namespace; this parser
+  keeps `A` alone as a type alias (`jsDeclarationsImportNamespacedType`, the
+  one case the first build made worse).
+
+**The module's printed name drops `.d.ts`.** `getFullyQualifiedName` of a
+file module prints its symbol name, which `bindSourceFileAsExternalModule`
+takes from `tspath.RemoveFileExtension` (`tspath/extension.go:45`). That
+function strips the first known extension, multi-dot ones first
+(`.d.ts`, `.d.mts`, …, `.json`), and keeps a path with no known extension
+whole. The binder's `remove_file_extension` stripped the last dot, so
+`GeometryType.d.ts` was `"/.src/GeometryType.d"`
+(`jsdocImportTypeNodeNamespace`). It is now the native list. This is a
+`tsr-binder` hunk under the default grant (same root: the TS2694 text).
+
+Measured on the 222 non-skipped cases whose source contains `import(`,
+against §46: 21 better, 0 exact lost, 5 newly exact. On the JS subset:
+8 better, the one worse case is fixed by the JSDoc-alias decline, and the
+other is native-skipped.
+
+**Falsifier.** A native TS1340 or TS2694 on an import type whose module
+this port resolves, where the report here stays silent through one of the
+declines above, or a TS2694 here that native does not have.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**
