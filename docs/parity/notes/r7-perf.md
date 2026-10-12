@@ -1297,6 +1297,42 @@ cycle never closes during resolution. This is r7-declared's alias road,
 the same eager-member theme as §37 and §30. It is routed through the
 integrator; nothing is built here.
 
+## §39 Ratios at main `2d1b3a4c` (batch 64, the chain landed): not yet verified ≤0.50
+
+This section is placed before §21, after §38, for the same reason as §32.
+
+Batch 64 landed `box/r7-perf` `36eca74e`, which carries the §31/§33
+chain, §30's re-entry guard and §36's deferred member print. TSR/tsgo-pinned,
+`whole_project_perf.py`, median wall · median child CPU. Release and dist
+were built from `2d1b3a4c`. `diagnostics_match` is true on dm, dml and gi
+in every run. jsTyping is still not equivalent work.
+
+| project | session 1, dist (21) | session 2, dist (31) | session 1, release (21) | session 2, release (31) |
+|---|---|---|---|---|
+| domain-model | 0.518 · 0.393 | 0.516 · 0.386 | 0.531 · 0.419 | 0.515 · 0.387 |
+| domain-model-large | 0.524 · 0.411 | 0.506 · 0.393 | 0.548 · 0.436 | 0.549 · 0.429 |
+| generic-imports | 0.575 · 0.298 | 0.602 · 0.304 | 0.601 · 0.305 | 0.588 · 0.303 |
+| jsTyping (5) | 1.54 · 1.18 | 1.75 · 1.32 | 1.63 · 1.30 | 1.79 · 1.44 |
+
+**A third, interleaved session** put tsgo, the pre-landing
+`box/r7-perf` dist binary (`359a20af`) and main's dist binary side by
+side over 31 rounds:
+
+| project | pre-landing | main `2d1b3a4c` |
+|---|---:|---:|
+| domain-model wall · CPU | 0.508 · 0.372 | **0.496** · 0.361 |
+| domain-model-large wall · CPU | 0.492 · 0.390 | 0.520 · 0.419 |
+
+The same pre-landing binary measured dm 0.489 and dml 0.483 in its own
+earlier session. Callgrind (`--singleThreaded`, release) puts main at
+dm +0.44%, dml +0.51% and gi +0.02% Ir over the pre-landing binary,
+which is batch 64's other merges. That is far smaller than the 0.02–0.03
+swings between sessions. **Reading:** dm and dml now sit at 0.49–0.52 in
+dist, depending on the session. The target is reached in some sessions
+and missed in others, so it is not verified with margin. generic-imports
+stays at 0.55–0.60 (§38.1). The levers left on dm/dml are other lanes'
+eager evaluations (§37, §38.2).
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
