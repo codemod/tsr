@@ -1400,3 +1400,34 @@ already built were printed without one.
 **Falsifier.** A retraced chain that names a different member or
 constituent than native's: an exact loss in a case whose head was already
 right.
+
+## 37. More of the chain: construct and index signatures, privacy, best match, type parameters
+
+Arms added to §36's retracing, each checked against pinned tsgo first:
+- **Construct signatures** after call signatures (`signaturesRelatedTo`'s
+  kind order). `Type 'S' provides no match for the signature '…'` prints
+  `signatureToString`'s declaration form `(a: T): R`; this port's printer
+  writes the arrow form, so it is converted after the parameter list.
+- **`indexSignaturesRelatedTo`.** A target index signature with no
+  applicable source signature, on a class or interface instance (no
+  inferable index): `Index signature for type 'K' is missing in type 'S'.`
+- **`propertyRelatedTo`'s private arm.** `Property 'p' is private in type
+  'A' but not in type 'B'.`, or `Types have separate declarations of a
+  private property 'p'.` when both sides are private with different
+  declarations. The protected arms still decline.
+- **Union target** (`typeRelatedToSomeType`). Only `getBestMatchingType`'s
+  pick is elaborated, in native order: `findMatchingDiscriminantType`, a
+  same-target reference, `findBestTypeForObjectLiteral`, invokables, then
+  `findMostOverlappyType` (last non-primitive with the most shared literal
+  keys). No pick means no elaboration.
+- **Intersection source** against a plain object: its constituents failed
+  silently, and the structural pass over the combined members reports.
+- **Type-parameter target** (`reportRelationError`, `relater.go:4768`). The
+  constraint explanation (TS5075) is pushed before the relation error, or
+  TS5082 after dropping the chain below ("only report this error once").
+- **Nullable stripping.** A definitely non-nullable source against `null |
+  undefined | X` relates to `X`, and that is the pair the chain names. This
+  is what lets `foo.bar` merge through a `{ … } | undefined` property.
+
+**Measured** (exact oracle, unfiltered, batch 45 base): 9813 → 9975 (+162
+including §36's +119), 0 lost.

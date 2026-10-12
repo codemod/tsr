@@ -5232,12 +5232,43 @@ impl Checker<'_, '_> {
         target: TypeId,
     ) -> Option<()> {
         let target_flags = self.type_of(target).flags;
-        if target_flags.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS) {
+        if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
             return None;
         }
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let mut source_text = self.type_to_string(displayed_source);
         let mut target_text = self.type_to_string(target);
+        // The type-parameter target's explanation, pushed before the
+        // relation error (`relater.go:4768`).
+        if target_flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !self.variance_marker_types.contains(&target)
+        {
+            let constraint = self.base_constraint_of_type(target);
+            let assignable = constraint.and_then(|constraint| {
+                if self.is_type_assignable_to(displayed_source, constraint) {
+                    Some((displayed_source, constraint))
+                } else if self.is_type_assignable_to(source, constraint) {
+                    Some((source, constraint))
+                } else {
+                    None
+                }
+            });
+            if let Some((assignable_source, constraint)) = assignable {
+                let assignable_text = self.type_to_string(assignable_source);
+                let constraint_text = self.type_to_string(constraint);
+                stack.push(ChainEntry {
+                    message: &messages::_0_IS_ASSIGNABLE_TO_THE_CONSTRAINT_OF_TYPE_1_BUT_1_COULD_BE_INSTANTIATED_WITH_A_DIFFERENT_SUBTYPE_OF_CONSTRAINT_2,
+                    args: vec![assignable_text, target_text.clone(), constraint_text],
+                });
+            } else {
+                // "Only report this error once": the chain below is dropped.
+                stack.clear();
+                stack.push(ChainEntry {
+                    message: &messages::_0_COULD_BE_INSTANTIATED_WITH_AN_ARBITRARY_TYPE_WHICH_COULD_BE_UNRELATED_TO_1,
+                    args: vec![target_text.clone(), source_text.clone()],
+                });
+            }
+        }
         let mut same_name = false;
         if self.type_to_string(source) == target_text {
             let qualified_source = self.type_name_for_error_display(source);
@@ -5298,8 +5329,20 @@ impl Checker<'_, '_> {
         target: TypeId,
         depth: usize,
     ) -> Option<()> {
+        let target = self.chain_normalized_target(source, target);
         self.explain_relation(stack, source, target, depth + 1)?;
         self.chain_report_relation_error(stack, source, target)
+    }
+
+    /// `isRelatedTo`'s nullable stripping (`relater.go`): a definitely
+    /// non-nullable source against `null | undefined | X` is related to `X`,
+    /// and `reportErrorResults` names `X` unless the union has an alias
+    /// (which prints without a `|`).
+    fn chain_normalized_target(&mut self, source: TypeId, target: TypeId) -> TypeId {
+        match self.non_nullable_union_candidate(source, target) {
+            Some(candidate) if self.type_to_string(target).contains(" | ") => candidate,
+            _ => target,
+        }
     }
 
     fn chain_relate(&mut self, source: TypeId, target: TypeId) -> crate::relater::Ternary {
@@ -5319,6 +5362,7 @@ impl Checker<'_, '_> {
         if depth > 12 || self.is_gap(source) || self.is_gap(target) {
             return None;
         }
+        let target = self.chain_normalized_target(source, target);
         let source_flags = self.type_of(source).flags;
         let target_flags = self.type_of(target).flags;
         // `eachTypeRelatedToType`: the first source constituent that fails
@@ -5341,13 +5385,38 @@ impl Checker<'_, '_> {
         // decided it; against a union, `typeRelatedToSomeType` elaborates only
         // through `getBestMatchingType`, which has no candidate for a
         // primitive (`findMostOverlappyType` skips one). Nothing reports
-        // below the relation error.
+        // below the relation error. Against an object,
+        // `structuredTypeRelatedToWorker` relates the apparent type with
+        // `reportStructuralErrors` off for a primitive source.
         if source_flags.intersects(TypeFlags::PRIMITIVE)
             && !source_flags.intersects(TypeFlags::INSTANTIABLE)
-            && !target_flags
-                .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+            && !target_flags.intersects(TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
         {
             return Some(());
+        }
+        // `typeRelatedToSomeType`: only `getBestMatchingType`'s pick is
+        // elaborated, with no elaboration when there is none.
+        if target_flags.contains(TypeFlags::UNION)
+            && source_flags.intersects(TypeFlags::OBJECT)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+        {
+            let regular = self.get_regular_type_of_object_literal(source);
+            return match self.chain_best_matching_type(regular, target)? {
+                Some(best) => match self.chain_relate(regular, best) {
+                    Ternary::NotRelated => self.explain_pair(stack, regular, best, depth),
+                    _ => None,
+                },
+                None => Some(()),
+            };
+        }
+        // An intersection source failed every constituent silently; the
+        // structural pass over its combined members reports.
+        if source_flags.contains(TypeFlags::INTERSECTION)
+            && target_flags.contains(TypeFlags::OBJECT)
+            && !target_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
+            && !self.intersection_has_instantiable(source)
+        {
+            return self.explain_object_relation(stack, source, target, depth);
         }
         if source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
             || target_flags
@@ -5421,8 +5490,10 @@ impl Checker<'_, '_> {
                 continue;
             };
             let target_member = self.get_type_of_property_of_type(target, name)?;
-            if self.chain_property_has_modifier_rule(source, target, name) {
-                return None;
+            match self.chain_property_privacy(stack, source, target, name) {
+                Some(true) => return Some(()),
+                Some(false) => {}
+                None => return None,
             }
             match self.chain_relate(source_member, target_member) {
                 Ternary::Related => {}
@@ -5438,29 +5509,67 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        // `signaturesRelatedTo(Call)`.
-        let target_calls = self.signatures_of_type_kind(target, SignatureKind::Call)?;
-        if target_calls.is_empty() {
-            return None;
-        }
-        let source_calls = self.signatures_of_type_kind(source, SignatureKind::Call)?;
-        match (source_calls.as_slice(), target_calls.as_slice()) {
-            ([], [first, ..]) => {
-                let source_text = self.type_to_string(source);
-                let signature_text = self.signature_to_string(first);
-                stack.push(ChainEntry {
-                    message: &messages::TYPE_0_PROVIDES_NO_MATCH_FOR_THE_SIGNATURE_1,
-                    args: vec![source_text, signature_text],
-                });
-                Some(())
+        // `signaturesRelatedTo(Call)`, then `(Construct)`.
+        for kind in [SignatureKind::Call, SignatureKind::Construct] {
+            let target_signatures = self.signatures_of_type_kind(target, kind)?;
+            if target_signatures.is_empty() {
+                continue;
             }
-            ([source_signature], [target_signature]) => {
-                let (source_signature, target_signature) =
-                    (source_signature.clone(), target_signature.clone());
-                self.explain_signature(stack, &source_signature, &target_signature, depth)
-            }
-            _ => None,
+            let source_signatures = self.signatures_of_type_kind(source, kind)?;
+            return match (source_signatures.as_slice(), target_signatures.as_slice()) {
+                ([], [first, ..]) => {
+                    let source_text = self.type_to_string(source);
+                    let signature_text = signature_colon_form(&self.signature_to_string(first));
+                    stack.push(ChainEntry {
+                        message: &messages::TYPE_0_PROVIDES_NO_MATCH_FOR_THE_SIGNATURE_1,
+                        args: vec![source_text, signature_text],
+                    });
+                    Some(())
+                }
+                ([source_signature], [target_signature]) => {
+                    let (source_signature, target_signature) =
+                        (source_signature.clone(), target_signature.clone());
+                    self.explain_signature(stack, &source_signature, &target_signature, depth)
+                }
+                _ => None,
+            };
         }
+        // `indexSignaturesRelatedTo`: a target index signature the source
+        // has no applicable one for, on a source whose index is not
+        // inferable (a class or interface instance).
+        let target_infos = self.get_index_infos_of_type(target)?;
+        if let Some(info) = target_infos.first() {
+            if self.get_applicable_index_info(source, info.key).is_some()
+                || !self.chain_source_index_not_inferable(source)
+            {
+                return None;
+            }
+            let key_text = self.type_to_string(info.key);
+            let source_text = self.type_to_string(source);
+            stack.push(ChainEntry {
+                message: &messages::INDEX_SIGNATURE_FOR_TYPE_0_IS_MISSING_IN_TYPE_1,
+                args: vec![key_text, source_text],
+            });
+            return Some(());
+        }
+        None
+    }
+
+    /// `isObjectTypeWithInferableIndex` is false: a class or interface
+    /// instance (no type literal, object literal, enum or module symbol).
+    fn chain_source_index_not_inferable(&self, source: TypeId) -> bool {
+        let symbol = match self.type_reference_targets.get(&source) {
+            Some(&(symbol, _)) => symbol,
+            None => match self.type_of(source).data {
+                TypeData::Named { members: Some(symbol), .. } => symbol,
+                _ => return false,
+            },
+        };
+        self.binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
     }
 
     /// `compareSignaturesRelated` (`relater.go:1458`) for two non-generic
@@ -5563,6 +5672,97 @@ impl Checker<'_, '_> {
         Some(())
     }
 
+    fn intersection_has_instantiable(&self, source: TypeId) -> bool {
+        match &self.type_of(source).data {
+            TypeData::Intersection { types, .. } => types.iter().any(|&part| {
+                self.type_of(part).flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
+            }),
+            _ => true,
+        }
+    }
+
+    /// `getBestMatchingType` (`relater.go:879`) for an object source:
+    /// `Some(Some)` the pick, `Some(None)` none, `None` undecidable.
+    #[allow(clippy::option_option)]
+    fn chain_best_matching_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Option<TypeId>> {
+        use crate::signatures::SignatureKind;
+        let TypeData::Union { types, .. } = self.type_of(target).data.clone() else {
+            return Some(None);
+        };
+        // findMatchingDiscriminantType.
+        let discriminated = self.find_matching_discriminant_type(source, target)?;
+        if discriminated != target {
+            return Some(Some(discriminated));
+        }
+        // findMatchingTypeReferenceOrTypeAliasReference.
+        if let Some(&(symbol, _)) = self.type_reference_targets.get(&source) {
+            let symbol = self.binder.merged_symbol(symbol);
+            if let Some(&found) = types.iter().find(|&&part| {
+                self.type_reference_targets
+                    .get(&part)
+                    .is_some_and(|&(other, _)| self.binder.merged_symbol(other) == symbol)
+            }) {
+                return Some(Some(found));
+            }
+        }
+        // findBestTypeForObjectLiteral.
+        if self.is_object_literal_type(source) || self.fresh_object_literal_types.contains(&source)
+        {
+            let mut array_like = Vec::with_capacity(types.len());
+            for &part in &types {
+                array_like.push(
+                    !self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE)
+                        && self.binding_parent_is_array_like(part)?,
+                );
+            }
+            if array_like.iter().any(|&is| is) {
+                return Some(
+                    types.iter().zip(&array_like).find(|(_, is)| !**is).map(|(&part, _)| part),
+                );
+            }
+        }
+        // findBestTypeForInvokable, call then construct.
+        for kind in [SignatureKind::Call, SignatureKind::Construct] {
+            if !self.signatures_of_type_kind(source, kind)?.is_empty() {
+                for &part in &types {
+                    if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
+                        continue;
+                    }
+                    if !self.signatures_of_type_kind(part, kind)?.is_empty() {
+                        return Some(Some(part));
+                    }
+                }
+            }
+        }
+        // findMostOverlappyType: the last non-primitive constituent sharing
+        // the most literal keys (ties go to the later one).
+        let source_names = self.get_property_names_of_type(source)?;
+        if !self.get_index_infos_of_type(source)?.is_empty() {
+            return None;
+        }
+        let mut best = None;
+        let mut count = 0usize;
+        for &part in &types {
+            if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
+                continue;
+            }
+            if !self.get_index_infos_of_type(part)?.is_empty() {
+                return None;
+            }
+            let names = self.get_property_names_of_type(part)?;
+            let shared = names.iter().filter(|name| source_names.contains(name)).count();
+            if shared > 0 && shared >= count {
+                best = Some(part);
+                count = shared;
+            }
+        }
+        Some(best)
+    }
+
     /// Whether the target's member `name` is optional, from its symbol or
     /// its member table; `None` where neither answers.
     fn chain_property_is_optional(&mut self, target: TypeId, name: &str) -> Option<bool> {
@@ -5573,20 +5773,56 @@ impl Checker<'_, '_> {
         Some(self.property_is_optional(property))
     }
 
-    /// Does `propertyRelatedTo`'s modifier switch (private, protected) or
-    /// its optional-to-required rule speak for `name` before the types do?
-    fn chain_property_has_modifier_rule(
+    /// `propertyRelatedTo`'s modifier switch (`relater.go:4271`) for
+    /// `name`: `Some(true)` when its private arm reported, `Some(false)`
+    /// when no modifier arm applies, `None` for the protected arms (not
+    /// retraced) or an unreadable member.
+    fn chain_property_privacy(
         &mut self,
+        stack: &mut Vec<ChainEntry>,
         source: TypeId,
         target: TypeId,
         name: &str,
-    ) -> bool {
-        [source, target].into_iter().any(|side| {
-            self.get_property_of_type(side, name).is_none_or(|property| {
-                self.property_has_modifier(property, SyntaxKind::PrivateKeyword)
-                    || self.property_has_modifier(property, SyntaxKind::ProtectedKeyword)
-            })
-        })
+    ) -> Option<bool> {
+        let source_property = self.get_property_of_type(source, name)?;
+        let target_property = self.get_property_of_type(target, name)?;
+        let private = |checker: &Self, property| {
+            checker.property_has_modifier(property, SyntaxKind::PrivateKeyword)
+                || name.starts_with('#')
+        };
+        let protected = |checker: &Self, property| {
+            checker.property_has_modifier(property, SyntaxKind::ProtectedKeyword)
+        };
+        let (source_private, target_private) =
+            (private(self, source_property), private(self, target_property));
+        if source_private || target_private {
+            let same = self.binder.symbols().get(source_property).value_declaration
+                == self.binder.symbols().get(target_property).value_declaration;
+            if same {
+                return Some(false);
+            }
+            let display = chain_property_display(name);
+            if source_private && target_private {
+                stack.push(ChainEntry {
+                    message: &messages::TYPES_HAVE_SEPARATE_DECLARATIONS_OF_A_PRIVATE_PROPERTY_0,
+                    args: vec![display],
+                });
+            } else {
+                let (private_side, other) =
+                    if source_private { (source, target) } else { (target, source) };
+                let private_text = self.type_to_string(private_side);
+                let other_text = self.type_to_string(other);
+                stack.push(ChainEntry {
+                    message: &messages::PROPERTY_0_IS_PRIVATE_IN_TYPE_1_BUT_NOT_IN_TYPE_2,
+                    args: vec![display, private_text, other_text],
+                });
+            }
+            return Some(true);
+        }
+        if protected(self, source_property) || protected(self, target_property) {
+            return None;
+        }
+        Some(false)
     }
 }
 
@@ -5642,6 +5878,33 @@ fn chain_report(
         }
     }
     stack.push(ChainEntry { message, args });
+}
+
+/// `signatureToString`'s declaration form (`(a: T): R`) of this port's
+/// arrow-form text (`(a: T) => R`): the arrow after the parameter list's
+/// closing parenthesis.
+fn signature_colon_form(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut angle = 0usize;
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte {
+            b'<' if depth == 0 => angle += 1,
+            b'>' if depth == 0 && angle > 0 && index > 0 && bytes[index - 1] != b'=' => angle -= 1,
+            b'(' if angle == 0 => depth += 1,
+            b')' if angle == 0 && depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    if text[index + 1..].starts_with(" => ") {
+                        return format!("{}: {}", &text[..=index], &text[index + 5..]);
+                    }
+                    return text.to_owned();
+                }
+            }
+            _ => {}
+        }
+    }
+    text.to_owned()
 }
 
 /// `symbolToString` of a property: an identifier or numeric name as written,
