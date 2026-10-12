@@ -1095,6 +1095,13 @@ Both fall back to the old `Unknown` head.
 abstract construct-signature types included). `check_new_on_abstract_class`
 covers identifier callees only.
 
+**TS2679.** `resolveNewExpression`'s call-signature arm also reports
+`A_function_that_is_called_with_the_new_keyword_cannot_have_a_this_type_that_is_void`
+when the resolved signature's `this` type is `void`
+(`checker.go:8638`, under the same `noImplicitAny` guard as TS2350). The
+`new` head reports it for the candidate it can tell
+(`new_head_candidate`): thisTypeInFunctionsNegative's `new VoidThis()`.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

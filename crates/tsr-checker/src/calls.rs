@@ -3271,6 +3271,9 @@ impl Checker<'_, '_> {
                 if let Some(signature) =
                     self.new_head_candidate(node, new.type_arguments, signatures) =>
             {
+                let void_this = signature.this_parameter.as_ref().is_some_and(|parameter| {
+                    self.parameter_type(parameter) == self.intrinsics.void
+                });
                 if !self.no_implicit_any
                     && let Some(signature) = self.complete_signature_return(signature)
                     && signature.r#type != self.intrinsics.void
@@ -3280,6 +3283,17 @@ impl Checker<'_, '_> {
                         node,
                         Diagnostic::new(
                             &messages::ONLY_A_VOID_FUNCTION_CAN_BE_CALLED_WITH_THE_NEW_KEYWORD,
+                            self.error_span(node),
+                        ),
+                    );
+                }
+                // `getThisTypeOfSignature(signature) == voidType`
+                // (`checker.go:8638`), under the same `noImplicitAny` guard.
+                if !self.no_implicit_any && void_this {
+                    self.report_at_node(
+                        node,
+                        Diagnostic::new(
+                            &messages::A_FUNCTION_THAT_IS_CALLED_WITH_THE_NEW_KEYWORD_CANNOT_HAVE_A_THIS_TYPE_THAT_IS_VOID,
                             self.error_span(node),
                         ),
                     );
