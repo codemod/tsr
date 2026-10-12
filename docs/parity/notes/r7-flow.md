@@ -958,3 +958,24 @@ below it are unchanged.
 Measured on `b5b993e1` unfiltered: diagnostics **+3** (those three cases),
 types unchanged, 0 lost; exact oracle 9668 → 9671 (those three), 0 lost; jsTyping
 122 → 122, new_false 0, lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §34 TS2576's static member text
+
+`reportNonexistentProperty` names the static member as `typeName+"."+propName`
+with `typeName := TypeToString(containingType)` (`checker.go:11553-11556`):
+`List<T>.Foo`, `C<number, string>.foo`. The port printed the class's symbol
+name (`List.Foo`). And `getPropertyTypeForIndexType`'s element-access arm
+(`checker.go:27148-27150`, under `noImplicitAny`) reports TS2576 at the access
+with `typeName+"["+GetTextOfNode(argument)+"]"` (`A["\""]`, `A['y']`); the
+port declined it as needing source text, which the checker reads through
+`module_host.source_text` (as `assignreport.rs` does for computed names). Both
+now match (`staticOffOfInstance2`, `staticPropertyNotInClassType`,
+`classStaticPropertyAccess(target=es2015)`). The element-access arm asks
+`typeHasStaticProperty`, as native; the other direction (an instance member
+read off the static side) keeps its decline.
+
+Measured on `e2e5c9d1` unfiltered: diagnostics **+1**
+(`classStaticPropertyAccess(target=es2015)`; the other two were WRONG on
+message text only, which the legacy suite does not read), types unchanged,
+0 lost; exact oracle 9671 → 9674 (all three), 0 lost; jsTyping 122 → 122,
+new_false 0, lost_true 0; Ir gi 0.9998, dm 1.0000.

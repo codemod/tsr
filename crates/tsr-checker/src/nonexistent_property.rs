@@ -314,8 +314,35 @@ impl Checker<'_, '_> {
                     );
                     return;
                 }
-                // typeHasStaticProperty's TS2576 prints the argument's source
-                // text, which this rule cannot recover; decline it.
+                // `typeHasStaticProperty`'s TS2576 at the access
+                // (`checker.go:27148-27150`), naming the static member as the
+                // printed type indexed by the argument's source text.
+                if self.type_has_static_property(name_text, receiver_type) {
+                    let Some(text) =
+                        self.module_host.and_then(|host| host.source_text(file, self.nodes))
+                    else {
+                        return;
+                    };
+                    let argument_span = self.nodes.span(argument_id);
+                    let Some(written) =
+                        text.get(argument_span.start as usize..argument_span.end as usize)
+                    else {
+                        return;
+                    };
+                    let member = format!("{printed}[{}]", written.trim());
+                    let span = self.error_span(node);
+                    self.report(
+                        file,
+                        Diagnostic::with_args(
+                            &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_TO_ACCESS_THE_STATIC_MEMBER_2_INSTEAD,
+                            span,
+                            [name_text.to_string(), printed, member],
+                        ),
+                    );
+                    return;
+                }
+                // The instance member read off the static side has no
+                // counterpart arm here; it stays declined.
                 if self.other_side_of_class_has(receiver_type, name_text) {
                     return;
                 }
@@ -399,20 +426,19 @@ impl Checker<'_, '_> {
         // constituent without the name explains every message below.
         let union_miss = self.union_constituent_miss(node, name_id, name_text, containing);
         if self.type_has_static_property(name_text, containing) {
-            let class_name = self
-                .owning_symbol_of(containing)
-                .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
-                .unwrap_or_default();
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
+            // `typeName+"."+propName` (`checker.go:11553-11556`): the printed
+            // containing type, `List<T>.Foo`, not the class's name.
             let printed = self.type_to_string(containing);
+            let member = format!("{printed}.{name_text}");
             self.report(
                 file,
                 Self::chained_miss(
                     union_miss,
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_TO_ACCESS_THE_STATIC_MEMBER_2_INSTEAD,
                     span,
-                    [name_text.to_string(), printed, format!("{class_name}.{name_text}")],
+                    [name_text.to_string(), printed, member],
                 ),
             );
             return;
