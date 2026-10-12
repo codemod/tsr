@@ -1109,6 +1109,24 @@ when the resolved signature's `this` type is `void`
 `new` head reports it for the candidate it can tell
 (`new_head_candidate`): thisTypeInFunctionsNegative's `new VoidThis()`.
 
+## 33. A JSX overload failure chains like a call's
+
+`reportCallResolutionErrors` (`checker.go:9649`) is shared by calls and JSX
+elements: with several `candidatesForArgumentError` the last candidate's
+report is chained under `The_last_overload_gave_the_following_error` and
+`No_overload_matches_this_call`, `The_last_overload_is_declared_here` is
+related, and `addImplementationSuccessElaboration` runs. `jsx_component.rs`
+rewrote each report's head message to TS2769 in place, which lost the chain
+level and the related line. The change (granted for jsx_component.rs) makes `chain_overload_failure`
+`pub(crate)` and calls it there.
+
+Per-case oracle against `cand21` (main `f666bbf2` plus §32): the 212 EXACT
+`.tsx` cases stay exact; tsxElementResolution9 becomes exact. Diff lines drop
+in tsxStatelessFunctionComponentOverload5 (52 → 6) and
+tsxStatelessFunctionComponentsWithTypeArguments4 (34 → 20). What remains
+there is the relation reporter's elaboration and a JSX TS2793 (the
+implementation check through JSX applicability is not ported).
+
 ## 34. A literal argument whose nested calls cannot follow its context is re-checked per candidate
 
 The non-generic overload walk (`check_overload_candidates_arguments`, §8)
@@ -1153,10 +1171,10 @@ parameter mapped to `unknown` and compares identities. If they match, it is
 the answer. It is consulted only after the inference road answered `error`,
 so every answer that road gives today stands.
 
-## 36. (held: needs a check.rs/checker.rs grant) Every reported chain child carries the file
+## 36. Every reported chain child carries the file
 
-§30 gave the call chain builders' children the reported file. The held
-change does the same once, in `Checker::report`: any chain child without a
+§30 gave the call chain builders' children the reported file. This
+change (granted for check.rs and checker.rs) does the same once, in `Checker::report`: any chain child without a
 file (at any depth) takes the reported file's image. The image is built
 once per file and kept in `chain_file_images`. Key: the source file node.
 Owner: `report`. It is built on the first chained report in that file, and
