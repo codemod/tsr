@@ -4268,7 +4268,14 @@ impl Checker<'_, '_> {
         // and `jsdocReferenceGlobalTypeInCommonJs` were 27 wrong lines, all
         // `.js`/`.cjs`. Declining there is what this file did for *all* files
         // before §249, kept exactly where it was right.
-        if self.in_js_file(node) && cannot_find_name_message(text).is_some() {
+        //
+        // Narrowed (r7-grammar §81): `module` and `exports` are locals the
+        // binder declares for a CommonJS file (`declareCommonJSVariable`,
+        // `binder.go:1608`), exactly when native does, so an unresolved
+        // `module` is native's TS2591 too (an ES module's `module.exports`,
+        // `jsDeclarationsExportFormsErr`). `require` keeps the decline: its
+        // call resolution is not this rule's.
+        if self.in_js_file(node) && text == "require" {
             return;
         }
         // **A decorator is TypeScript-only syntax in a JavaScript file**, and
@@ -14548,4 +14555,3 @@ pub(crate) enum DuplicateMemberKey {
 fn chain_lacks_file(diagnostic: &Diagnostic) -> bool {
     diagnostic.message_chain().iter().any(|child| child.file().is_none() || chain_lacks_file(child))
 }
-

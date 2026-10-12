@@ -1810,3 +1810,20 @@ the canonical name only without source text. Checked with the CLI against
 `target/tsgo-pinned`: `duplicateIdentifierComputedName`,
 `duplicateIdentifierDifferentSpelling`, `duplicateStringNamedProperty1`,
 `numericClassMembers1` and four controls.
+
+## §81 `module`, `process` and `Buffer` are resolved in JS files
+
+check.rs's `check_value_identifier` declined every name with a special
+cannot-find message (`require`, `module`, `process`, `Buffer`, …) in a JS
+file. Its note said those were "globals upstream supplies through machinery
+this port does not have". For `module` and `exports` that is no longer true:
+the binder declares them as locals of a CommonJS file
+(`declare_commonjs_variable`, `declareCommonJSVariable`, `binder.go:1608`)
+exactly when native does. Native reports an unresolved `module` as TS2591,
+for example `module.exports = ns` in a file that also has an ES `import`
+(`jsDeclarationsExportFormsErr`, `modulePreserve4`). `process` and `Buffer`
+come from `@types/node`, not from synthesis. The decline is narrowed to
+`require`, whose call resolution is not this rule's. Checked with the CLI
+against `target/tsgo-pinned` on the cases the original decline was measured
+against (`modulePreserve4`, `maxNodeModuleJsDepthDefaultsToZero`,
+`jsdocReferenceGlobalTypeInCommonJs`).
