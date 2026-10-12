@@ -1289,3 +1289,18 @@ Two spelling rules for string-named members (objectLiteralGettersAndSetters
   (`accessor_member_spelling`).
 The remaining two lines are the printer's annotation reuse (`Array<number>`
 written, `number[]` printed), not this lane's.
+
+## 47. A nested `keyof T` context is a literal context (signatures.rs hunk, default grant)
+
+`isLiteralOfContextualType` (`checker.go:25522`) keeps a string literal under
+a contextual `TypeFlagsIndex` type. The port's legacy deferred `keyof`
+carries that identity in `deferred_keyof_types`, not in its flags.
+`maybe_type_of_kind` already reads the table, but `is_literal_of_contextual_type`
+tested the flags alone, so `let a: (keyof T)[] = ["a", "b"]` and `{ k: "a" }`
+under `{ k: keyof T }` widened. The array case reported a false TS2322
+(keyofIsLiteralContexualType; no loss across 46,621 `*eyof*`/`*ndex*`/
+`*ontextual*`/`*iteral*` verdict lines). **Cross-lane hunk:** one condition in
+signatures.rs's `is_literal_of_contextual_type`, under round 7's default
+grant for a small atomic consumer hunk with the same native root cause.
+The case still differs in one diagnostic span (TS2322 at the variable where
+native elaborates to the `"c"` element), which is assignreport's elaboration.
