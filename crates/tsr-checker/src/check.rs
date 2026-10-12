@@ -9066,6 +9066,45 @@ impl Checker<'_, '_> {
                 return;
             }
         }
+        // `checkGrammarArrowFunction` (`grammarchecks.go:772`), the next link
+        // of `checkGrammarFunctionLikeDeclaration`'s `||` chain.
+        self.check_grammar_arrow_line_terminator(owner);
+    }
+
+    /// TS1200 — `Line terminator not permitted before arrow.`
+    /// `checkGrammarArrowFunction`'s tail (`grammarchecks.go:790`): the `=>`
+    /// token's full text, from the previous token's end, holds a line break
+    /// (in its trivia, a block comment's included), reported on the token.
+    fn check_grammar_arrow_line_terminator(&mut self, owner: NodeId) {
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(owner) else { return };
+        let Some(token) = arrow.equals_greater_than_token.and_then(|token| token.node_id) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(token) else { return };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return;
+        };
+        let start = self.nodes.span(token).start as usize;
+        let Some(mut before) = text.get(..start) else { return };
+        let line_break = loop {
+            let trimmed =
+                before.trim_end_matches(|c: char| c.is_whitespace() && !is_line_break_char(c));
+            if trimmed.ends_with(is_line_break_char) {
+                break true;
+            }
+            match trimmed.strip_suffix("*/").and_then(|rest| rest.rfind("/*")) {
+                Some(open) if trimmed[open..].contains(is_line_break_char) => break true,
+                Some(open) => before = &trimmed[..open],
+                None => break false,
+            }
+        };
+        if line_break {
+            self.grammar_error_on_node(
+                token,
+                &messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW,
+            );
+        }
     }
 
     /// `checkAccessorDeclaration`'s grammar arm (`checker.go:2932`):
@@ -14554,4 +14593,9 @@ pub(crate) enum DuplicateMemberKey {
 /// Whether some chain child of `diagnostic`, at any depth, has no file.
 fn chain_lacks_file(diagnostic: &Diagnostic) -> bool {
     diagnostic.message_chain().iter().any(|child| child.file().is_none() || chain_lacks_file(child))
+}
+
+/// `stringutil.IsLineBreak`: LF, CR, LS and PS.
+fn is_line_break_char(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
