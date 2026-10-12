@@ -1426,10 +1426,14 @@ impl Checker<'_, '_> {
                     tsr_ast::TypeElement::SetAccessorDeclaration(accessor) => accessor.name,
                     _ => continue,
                 };
-                let tsr_ast::PropertyName::PrivateIdentifier(private) = name else { continue };
-                let Some(id) = private.node_id else { continue };
+                let tsr_ast::PropertyName::PrivateIdentifier(_) = name else { continue };
+                // `c.error(node, …)` on the member (`checkPropertySignature`,
+                // `checkMethodDeclaration`, `checker.go:2717`, `:2813`): its
+                // error range, the name for a property signature or an
+                // accessor and the whole member for a method signature.
+                let Some(id) = tsr_ast::Node::from(*member).node_id() else { continue };
                 let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-                let span = self.nodes.span(id);
+                let span = self.error_span(id);
                 self.report(
                     file,
                     Diagnostic::new(
