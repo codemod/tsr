@@ -1974,3 +1974,52 @@ symbol is `[module, leaf]` (`module_rooted_chain_at`), the leaf keeps the
 symbol's name, and the module's `export =` resolves to the parent namespace,
 the segment is `import(<specifier>).`. Portability is reported as in §28. No
 cache or table. This completes §51's left item.
+
+## 57. An import declaration's own specifier picks the ending mode
+
+**Forcing constraint.** `reactImportDropped` 2:0 (§26's leftover): in
+`NavigationView.js`, `import TabBar from '../../components/TabBar'` prints
+natively as `TabBar : import("../../../react.js").ClassicComponentClass`,
+while the JSX element `<TabBar …/>` in the same file prints
+`import("../../../react")`. The port printed the second spelling at both
+sites.
+
+**Cause.** `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`) takes the
+resolution mode that picks the ending preference from the enclosing
+declaration's own module specifier when it has one: `canHaveModuleSpecifier`
+over an import clause, specifier, namespace import, import/export
+declaration, `import = require` or a `require`-initialized variable, read
+through `TryGetModuleSpecifierFromDeclaration` and then
+`GetModeForUsageLocation`. Only otherwise does it use the file's default
+mode. Here the import's usage mode is ESM, so the ending is `.js`. The port
+used the default mode everywhere.
+
+**The port.** `module_specifier_for_file` takes the print site. Its
+`original_module_specifier` reads the enclosing declaration's specifier as
+`tryGetModuleSpecifierFromDeclarationWorker` does, and the usage mode of that
+literal picks the ending. The override mode still wins, and `OverrideImportMode`
+passed to the specifier search is unchanged. No cache or table.
+
+Not ported: native caches the answer per `(symbol, context file, mode)`
+(`links.specifierCache`). The first print in a file therefore decides for
+later prints with the same mode. The port recomputes each time, which
+differs only if two sites with one mode would compute different specifiers.
+
+## 58. Found, routed: a JSDoc `@template` leaks into the whole JavaScript file
+
+**Forcing constraint.** `jsDeclarationsExportDefinePropertyEmit` (26 lines):
+a top-level `Object.defineProperty` prints natively as
+`<T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T`.
+The port printed `<T_1>(o: T_1, …) => T_1`. A three-line probe reproduces it:
+`/** @template T … */ function e(a) {}` followed by a top-level
+`Object.defineProperty;` gives `<T_1>`.
+
+**Cause, outside the printer.** `bind_jsdoc_declarations` (tsr-binder) declares
+a function's `@template` type parameters in the file's locals (`root`)
+whenever the comment declares no `@typedef` or `@callback`. Natively the
+reparsed type parameters belong to the documented function. So
+`typeParameterShadowsOtherTypeParameterInScope`'s `resolveName` at the print
+site, which the port answers through `binder.resolve_name`, finds a `T` that
+native's scope does not hold, and the rename allocator takes `T_1`. The
+printer reads the binder's scope as given; the template's locals owner is the
+binder's decision. Routed.

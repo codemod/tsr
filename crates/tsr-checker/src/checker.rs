@@ -2833,8 +2833,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(from) = self.source_file_of(reference)
                 && self.module_host.is_some_and(|host| host.file_path(from).is_some())
             {
+                let site = self.nodes.parent(reference);
                 return self
-                    .module_specifier_for_file(file, from, override_mode)
+                    .module_specifier_for_file(file, from, override_mode, site)
                     .map(|specifier| crate::printing::quote(&specifier));
             }
             // With no host path, the module symbol's name (the path with its
