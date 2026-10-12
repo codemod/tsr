@@ -6926,7 +6926,11 @@ impl Checker<'_, '_> {
                     self.alias_inline_level -= 1;
                     return narrowed;
                 }
-                self.narrow_type_by_truthiness(state, t, condition, assume_true)
+                let narrowed = self.narrow_type_by_truthiness(state, t, condition, assume_true);
+                if narrowed == t && self.truthiness_keeps_type_decidedly(state, t, condition) {
+                    state.decided.push(condition);
+                }
+                narrowed
             }
             Node::ParenthesizedExpression(inner) => {
                 if self.is_jsdoc_type_assertion(condition) {
@@ -7169,6 +7173,12 @@ impl Checker<'_, '_> {
                         if let Some(narrowed) =
                             self.narrowed_type_worker(t, instance, assume_true, true)
                         {
+                            // The checkDerived worker answered over its
+                            // decidable domain: an unchanged answer is
+                            // decided (§62).
+                            if narrowed == t {
+                                state.decided.push(condition);
+                            }
                             return narrowed;
                         }
                         return t;
@@ -7217,6 +7227,9 @@ impl Checker<'_, '_> {
                     if let Some(narrowed) =
                         self.narrowed_type_worker(t, instance, assume_true, true)
                     {
+                        if narrowed == t {
+                            state.decided.push(condition);
+                        }
                         return narrowed;
                     }
                     let TypeData::Union { types: members, .. } = &self.store.get(t).data else {
@@ -7781,6 +7794,40 @@ impl Checker<'_, '_> {
             computed_type
         };
         self.is_discriminant_property(t, &name).unwrap_or(false).then_some(access)
+    }
+
+    /// Whether `narrowTypeByTruthiness` (`flow.go:428`) keeps `t` by its own
+    /// decision, not by a decline: the condition is not the reference, no
+    /// optional chain of it is involved, and the access is decidedly not a
+    /// discriminant of the reference (`isDiscriminantProperty` answered
+    /// `false`, or there is no candidate access). §78.
+    fn truthiness_keeps_type_decidedly(
+        &mut self,
+        state: &FlowState,
+        t: TypeId,
+        expr: NodeId,
+    ) -> bool {
+        if self.is_matching_reference(state, expr)
+            || self.optional_chain_contains_reference(state, expr)
+        {
+            return false;
+        }
+        let declared_is_union =
+            matches!(self.store.get(state.declared_type).data, TypeData::Union { .. });
+        let computed_is_union = matches!(self.store.get(t).data, TypeData::Union { .. });
+        if !declared_is_union && !computed_is_union {
+            return true;
+        }
+        let Some(access) = self.get_candidate_discriminant_property_access(state, expr) else {
+            return true;
+        };
+        let Some(name) = self.get_accessed_property_name(access) else { return true };
+        let owner = if declared_is_union && self.is_type_subset_of(t, state.declared_type) {
+            state.declared_type
+        } else {
+            t
+        };
+        self.is_discriminant_property(owner, &name) == Some(false)
     }
 
     /// `isMatchingConstructorReference` (`flow.go:750`). §760.

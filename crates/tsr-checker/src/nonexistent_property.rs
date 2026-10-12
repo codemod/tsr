@@ -797,10 +797,22 @@ impl Checker<'_, '_> {
         let crate::types::TypeData::Union { types, .. } = &self.store.get(containing).data else {
             return None;
         };
-        for constituent in types.clone() {
+        let types = types.clone();
+        // The widened receiver's lone object literal, as `union_property_lacks`
+        // reads it (§77).
+        let widened = self.assignment_target_kind(node)
+            != crate::expressions::AssignmentTargetKind::None
+            || self.is_callee_of_call_or_new(node);
+        let widened_literal = widened
+            && types
+                .iter()
+                .filter(|&&constituent| self.is_object_literal_type(constituent))
+                .count()
+                == 1;
+        for constituent in types {
             let flags = self.store.get(constituent).flags;
             if flags.intersects(TypeFlags::NULLABLE | TypeFlags::ANY | TypeFlags::UNKNOWN)
-                || self.is_object_literal_type(constituent)
+                || self.is_object_literal_type(constituent) && !widened_literal
             {
                 return None;
             }

@@ -1887,3 +1887,29 @@ access form, which native reports as TS7053 against the constituent.
 Measured on `40f29ab9`: legacy verdicts unchanged (`propertyAccessWidening`
 keeps the TS7053), exact oracle unchanged, 0 lost; jsTyping gap 18 → 18,
 new_false 0, lost_true 0; Ir gi 0.9997, dm 1.0000.
+
+§77 update: `union_constituent_miss` reads the widened receiver's lone object
+literal the same way, so the chain child "Property 'a' does not exist on type
+'{}'" is reported with the head.
+
+## §78 More decided no-ops: the checkDerived worker and non-discriminant truthiness
+
+Two more arms that keep their input by their own decision record it in
+`FlowState::decided` (§62):
+
+- `narrowTypeByInstanceof`'s `getNarrowedType(…, checkDerived)` road: when
+  `narrowed_type_worker` answers (it answers only over its decidable domain)
+  with the input unchanged, as for the false branch of `v instanceof C` on
+  `Validator & Partial<OnChanges>`;
+- `narrowTypeByTruthiness` (`flow.go:428`) on a condition that is neither the
+  reference nor an optional chain of it, whose access is decidedly not a
+  discriminant (`isDiscriminantProperty` answered `false`, or there is no
+  candidate access): `if (v.onChanges)` keeps `v` (`truthiness_keeps_type_decidedly`).
+
+`typeGuardsWithInstanceOf`'s two TS2339 on `C | (Validator & Partial<OnChanges>)`
+now report.
+
+Measured (§77 update with §78) on `38163405`: diagnostics **+1** case, 0
+lost; exact oracle +1, 0 lost; jsTyping gap 18 → 18, new_false 0, lost_true
+0; Ir gi 1.0000, dm 1.0028 (`isDiscriminantProperty` asked once per
+unchanged non-matching truthiness condition on a union walk).
