@@ -6299,6 +6299,12 @@ impl Checker<'_, '_> {
         let target = self.single_base_normalized(target);
         let source_flags = self.type_of(source).flags;
         let target_flags = self.type_of(target).flags;
+        // An `any` source fails only where `isSimpleTypeRelatedTo` decided
+        // it (a `never` target), and nothing structural reports below
+        // (r7-reports §90).
+        if source_flags.intersects(TypeFlags::ANY) {
+            return Some(());
+        }
         // `isSimpleTypeRelatedTo`'s union-enum arm (`relater.go:243`) runs
         // `isEnumTypeRelatedTo` with the error reporter: its member walk's
         // first failure is the chain, and the union's members then relate
@@ -7000,13 +7006,13 @@ impl Checker<'_, '_> {
             return Some(None);
         }
         let reliability = self.variance_reliability(symbol, variances.len());
-        let covariant_void =
-            target_arguments.iter().zip(&variances).any(|(&argument, variance)| {
-                *variance == Variance::Covariant
-                    && self.type_of(argument).flags.intersects(TypeFlags::VOID)
-            });
+        // A covariant `void` argument (`hasCovariantVoidArgument`) allows the
+        // structural fallback without restoring the error state: the type
+        // argument's report stays, and the structural pass then runs with
+        // `reportStructuralErrors` off because the chain has changed
+        // (`relater.go:3291`), so the argument's report is the chain
+        // (r7-reports §90).
         if reliability.iter().any(|flags| !flags.is_empty())
-            || covariant_void
             || variances.contains(&Variance::Invariant)
         {
             return None;

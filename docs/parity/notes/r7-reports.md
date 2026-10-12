@@ -2581,3 +2581,24 @@ required, optional and rest elements:
   element with minimum length 0, which reproduces §52's array messages.
 - **Measured.** Quick oracles against base24 (`uple`, `ariadic`,
   `estParam`, `pread`, `estructuring`, `ptional`, `rray`): 0 lost.
+
+## 90. Covariant `void` arguments keep the variance report; `any` sources are leaves
+
+- **`hasCovariantVoidArgument`** (`relateVariances`, `relater.go:3266`).
+  When the target has a `void` argument in a covariant position, native
+  allows the structural fallback but does not restore the error state. The
+  failing type argument's report stays in the chain. The structural pass
+  then runs with `reportStructuralErrors` off, because the chain is no
+  longer the saved one, so nothing structural is added. The retrace had
+  declined this case and fallen through to the structural walk. It printed
+  `Types of parameters 'x' and 'x' are incompatible.` where native prints
+  `Type 'Object' is not assignable to type 'string'.` directly under
+  `Func<string, void> → Func<Object, void>` (`strictFunctionTypesErrors`,
+  `type Func<T, U> = (x: T) => U`). The decline is now limited to unreliable
+  or unmeasurable variances and an invariant parameter.
+- **An `any` source** fails only against `never`, which
+  `isSimpleTypeRelatedTo` decides with nothing below it: `Type 'any' is not
+  assignable to type 'never'.` ends the chain (`genericRestParameters1`'s
+  `(a: never) => void → (...args: any[]) => void`).
+- **Measured.** Quick oracles against base24 (`ariance`, `trictFunction`,
+  `enericRest`, `allback`, `ssignmentCompat`, `unctionType`): 0 lost.
