@@ -1176,3 +1176,23 @@ resolution keeps the indexed access's answer (a gap), so
 skips a declaration in `circularity_reported`, the set symbols.rs records at
 exactly that report. Converted: `circularIndexedAccessErrors`'s extra TS2564.
 The case keeps its TS2589 and TS2536 gaps, which are not this lane's.
+
+## §62 TS1335/TS1331/TS1332 for a JSDoc `@type {unique symbol}`
+
+`checkGrammarTypeOperatorNode` judges `unique symbol` by the type's parent,
+after `WalkUpParenthesizedTypes`. In JS, `reparseHosted`'s `KindJSDocTypeTag`
+arm (`parser/reparser.go:344`) moves a `@type` onto its declaration: the
+first untyped declaration of a documented variable statement, a documented
+variable declaration, or a property declaration. That declaration is then
+the parent. This tree keeps the JSDoc type under its `JSDocTypeExpression`,
+so `/** @type {unique symbol} */ const x = Symbol()` drew TS1335
+(`uniqueSymbolJs`, `uniqueSymbolJs2`). `jsdoc_type_reparse_host` maps the
+outermost type back to that declaration. It starts at the comment's host
+(`jsdoc_hosts`) and accepts a declaration only when its JSDoc type reader
+(`jsdoc_type_annotation`, `jsdoc_self_hosted_type`) answers this very node.
+The variable/property arms then run as written. The property arm reads
+`hasReadonlyModifier`, i.e. `ast.HasModifier`, so a JS `@readonly` counts
+(`has_effective_modifier`). Checked with `--pretty true` against
+`target/tsgo-pinned` at es2015 and es2022: `let`/`const`, a multi-declaration
+statement, a parenthesized type, static/instance/`@readonly` class fields, a
+`@param` (still TS1335) and a type-literal member (TS1330).

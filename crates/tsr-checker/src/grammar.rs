@@ -311,6 +311,45 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(&messages::STRING_LITERAL_EXPECTED, span));
     }
 
+    /// The child of `expression` (a `JSDocTypeExpression`) on the way up
+    /// from `node`.
+    fn outermost_type_below(&self, node: NodeId, expression: NodeId) -> Option<NodeId> {
+        std::iter::once(node)
+            .chain(self.nodes.ancestors(node))
+            .find(|&at| self.nodes.parent(at) == Some(expression))
+    }
+
+    /// The declaration a `@type` tag's type `outer` is reparsed onto, for the
+    /// hosts whose type `checkGrammarTypeOperatorNode` reads: the first
+    /// untyped declaration of a documented variable statement, a documented
+    /// variable declaration, or a property declaration (`reparseHosted`,
+    /// `parser/reparser.go:344`). Read back through the readers that answer
+    /// those declarations' JSDoc types (`jsdoc_type_annotation`,
+    /// `jsdoc_self_hosted_type`), so a tag they do not apply is no host
+    /// (r7-grammar §62).
+    fn jsdoc_type_reparse_host(&self, outer: NodeId) -> Option<NodeId> {
+        let root = self.nodes.ancestors(outer).last()?;
+        let host = *self.jsdoc_hosts.get(&root)?;
+        let candidates: Vec<NodeId> = match self.node_map.get(host)? {
+            Node::VariableStatement(statement) => match statement.declaration_list {
+                Some(list) => {
+                    list.declarations.iter().filter_map(|declaration| declaration.node_id).collect()
+                }
+                None => Vec::new(),
+            },
+            Node::VariableDeclaration(_) | Node::PropertyDeclaration(_) => vec![host],
+            _ => Vec::new(),
+        };
+        candidates.into_iter().find(|&declaration| {
+            let hosted = match self.nodes.kind(declaration) {
+                SyntaxKind::VariableDeclaration => self.jsdoc_type_annotation(declaration),
+                SyntaxKind::PropertyDeclaration => self.jsdoc_self_hosted_type(declaration),
+                _ => None,
+            };
+            hosted.and_then(|ty| Node::from(ty).node_id()) == Some(outer)
+        })
+    }
+
     /// `checkExternalImportOrExportDeclaration`'s ambient-module arm
     /// (`checker.go:5348`): in a string-named ambient module's block, a
     /// relative module name (`tspath.IsExternalModuleNameRelative`) is
@@ -1088,7 +1127,16 @@ impl Checker<'_, '_> {
                 {
                     parent = self.nodes.parent(at);
                 }
-                let Some(parent) = parent else { return };
+                let Some(mut parent) = parent else { return };
+                // A JSDoc `@type` is reparsed onto its declaration
+                // (`reparseHosted`'s `KindJSDocTypeTag` arm,
+                // `parser/reparser.go:344`), which is then the type's parent.
+                if self.nodes.kind(parent) == SyntaxKind::JSDocTypeExpression
+                    && let Some(outer) = self.outermost_type_below(node, parent)
+                    && let Some(host) = self.jsdoc_type_reparse_host(outer)
+                {
+                    parent = host;
+                }
                 match self.node_map.get(parent) {
                     Some(Node::VariableDeclaration(declaration)) => {
                         if !matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(_))) {
@@ -1122,9 +1170,11 @@ impl Checker<'_, '_> {
                             );
                         }
                     }
+                    // `!ast.IsStatic(parent) || !hasReadonlyModifier(parent)`:
+                    // `ast.HasModifier`, so a JS `@readonly` counts.
                     Some(Node::PropertyDeclaration(property)) => {
                         if (!has_modifier(property.modifiers, SyntaxKind::StaticKeyword)
-                            || !has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword))
+                            || !self.has_effective_modifier(parent, SyntaxKind::ReadonlyKeyword))
                             && let Some(name) = property.name.node_id()
                         {
                             self.grammar_error_on_node(
