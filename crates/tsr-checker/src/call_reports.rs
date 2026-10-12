@@ -364,25 +364,90 @@ impl<'a> Checker<'a, '_> {
             }
         }
         if let Some(rest) = rest {
-            // `getSpreadArgumentType` over the trailing arguments. With none
-            // it is the empty tuple, reported at the call itself
-            // (`restArgCount == 0`, errorNode = node). Trailing arguments
-            // need its full construction (contextual element types, spread
-            // tuples), which this pass does not build yet: declined.
-            if arguments.len() > argument_count {
-                return ApplicabilityReport::Declined;
-            }
+            // `getSpreadArgumentType` over the trailing arguments
+            // (`checker.go:9312`). With none it is the empty tuple, reported
+            // at the call itself (`restArgCount == 0`, errorNode = node).
+            // With trailing written arguments it is the inference tail's
+            // tuple (`inference_spread_argument_type`: tuple spreads
+            // expanded, each element widened under its contextual element
+            // type), reported at the one trailing argument or over the span
+            // from the first to the last (`createSyntheticExpression` with
+            // that location). A synthetic argument anywhere (a decorator's,
+            // a tagged template's strings, an expanded tuple spread) keeps
+            // the written list from lining up: declined.
             if self.is_gap(rest) {
                 return ApplicabilityReport::Declined;
             }
-            let spread = self.create_tuple_type(Vec::new(), false);
+            let (spread, at, span) = if arguments.len() > argument_count {
+                let mut written = Vec::with_capacity(arguments.len());
+                let mut checked_types = Vec::with_capacity(arguments.len());
+                for (position, argument) in arguments.iter().enumerate() {
+                    let ReportArgument::Written(expression) = *argument else {
+                        return ApplicabilityReport::Declined;
+                    };
+                    let ty = match checked.get(position).copied().flatten() {
+                        Some(ty) => ty,
+                        None if matches!(expression, Expression::SpreadElement(_)) => {
+                            self.intrinsics.unknown
+                        }
+                        None => self.check_expression(expression),
+                    };
+                    written.push(expression);
+                    checked_types.push(ty);
+                }
+                let Some(spread) = self.inference_spread_argument_type(
+                    &written,
+                    &checked_types,
+                    argument_count,
+                    rest,
+                ) else {
+                    return ApplicabilityReport::Declined;
+                };
+                let (Some(first), Some(last)) = (
+                    written[argument_count].node_id(),
+                    written.last().and_then(tsr_ast::Expression::node_id),
+                ) else {
+                    return ApplicabilityReport::Declined;
+                };
+                // One trailing argument reports at `getEffectiveCheckNode`
+                // (parentheses and `satisfies` skipped).
+                if written.len() - argument_count == 1 {
+                    let Some(at) =
+                        Self::effective_check_expression(written[argument_count]).node_id()
+                    else {
+                        return ApplicabilityReport::Declined;
+                    };
+                    (spread, at, self.error_span(at))
+                } else {
+                    let span = tsr_core::Span::new(
+                        self.nodes.span(first).start,
+                        self.nodes.span(last).end,
+                    );
+                    (spread, first, span)
+                }
+            } else {
+                (self.create_tuple_type(Vec::new(), false), node, self.error_span(node))
+            };
+            // This port's relation over type variables is not trusted
+            // negative (the refusal of `could_contain_type_variables_at_head`):
+            // `f(...args)` against `...args: T` builds `[...T]`.
+            if self.is_gap(spread)
+                || self.could_contain_type_variables_at_head(spread, 3)
+                || self.could_contain_type_variables_at_head(rest, 3)
+                || self.variadic_tuple_elements.get(&spread).is_some_and(|(elements, _)| {
+                    elements.iter().any(|element| {
+                        self.store.get(element.r#type).flags.intersects(TypeFlags::INSTANTIABLE)
+                    })
+                })
+            {
+                return ApplicabilityReport::Declined;
+            }
             match self.relate_ternary(spread, rest, Relation::Assignable) {
                 Ternary::Related => {}
                 Ternary::Unknown => return ApplicabilityReport::Declined,
                 Ternary::NotRelated => {
-                    let span = self.error_span(node);
                     return if self.report_relation_failure(
-                        node,
+                        at,
                         span,
                         None,
                         spread,
