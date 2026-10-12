@@ -326,6 +326,27 @@ impl Checker<'_, '_> {
                 .name
                 .and_then(|name| name.node_id)
                 .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
+            // `GetNameOfDeclaration`'s import and export arms: the local
+            // name (`export import VNode = react.ReactNode` reports at
+            // `VNode`; r7-grammar §57).
+            Some(
+                tsr_ast::Node::ImportEqualsDeclaration(tsr_ast::ImportEqualsDeclaration {
+                    name: Some(name),
+                    ..
+                })
+                | tsr_ast::Node::ImportClause(tsr_ast::ImportClause { name: Some(name), .. })
+                | tsr_ast::Node::ImportSpecifier(tsr_ast::ImportSpecifier {
+                    name: Some(name), ..
+                }),
+            ) => {
+                name.node_id.map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id))
+            }
+            Some(tsr_ast::Node::ExportSpecifier(tsr_ast::ExportSpecifier {
+                name: Some(name),
+                ..
+            })) => tsr_ast::Node::from(*name)
+                .node_id()
+                .map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id)),
             // The reparsed `JSTypeAliasDeclaration`'s name.
             Some(
                 tsr_ast::Node::JSDocTypedefTag(tsr_ast::JSDocTypedefTag {

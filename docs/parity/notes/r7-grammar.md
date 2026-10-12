@@ -1073,3 +1073,35 @@ wrong text. All were checked against `target/tsgo-pinned`
 *Falsifier.* A TS18027 where native's marks differ from the subtree read,
 i.e. a private-named element that native never checks (an unchecked
 region). That would show as an extra TS18027.
+
+## §57 TS2420/TS2720 with the relater's elaboration; TS2300 at an import's name
+
+*TS2420/TS2720.* §41 sent TS2415 and TS2430 through `report_relation_failure`
+and kept both implements heads bare. `Class_0_incorrectly_implements_interface_1`
+and `…implements_class_1_Did_you_mean_to_extend…` are
+`isConversionOrInterfaceImplementationMessage` heads, which keep themselves
+over a missing-property chain (`relater.go:4816`). The reporter did not make
+that exception then. r7-reports `ec17ba88` added it (assignreport.rs
+`is_conversion_or_interface_implementation_message`), so
+`report_heritage_relation` now sends every head through the relater, as
+native's `checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`
+does. Checked with the CLI against `target/tsgo-pinned`: `classImplementsClass2`/`4`,
+`genericConstraint2`, `inheritance1`, `implementPublicPropertyAsPrivate`,
+`classExtendsInterfaceThatExtendsClassWithPrivates1`,
+`classWithMultipleBaseClasses` and `declareClassInterfaceImplementation` now
+match. That is the `TS2741/TS2739/TS2740/TS2325/TS2442/TS2329 in TS2420` and
+`… in TS2720` buckets of `full_oracle_run rank` (about 39 sole-code cases).
+
+*TS2300 at an import's name.* `addDuplicateDeclarationError` reports at
+`getAdjustedNodeForError(node)`, i.e. `GetNameOfDeclaration`. That covers an
+import-equals declaration, an import clause, an import specifier and an export
+specifier, which `error_span`'s declaration list does not name.
+`duplicate_declaration_span` (merge_conflicts.rs) now takes their names. So
+`export import VNode = react.ReactNode` merged across files with
+`type VNode` reports at `VNode` (`checkerInitializationCrash`).
+
+Not here: `umdGlobalConflict`'s extra TS2300. Native adds a file's
+`GlobalExports` with first-in-wins and never merges them
+(`checker.go:1321`). This binder reports the second `export as namespace
+Alpha` while declaring into its program-wide `global_exports` table
+(binder.rs `Destination::GlobalExports`). That is the binder's, routed.
