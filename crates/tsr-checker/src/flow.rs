@@ -3632,11 +3632,29 @@ impl Checker<'_, '_> {
         } else if self.nodes.kind(callee_id) == SyntaxKind::SuperKeyword {
             return None;
         } else {
-            // `checkNonNullExpression(node.Expression())`. The optional-chain
-            // arm (`getOptionalExpressionType`) is not split out: this
-            // port's `check_expression` of a chain already answers the
-            // non-optional type at the callee position.
-            self.check_expression(callee)
+            // `checkNonNullExpression(node.Expression())`, or for an optional
+            // call `checkNonNullType(getOptionalExpressionType(…))`: either
+            // way the callee's nullable constituents are gone
+            // (`GetNonNullableType`), so `f?.(x)` with `f: undefined | ((x:
+            // any) => x is number)` reads the predicate.
+            let callee_type = self.check_expression(callee);
+            let optional = call.question_dot_token.is_some()
+                || self.nodes.flags(call_node).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN);
+            let callee_type = if optional {
+                self.get_optional_expression_type(
+                    callee_type,
+                    Some(callee_id),
+                    call.question_dot_token.is_some(),
+                )
+            } else {
+                callee_type
+            };
+            if self.strict_null_checks && self.maybe_type_of_kind(callee_type, TypeFlags::NULLABLE)
+            {
+                self.get_non_nullable_type(callee_type)
+            } else {
+                callee_type
+            }
         };
         if func_type == self.intrinsics.error {
             return None;

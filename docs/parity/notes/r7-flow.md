@@ -1163,3 +1163,21 @@ arm now applies the same base read, through the existing
 Measured on `f65819c4` unfiltered: types **+11**, diagnostics unchanged, 0
 lost; exact oracle 9679 → 9680, 0 lost; jsTyping 111 → 111, new_false 0, lost_true
 0; Ir gi 1.0000, dm 1.0001.
+
+## §43 The effects signature of an optional call drops the callee's nullable half
+
+`getEffectsSignature` (`flow.go`) types a call's callee by
+`checkNonNullExpression`, or for an optional chain
+`checkNonNullType(getOptionalExpressionType(…))`: either way the callee's
+`null`/`undefined` constituents are gone before its call signatures are read.
+The port read `check_expression(callee)` as it stood (its comment assumed a
+chain's callee already answered the non-optional type, which holds for
+`o?.f` but not for `f?.(x)` with `f: undefined | ((x: any) => x is number)`),
+so the union with `undefined` had no call signatures and `if (f?.(x))` did not
+narrow `x` (`controlFlowOptionalChain`: `x` four times, `o6` twice). The
+effects road now takes `getOptionalExpressionType` for an optional call and
+`GetNonNullableType` of a nullable callee (under `strictNullChecks`).
+
+Measured on `ef353bb9` unfiltered: types **+6** (`controlFlowOptionalChain`),
+diagnostics unchanged, 0 lost; exact oracle 9680 → 9681, 0 lost; jsTyping 111
+→ 111, new_false 0, lost_true 0; Ir gi 1.0001, dm 1.0000.
