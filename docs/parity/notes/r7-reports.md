@@ -2639,3 +2639,28 @@ and `ptionalProp`: 0 lost.
   lane, so this is a note rather than a change.
 - **Measured.** Quick oracles over `onPrimitive`, `xcessProperty` and
   `ntersection`: 0 lost.
+
+## 93. Variadic elements and optional elements in the tuple arm
+
+§89's tuple shape now has the fourth element kind, `Variadic` (a spread of a
+type variable), with native's flags:
+
+- `minLength` counts required and variadic elements.
+- `targetHasVariableElement` (rest or variadic) gates the second and third
+  arity checks.
+- The rest-mapped position walk still keys on a rest element.
+
+Two variadic reports come before the required-element one: *Source provides
+no match for variadic element at position i in target.* and *Variadic
+element at position i in source does not match element at position j in
+target.* (`variadicTuples3` is EXACT). A variadic source against a rest
+target, whose comparison is against the rest's array type, declines.
+
+Optional elements follow `removeMissingType`. Under
+exactOptionalPropertyTypes the target side, and the source side when both
+are optional, drop the missing type. Otherwise the element keeps the
+`undefined` that its optionality added, and an element list without one
+declines under strict null checks. In `strictOptionalProperties1`, the tuple
+lines (`Type at position 1 in source is not compatible …` / `Type 'undefined'
+is not assignable to type 'string'.`) now match. Quick oracles over `uple`,
+`ariadic`, `estParam`, `pread`, `estructuring` and `xactOptional`: 0 lost.

@@ -6649,6 +6649,7 @@ impl Checker<'_, '_> {
             Required,
             Optional,
             Rest,
+            Variadic,
         }
         let shape = |checker: &Self, ty: TypeId| -> Option<(Vec<(TypeId, Kind)>, bool)> {
             if let Some((elements, readonly)) = checker.variadic_tuple_elements.get(&ty) {
@@ -6656,11 +6657,20 @@ impl Checker<'_, '_> {
                 for element in elements {
                     if element.spread {
                         // A rest element over an array; a variadic `...T`
-                        // declines.
-                        checker.array_reference_readonly(element.r#type)?;
-                        let item =
-                            checker.type_reference_targets.get(&element.r#type)?.1.first()?;
-                        shape.push((*item, Kind::Rest));
+                        // over a type variable; anything else declines.
+                        if checker.array_reference_readonly(element.r#type).is_some() {
+                            let item =
+                                checker.type_reference_targets.get(&element.r#type)?.1.first()?;
+                            shape.push((*item, Kind::Rest));
+                        } else if checker
+                            .type_of(element.r#type)
+                            .flags
+                            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
+                        {
+                            shape.push((element.r#type, Kind::Variadic));
+                        } else {
+                            return None;
+                        }
                     } else if element.optional {
                         shape.push((element.r#type, Kind::Optional));
                     } else {
@@ -6707,13 +6717,19 @@ impl Checker<'_, '_> {
             });
             Some(())
         };
+        // `minLength` counts required and variadic elements.
         let required = |elements: &[(TypeId, Kind)]| {
-            elements.iter().filter(|element| element.1 == Kind::Required).count()
+            elements
+                .iter()
+                .filter(|element| matches!(element.1, Kind::Required | Kind::Variadic))
+                .count()
         };
         let source_arity = source_elements.len();
         let target_arity = target_elements.len();
         let source_rest = source_elements.iter().any(|element| element.1 == Kind::Rest);
         let target_has_rest = target_elements.iter().any(|element| element.1 == Kind::Rest);
+        let target_has_variable =
+            target_elements.iter().any(|element| matches!(element.1, Kind::Rest | Kind::Variadic));
         let source_min = if source_is_array { 0 } else { required(&source_elements) };
         let target_min = required(&target_elements);
         if !source_rest && source_arity < target_min {
@@ -6723,14 +6739,14 @@ impl Checker<'_, '_> {
                 vec![source_arity, target_min],
             );
         }
-        if !target_has_rest && target_arity < source_min {
+        if !target_has_variable && target_arity < source_min {
             return push_count(
                 stack,
                 &messages::SOURCE_HAS_0_ELEMENT_S_BUT_TARGET_ALLOWS_ONLY_1,
                 vec![source_min, target_arity],
             );
         }
-        if !target_has_rest && (source_rest || target_arity < source_arity) {
+        if !target_has_variable && (source_rest || target_arity < source_arity) {
             return if source_min < target_min {
                 push_count(
                     stack,
@@ -6764,6 +6780,21 @@ impl Checker<'_, '_> {
                 source_position
             };
             let (to, target_kind) = target_elements[target_position];
+            if target_kind == Kind::Variadic && source_kind != Kind::Variadic {
+                return push_count(
+                    stack,
+                    &messages::SOURCE_PROVIDES_NO_MATCH_FOR_VARIADIC_ELEMENT_AT_POSITION_0_IN_TARGET,
+                    vec![target_position],
+                );
+            }
+            if source_kind == Kind::Variadic && !matches!(target_kind, Kind::Rest | Kind::Variadic)
+            {
+                return push_count(
+                    stack,
+                    &messages::VARIADIC_ELEMENT_AT_POSITION_0_IN_SOURCE_DOES_NOT_MATCH_ELEMENT_AT_POSITION_1_IN_TARGET,
+                    vec![source_position, target_position],
+                );
+            }
             if target_kind == Kind::Required && source_kind != Kind::Required {
                 return push_count(
                     stack,
@@ -6771,13 +6802,40 @@ impl Checker<'_, '_> {
                     vec![target_position],
                 );
             }
+            // A variadic source against a rest target relates against the
+            // rest's array type, which this walk does not build.
+            if source_kind == Kind::Variadic && target_kind == Kind::Rest {
+                return None;
+            }
+            // `removeMissingType`: under exactOptionalPropertyTypes an
+            // optional target (and a source optional on both sides) drops its
+            // missing type; otherwise the optional element keeps the
+            // `undefined` its optionality added, which a list without one
+            // here cannot reproduce.
+            let optional_type = |checker: &mut Self, ty: TypeId, strip: bool| {
+                if checker.exact_optional_property_types {
+                    Some(if strip { checker.remove_missing_type(ty) } else { ty })
+                } else if !checker.strict_null_checks
+                    || ty == checker.intrinsics.undefined
+                    || matches!(&checker.type_of(ty).data, TypeData::Union { types, .. }
+                        if types.contains(&checker.intrinsics.undefined))
+                {
+                    Some(ty)
+                } else {
+                    None
+                }
+            };
+            let to =
+                if target_kind == Kind::Optional { optional_type(self, to, true)? } else { to };
+            let from = if source_kind == Kind::Optional {
+                optional_type(self, from, target_kind == Kind::Optional)?
+            } else {
+                from
+            };
             match self.chain_relate(stack, from, to) {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
-                    if source_kind == Kind::Optional || target_kind == Kind::Optional {
-                        return None;
-                    }
                     self.explain_pair(stack, from, to, depth)?;
                     if target_arity > 1 || source_arity > 1 {
                         if target_has_rest
