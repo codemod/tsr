@@ -867,22 +867,70 @@ impl Checker<'_, '_> {
             return None;
         }
         let parts = crate::unions::union_print_parts(&self.store, types);
-        let result = parts
+        let printed = parts
             .into_iter()
             .map(|part| {
                 let member = match part {
                     crate::unions::UnionPrintPart::Type(member) => member,
-                    crate::unions::UnionPrintPart::Keyword(text) => return Some(text.to_string()),
+                    crate::unions::UnionPrintPart::Keyword(text) => {
+                        return Some((None, text.to_string()));
+                    }
                 };
                 let text = self.type_to_string_at(member, reference)?;
                 let parentheses =
                     crate::unions::union_constituent_needs_parentheses(&self.store, member);
-                Some(if parentheses { format!("({text})") } else { text })
+                Some((Some(member), if parentheses { format!("({text})") } else { text }))
             })
-            .collect::<Option<Vec<_>>>()
-            .map(|parts| parts.join(" | "));
+            .collect::<Option<Vec<_>>>();
         self.rendering_composites.remove(&id);
-        result
+        let mut printed = printed?;
+        self.disambiguate_message_names(&mut printed);
+        Some(printed.into_iter().map(|(_, text)| text).collect::<Vec<_>>().join(" | "))
+    }
+
+    /// r7-printer §64: `mapToTypeNodes`' duplicate-name pass
+    /// (`nodebuilderimpl.go`): identifier type references that print alike
+    /// but refer to different types are reprinted under
+    /// `UseFullyQualifiedType`, so a message writes `'Foo.Yep | Bar.Yep'`.
+    /// With an enclosing declaration two different symbols cannot both print
+    /// bare, so only a message print (no enclosing declaration) is asked.
+    /// The fully qualified spelling is `getTypeNameForErrorDisplay`'s
+    /// ([`Checker::type_name_for_error_display`]). No cache or table.
+    pub(crate) fn disambiguate_message_names(&mut self, parts: &mut [(Option<TypeId>, String)]) {
+        if !self.print_without_enclosing || parts.len() < 2 {
+            return;
+        }
+        let name_of = |text: &str| -> Option<String> {
+            let name = text.split('<').next()?;
+            (!name.is_empty() && crate::objects::is_identifier_text(name)).then(|| name.to_string())
+        };
+        let symbol_of = |checker: &Self, id: TypeId| match &checker.store.get(id).data {
+            TypeData::Named { members, .. } => *members,
+            TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            TypeData::Union { symbol, .. } | TypeData::Intersection { symbol, .. } => *symbol,
+            _ => None,
+        };
+        let mut regenerate = vec![false; parts.len()];
+        for i in 0..parts.len() {
+            let (Some(a), Some(name)) = (parts[i].0, name_of(&parts[i].1)) else { continue };
+            for j in i + 1..parts.len() {
+                let Some(b) = parts[j].0 else { continue };
+                if name_of(&parts[j].1).as_deref() != Some(name.as_str()) {
+                    continue;
+                }
+                let same =
+                    a == b || symbol_of(self, a).is_some_and(|s| symbol_of(self, b) == Some(s));
+                if !same {
+                    regenerate[i] = true;
+                    regenerate[j] = true;
+                }
+            }
+        }
+        for (part, regenerate) in parts.iter_mut().zip(regenerate) {
+            if regenerate && let Some(member) = part.0 {
+                part.1 = self.type_name_for_error_display(member);
+            }
+        }
     }
 
     /// `typeToTypeNodeHelper`'s intersection arm (`nodebuilderimpl.go`,
@@ -904,18 +952,19 @@ impl Checker<'_, '_> {
         if !self.rendering_composites.insert(id) {
             return None;
         }
-        let result = types
+        let parts = types
             .iter()
             .map(|&member| {
                 let text = self.type_to_string_at(member, reference)?;
                 let minted = type_to_string(self.store.get(member));
                 let needs = crate::node_reuse::binds_below_intersection(&minted);
-                Some(if needs { format!("({text})") } else { text })
+                Some((Some(member), if needs { format!("({text})") } else { text }))
             })
-            .collect::<Option<Vec<_>>>()
-            .map(|parts| parts.join(" & "));
+            .collect::<Option<Vec<_>>>();
         self.rendering_composites.remove(&id);
-        result
+        let mut parts = parts?;
+        self.disambiguate_message_names(&mut parts);
+        Some(parts.into_iter().map(|(_, text)| text).collect::<Vec<_>>().join(" & "))
     }
 
     /// `typeToTypeNodeHelper`'s tuple arm (`nodebuilderimpl.go`,
@@ -944,16 +993,15 @@ impl Checker<'_, '_> {
         if !self.rendering_composites.insert(id) {
             return None;
         }
-        let result = elements
+        let parts = elements
             .iter()
-            .map(|&element| self.type_to_string_at(element, reference))
-            .collect::<Option<Vec<_>>>()
-            .map(|parts| {
-                let printed = parts.join(", ");
-                if readonly { format!("readonly [{printed}]") } else { format!("[{printed}]") }
-            });
+            .map(|&element| Some((Some(element), self.type_to_string_at(element, reference)?)))
+            .collect::<Option<Vec<_>>>();
         self.rendering_composites.remove(&id);
-        result
+        let mut parts = parts?;
+        self.disambiguate_message_names(&mut parts);
+        let printed = parts.into_iter().map(|(_, text)| text).collect::<Vec<_>>().join(", ");
+        Some(if readonly { format!("readonly [{printed}]") } else { format!("[{printed}]") })
     }
 
     /// Pinned tsgo 5b1047d: createTypeNodesFromResolvedType /

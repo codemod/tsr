@@ -2139,3 +2139,22 @@ Left: `namespaceDisambiguationInUnion` wants `'Foo.Yep | Bar.Yep'`. That is
 identifier references that collide by name under `UseFullyQualifiedType`.
 It is not ported for unions in this printer. The measurement is in the
 commit's gate record.
+
+## 64. A message reprints colliding names fully qualified
+
+**Forcing constraint.** `namespaceDisambiguationInUnion`: with
+`namespace Foo { export type Yep … }` and `namespace Bar { export type Yep … }`,
+native writes `'Foo.Yep | Bar.Yep'` and `'[Foo.Yep, Bar.Yep]'` in messages. The
+port wrote `'Yep | Yep'` and `'[Yep, Yep]'`.
+
+**Cause.** `mapToTypeNodes` (`nodebuilderimpl.go`) collects the identifier
+type references it built per name. Any name built more than once for types
+that are not the same reference (`typesAreSameReference`) is regenerated
+under `UseFullyQualifiedType`. With an enclosing declaration two different
+symbols cannot both print bare, so only a message print can collide.
+
+**The port.** `disambiguate_message_names` (printing.rs), asked by the union
+(origin and inferred), intersection and tuple prints under
+`print_without_enclosing`. It reprints such parts with
+`type_name_for_error_display` (`getTypeNameForErrorDisplay`'s fully qualified
+chain). Type-argument lists are not asked. No cache or table.
