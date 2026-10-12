@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1035/1091 (94.87%)
-Failed         : 56
+Passed         : 1036/1091 (94.96%)
+Failed         : 55
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -47,8 +47,6 @@ compiler/destructureCatchClause(strict=true,useunknownincatchvariables=false)
   3 missing (first TS2488 at destructureCatchClause.ts(27,15))
 compiler/destructureCatchClause(strict=true,useunknownincatchvariables=true)
   6 missing (first TS2488 at destructureCatchClause.ts(3,15))
-compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=false)
-  1 missing (first TS18048 at discriminateWithOptionalProperty4.ts(16,14))
 compiler/divergentAccessorsTypes3(target=es2015)
   5 unexpected (first TS2322 at divergentAccessorsTypes3.ts(30,1)), 0 missing
 compiler/downlevelLetConst16(target=es2015)
