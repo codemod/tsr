@@ -776,3 +776,68 @@ impl Checker<'_, '_> {
         );
     }
 }
+
+impl Checker<'_, '_> {
+    /// `checkObjectLiteral`'s expando arm (`checker.go:13145`): an empty JS
+    /// object literal whose symbol collected `o.x = …` assignments
+    /// (`bindDeferredExpandoAssignment` over `getInitializerSymbol`'s
+    /// `IsExpandoInitializer`) is `newAnonymousType(symbol, symbol.Exports)`,
+    /// a JS literal, and not fresh. `None` when the
+    /// literal is not an expando; `Some(error)` when an export's type does not
+    /// compute here, the same decline the callable-expando road takes.
+    /// r7-calls §48.
+    pub(crate) fn expando_object_literal_type(&mut self, literal: NodeId) -> Option<TypeId> {
+        let symbol = self.binder.symbol_of(literal)?;
+        if self.binder.symbols().get(symbol).exports.is_empty() {
+            return None;
+        }
+        // **The members resolve after the variable has its type.** Native's
+        // anonymous type is lazy: `resolveAnonymousTypeMembers` runs on first
+        // member access, by which time `getTypeOfSymbol(variable)` has
+        // returned, so `var NS = {}; NS.K = class extends NS.I {}` reads
+        // `NS` without a cycle. This port builds the members now, so the
+        // variable's memo is given a reserved identity for the duration and
+        // the literal completes into it (the callable road's reservation,
+        // `get_type_of_func_class_enum_module`).
+        let variable =
+            self.nodes.parent(literal).and_then(|parent| match self.node_map.get(parent) {
+                Some(Node::VariableDeclaration(declaration))
+                    if declaration.initializer.and_then(|i| Node::from(i).node_id())
+                        == Some(literal) =>
+                {
+                    self.binder.symbol_of(parent)
+                }
+                _ => None,
+            });
+        let reserved =
+            variable.filter(|variable| !self.symbol_types.contains_key(variable)).map(|variable| {
+                let reserved = self.store.new_named(TypeFlags::OBJECT, "{}".into(), Some(symbol));
+                self.symbol_types.insert(variable, reserved);
+                (variable, reserved)
+            });
+        let properties = self.callable_export_properties(symbol);
+        if let Some((variable, _)) = reserved {
+            self.symbol_types.remove(&variable);
+        }
+        let Some(properties) = properties else {
+            return Some(self.intrinsics.error);
+        };
+        let members = self.property_members(&properties);
+        let printed = crate::objects::render_object_type(&members);
+        let resolved = self.store.new_named(TypeFlags::OBJECT, printed, Some(symbol));
+        let minted = match reserved {
+            Some((_, reserved)) => {
+                self.store.complete_object(reserved, resolved);
+                reserved
+            }
+            None => resolved,
+        };
+        self.anonymous_properties.insert(minted, (properties, false));
+        // A JSON literal never collects assignments, so `!IsInJsonFile` is
+        // implied.
+        if self.in_js_file(literal) {
+            self.js_literal_types.insert(minted);
+        }
+        Some(minted)
+    }
+}

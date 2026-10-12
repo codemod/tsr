@@ -1587,6 +1587,54 @@ other is native-skipped.
 this port resolves, where the report here stays silent through one of the
 declines above, or a TS2694 here that native does not have.
 
+## 48. An expando object literal's type carries its assignments
+
+`var NS = {}; NS.K = class {…}` is the CommonJS-era namespace idiom. The binder
+already files `NS.K` in the literal symbol's exports
+(`bindDeferredExpandoAssignment` over `getInitializerSymbol`'s
+`IsExpandoInitializer`: an empty, unannotated JS object literal). But
+`check_object_literal` built the type from the literal's elements, so `NS`
+was `{}` and every `NS.K` read `any`. `checkObjectLiteral`
+(`checker.go:13144`) opens with the expando arm instead: "Expando object
+literals have empty properties but filled exports". That arm builds
+`newAnonymousType(symbol, symbol.Exports)`, a JS literal, and not fresh.
+
+`expando_object_literal_type` (`assignment_declarations.rs`) is that arm.
+The members are the callable-expando road's `callable_export_properties`
+(value exports in declaration order) and print through
+`property_members`/`render_object_type`. It is reached from
+`objects.rs::check_object_literal`, a one-arm consumer hunk under the
+default grant (same root: the JS expando declarations this lane owns).
+
+**Laziness, approximated.** Native's anonymous type resolves its members on
+first access, after `getTypeOfSymbol(NS)` has returned. This port builds them
+eagerly, so `NS.O = class extends NS.I {}` re-entered `getTypeOfSymbol(NS)`
+and was a circularity. The first build reported a false TS7022 on `test` in
+`defaultPropertyAssignedClassWithPrototype` and on `UI` in
+`typeFromPropertyAssignment26`, and made `typeFromPropertyAssignment25`
+worse. While the members build, the declaring variable's memo now holds a
+reserved identity, and the literal completes into it (`complete_object`, the
+reservation `get_type_of_func_class_enum_module` uses for callables).
+
+**Measured** on the JS subset against §47: 22 better, 0 worse, 1 newly exact
+(`jsContainerMergeTsDeclaration3`). Large line drops include:
+
+- `checkObjectDefineProperty` 156 → 50;
+- `ensureNoCrashExportAssignmentDefineProperrtyPotentialMerge` 52 → 8;
+- `typedefCrossModule3` 20 → 4;
+- `defaultPropertyAssignedClassWithPrototype` 28 → 12.
+
+**Left.** A member whose own type is circular (`test.K = test.K || …`) is
+native's `any` with TS7022 at the assignment's right side. Here the member
+type is `error`, and the whole literal declines to `error`, which is the
+previous gap. Porting it needs `reportCircularityError`'s assignment arm on
+the assignment-declaration road, plus lazy member resolution.
+
+**Falsifier.** A JS case where a member read through `NS` during
+`NS`'s own initialization prints a different type natively than through the
+reserved identity. That would mean native resolves those members before
+the variable completes.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

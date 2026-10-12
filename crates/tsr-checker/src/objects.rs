@@ -1386,6 +1386,14 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn check_object_literal(&mut self, node: &ObjectLiteralExpression<'_>) -> TypeId {
+        // Expando object literals have empty properties but filled exports
+        // (`checker.go:13145`, r7-calls §48).
+        if node.properties.is_empty()
+            && let Some(id) = node.node_id
+            && let Some(expando) = self.expando_object_literal_type(id)
+        {
+            return expando;
+        }
         let has_spread = node.properties.iter().any(|property| {
             matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
         });
