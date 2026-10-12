@@ -1131,3 +1131,31 @@ no loss. A name the module file declares locally skips the gate: it takes
 `reportNonExportedMember`'s local outcomes, TS2616 when it is the `export =`
 target (`var a = 10; export = a` then `import { a }`,
 `es6ImportNamedImportNoNamedExports`).
+
+no loss.
+
+## 39. Two binder exclusions: an object-literal method, and a UMD name per file
+
+- `bindPropertyOrMethodOrAccessor` is called for a method with
+  `IsObjectLiteralMethod(node) ? SymbolFlagsValue : MethodExcludes`
+  (binder.go:661). An object-literal method collides with any value of its
+  name, another method included, so `{ foo(x = 1), foo(x = 1) {} }` is
+  TS2300 at both (`callSignaturesWithParameterInitializers2`,
+  `stringLiteralTypesInImplementationSignatures2`). This binder took the
+  flag-derived method excludes everywhere; it now uses `VALUE` when the
+  method's parent is an object literal.
+- `export as namespace Alpha` declares into `file.Symbol.GlobalExports`, a
+  per-file table, and `initializeChecker` merges each file's table into
+  `globals` first-in-wins (checker.go:1321). This binder's `global_exports`
+  table carries over between the files of an ordered program, so a second
+  file's `export as namespace Alpha` collided with the first and reported
+  TS2300 (`umdGlobalConflict`). The conflict lookup now considers only a
+  symbol declared in the file being bound. The first-in-wins merge into
+  `globals` is unchanged.
+
+Perf: the per-file test made `declare_into_with_excludes`, the binder's
+hottest function, +0.1% Ir on generic-imports through code layout (removing
+the test alone did not recover it). The duplicate-declaration report, which
+runs only on a conflict and had grown with §35, now lives out of line in a
+`#[cold]` `report_declaration_conflict`. With that, generic-imports is
+−0.01% against the commit before.
