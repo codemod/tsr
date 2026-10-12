@@ -6923,7 +6923,20 @@ impl<'a> Checker<'a, '_> {
                     .find(|(name, _)| *name == parameter.name)
                     .is_some_and(|&(_, symbol)| symbol != own_symbol)
             });
+            // r7-printer §34: a type parameter and a same-named value
+            // parameter of one declaration merge into one binder symbol, and
+            // `enterNewScope` puts the signature's parameters in a fake scope
+            // ahead of its type parameters. For an instantiated signature that
+            // parameter is the merged symbol's instantiated copy, which still
+            // carries `TypeParameter` and is not the clone's symbol, so
+            // `typeParameterShadowsOtherTypeParameterInScope` renames the
+            // clone: `<fn_1 extends …>(fn: fn_1)`. The declared signature's
+            // parameter is the type parameter's own symbol: no rename.
+            let value_shadow = own_symbol
+                .is_some_and(|own_symbol| self.get_declared_type_of_symbol(own_symbol) != own_type)
+                && signature.parameters.iter().any(|value| value.name == parameter.name);
             let shadowed = render_shadow
+                || value_shadow
                 || own_symbol.is_some_and(|own_symbol| {
                     self.binder
                         .resolve_name(
@@ -6948,7 +6961,12 @@ impl<'a> Checker<'a, '_> {
             // holds ZERO renames at neutral sites — the byText half does not
             // exist in this corpus and regressed 763 lines when built.
             let fresh_name = shadowed.then(|| {
-                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), enclosing)
+                self.allocate_type_parameter_name_excluding(
+                    own_type,
+                    own_symbol.unwrap(),
+                    enclosing,
+                    value_shadow.then_some(parameter.name.as_str()),
+                )
             });
             if let Some(fresh_name) = fresh_name {
                 let fresh = self.store.new_named(

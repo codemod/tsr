@@ -163,6 +163,19 @@ impl Checker<'_, '_> {
         symbol: tsr_binder::SymbolId,
         enclosing: tsr_ast::NodeId,
     ) -> String {
+        self.allocate_type_parameter_name_excluding(id, symbol, enclosing, None)
+    }
+
+    /// [`Checker::allocate_type_parameter_name`] with one more name treated
+    /// as taken: a shadow the allocator's own tests cannot see (an
+    /// instantiated signature's same-named value parameter, r7-printer §34).
+    pub(crate) fn allocate_type_parameter_name_excluding(
+        &mut self,
+        id: TypeId,
+        symbol: tsr_binder::SymbolId,
+        enclosing: tsr_ast::NodeId,
+        excluded: Option<&str>,
+    ) -> String {
         if let Some((_, name)) =
             self.render_type_parameter_names.allocations.iter().find(|(owner, _)| *owner == id)
         {
@@ -187,7 +200,8 @@ impl Checker<'_, '_> {
         }
         let raw = self.type_to_string(id);
         let taken = |text: &str| {
-            self.render_type_parameter_scope.iter().any(|(name, _)| name == text)
+            excluded == Some(text)
+                || self.render_type_parameter_scope.iter().any(|(name, _)| name == text)
                 || self.render_type_parameter_names.allocations.iter().any(|(_, name)| name == text)
                 || self
                     .binder
@@ -338,6 +352,24 @@ impl Checker<'_, '_> {
         visit_identity: bool,
     ) -> Option<String> {
         let mut source = id;
+        // r7-printer §33: an instantiation of a certified image
+        // (`instantiate_anonymous_properties`, recorded in
+        // `instantiated_object_mappers`) keeps its source's member plan and
+        // carries its own instantiated slot types, so its members are
+        // serialized at the site like the source's. That is where a
+        // signature member's type parameters meet the render's names
+        // (`enterNewScope` clones `typeParameterNamesByText`): an inner
+        // `a<T>` inside a renamed `c<T_1>` prints `<T_2>`.
+        let mut plan = id;
+        let mut instantiated = false;
+        if !self.fresh_object_literal_types.contains(&id)
+            && !self.object_type_transfer_origins.contains_key(&id)
+            && let Some((origin, _)) = self.instantiated_object_mappers.get(&id)
+        {
+            source = *origin;
+            plan = *origin;
+            instantiated = true;
+        }
         while !self.fresh_object_literal_types.contains(&source) {
             // Widening's temporary source -> source entry is not completion.
             // A distinct target is allocated and published only after its
@@ -391,7 +423,19 @@ impl Checker<'_, '_> {
             return None;
         }
         let properties = self.anonymous_properties.get(&id)?.0.clone();
-        let mut members = self.object_literal_members.get(&id)?.clone();
+        let mut members = self.object_literal_members.get(&plan)?.clone();
+        // The plan's slot types, against which an instantiated slot is
+        // compared: a slot the renderer keeps verbatim is only kept where
+        // instantiation left its type alone.
+        let plan_types: Vec<TypeId> = if instantiated {
+            let plan_properties = self.anonymous_properties.get(&plan)?.0.clone();
+            if plan_properties.len() != properties.len() {
+                return None;
+            }
+            plan_properties.iter().map(|property| self.property_type(property)).collect()
+        } else {
+            Vec::new()
+        };
         if !self.object_member_plan_matches_source(literal, &members, &properties) {
             return None;
         }
@@ -401,7 +445,11 @@ impl Checker<'_, '_> {
         let result = members
             .iter_mut()
             .zip(properties)
-            .try_for_each(|(member, property)| {
+            .enumerate()
+            .try_for_each(|(slot, (member, property))| {
+                let moved = plan_types
+                    .get(slot)
+                    .is_some_and(|&planned| planned != self.property_type(&property));
                 // An on-demand accessor slot baked a placeholder at the mint
                 // (`DEFERRED_ACCESSOR_TEXT`); native serializes the accessor
                 // symbol's type read here (createTypeNodesFromResolvedType).
@@ -421,7 +469,9 @@ impl Checker<'_, '_> {
                         tsr_binder::SymbolFlags::METHOD | tsr_binder::SymbolFlags::ACCESSOR,
                     )
                 {
-                    return Some(());
+                    // The kept display is the plan's; an instantiated slot
+                    // whose type moved has no display here to keep.
+                    return (!moved).then_some(());
                 }
                 let crate::objects::Member::Property { printed, .. } = member else {
                     unreachable!("certified original property slot");
@@ -438,6 +488,9 @@ impl Checker<'_, '_> {
                         | TypeData::BigIntLiteral(_)
                         | TypeData::BooleanLiteral(_)
                 ) {
+                    if moved {
+                        *printed = self.type_to_string_at(property_type, reference)?;
+                    }
                     return Some(());
                 }
                 // `addPropertyToElementList` → `serializeTypeForDeclaration`
