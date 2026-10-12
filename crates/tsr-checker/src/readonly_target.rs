@@ -39,6 +39,7 @@ impl Checker<'_, '_> {
         if self.assignment_target_kind(node) == AssignmentTargetKind::None {
             return;
         }
+        self.check_readonly_mapped_index_write(node);
         // §326 — upstream's `checkReferenceExpression` reaches an
         // `ElementAccessExpression` too, and `M["x"]` names a property exactly
         // as `M.x` does. A **computed** key names no particular property and
@@ -314,6 +315,62 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         let printed = self.type_to_string(apparent);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::INDEX_SIGNATURE_IN_TYPE_0_ONLY_PERMITS_READING,
+                span,
+                [printed],
+            ),
+        );
+    }
+
+    /// TS2542 — `Index signature in type '{0}' only permits reading.` — for
+    /// a deferred `Object[Index]` written through a `readonly` mapped type:
+    /// the readonly arm of `checkIndexedAccessIndexType`
+    /// (`checker.go:8219`), reached from `checkElementAccessExpression` on
+    /// an assignment-target element access whose type stayed an indexed
+    /// access (`y[k] = v` with `y: Readonly<T>`, `k: keyof T`). It prints
+    /// the access's object type, the mapped type itself.
+    ///
+    /// The object's keys are `getIndexType`'s; a remapping (`as`) mapped
+    /// type reads `getIndexTypeForMappedType` instead, which this arm does
+    /// not reproduce, so it declines. The `hasNumberIndexInfo` disjunct is
+    /// not reproduced either: an index it would admit declines rather than
+    /// reports (r7-flow §47).
+    fn check_readonly_mapped_index_write(&mut self, node: NodeId) {
+        let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
+        if access.question_dot_token.is_some() {
+            return;
+        }
+        let Some(receiver) = access.expression else { return };
+        let expression = tsr_ast::Expression::ElementAccessExpression(access);
+        // Only a readonly mapped receiver can answer; the access's own type
+        // is not read for the common `array[i] = v`.
+        let receiver_type = self.check_expression(receiver);
+        let receiver_type = self.get_non_nullable_type(receiver_type);
+        if self.mapped_types.get(&receiver_type).is_none_or(|info| info.readonly != Some(true)) {
+            return;
+        }
+        let access_type = self.check_expression(expression);
+        let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&access_type) else {
+            return;
+        };
+        let Some(info) = self.mapped_types.get(&object) else { return };
+        if info.readonly != Some(true) || info.name_type.is_some() {
+            return;
+        }
+        let Some(keys) = self.resolved_keyof_type(object) else { return };
+        let indexes = match &self.store.get(index).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![index],
+        };
+        if !indexes.into_iter().all(|index| self.is_type_assignable_to(index, keys)) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        let printed = self.type_to_string(object);
         self.report(
             file,
             Diagnostic::with_args(

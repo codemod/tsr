@@ -154,6 +154,19 @@ impl Checker<'_, '_> {
         }
         self.report_invalid_index_types(object_type, index_type, argument_id);
         self.report_implicit_any_element_access(node, object_type, index_type, argument_id);
+        if self.indexed_access_index_is_generic(index_type) {
+            // checkNonNullExpression's receiver: a written `null` or
+            // `undefined` constituent is reported elsewhere and removed.
+            let nullable = match &self.store.get(object_type).data {
+                TypeData::Union { types, .. } => types
+                    .iter()
+                    .any(|&part| self.store.get(part).flags.intersects(TypeFlags::NULLABLE)),
+                _ => false,
+            };
+            let object_type =
+                if nullable { self.get_non_nullable_type(object_type) } else { object_type };
+            self.check_deferred_access_index_type(object_type, index_type, node);
+        }
     }
 
     /// `getPropertyTypeForIndexType`'s access-expression arm
@@ -421,6 +434,184 @@ impl Checker<'_, '_> {
             return;
         }
         self.report_indexed_access_type_misses(object_type, index_type, index_id);
+        if let Some(access_type) = self.node_map.get(node).and_then(|node| match node {
+            Node::IndexedAccessTypeNode(access) => {
+                Some(tsr_ast::TypeNode::IndexedAccessTypeNode(access))
+            }
+            _ => None,
+        }) {
+            let access_type = self.get_type_from_type_node(access_type);
+            if self.indexed_access_type_node_is_checked(node)
+                && let Some(&(object, index, _)) =
+                    self.deferred_indexed_access_types.get(&access_type)
+            {
+                self.check_deferred_access_index_type(object, index, node);
+            }
+        }
+    }
+
+    /// TS2536 — `Type '{0}' cannot be used to index type '{1}'.` — the
+    /// final arm of `checkIndexedAccessIndexType` (`checker.go:8219`), for
+    /// an access whose type `getIndexedAccessTypeOrUndefined` deferred
+    /// (`:26975`): for an indexed access type node, this port's deferred mint
+    /// (`deferred_indexed_access_types`) of the node; for an element access,
+    /// a generic index (`isGenericIndexType`) on the non-nullable receiver,
+    /// whose own deferral this port only mints once the key is admitted
+    /// (`deferred_indexed_access`). A deferred access every
+    /// constituent of whose index is assignable to the object's
+    /// `getIndexType` is admitted; any other is reported at the access node,
+    /// printing the index and object types, unless the index names a
+    /// non-public constituent property (`:8241`, TS4105, not ported here).
+    ///
+    /// Declined: an object or index this port could not compute, a
+    /// remapping mapped object (`getIndexTypeForMappedType`, not
+    /// reproduced), an object whose apparent type has a `number` index info
+    /// (the `hasNumberIndexInfo` disjunct), and keys `resolved_keyof_type`
+    /// cannot form. No table: the relation's own caches (r7-flow §48).
+    fn check_deferred_access_index_type(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+        access_node: NodeId,
+    ) {
+        if self.is_gap(object_type)
+            || self.is_gap(index_type)
+            || self.is_type_any(object_type)
+            || self.store.get(object_type).flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+            || self.unresolved_types.contains(&object_type)
+            || self.unresolved_types.contains(&index_type)
+        {
+            return;
+        }
+        if self.mapped_types.get(&object_type).is_some_and(|info| info.name_type.is_some()) {
+            return;
+        }
+        let Some(keys) = self.resolved_keyof_type(object_type) else { return };
+        let indexes = match &self.store.get(index_type).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![index_type],
+        };
+        // A constituent the relation cannot decide here is not evidence.
+        let mut missing = false;
+        for index in indexes {
+            match self.relate_ternary(index, keys, Relation::Assignable) {
+                Ternary::Related => {}
+                Ternary::NotRelated => missing = true,
+                Ternary::Unknown => return,
+            }
+        }
+        if !missing {
+            return;
+        }
+        let apparent = self.apparent_type(object_type);
+        if self
+            .get_index_infos_of_type(apparent)
+            .is_none_or(|infos| infos.iter().any(|info| info.key == self.intrinsics.number))
+        {
+            return;
+        }
+        // getConstituentProperty (`checker.go:8257`): the first constituent
+        // of the distributed apparent type that has the property.
+        if let Some(name) = literal_key_name(&self.store.get(index_type).data)
+            && self.is_generic_object_for_index_report(object_type)
+        {
+            let parts = match &self.store.get(apparent).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![apparent],
+            };
+            let property =
+                parts.into_iter().find_map(|part| self.get_property_of_type(part, &name));
+            if property.is_some_and(|property| self.property_is_non_public(property)) {
+                let Some(file) = self.source_file_of_for_diagnostics(access_node) else { return };
+                let span = self.error_span(access_node);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::PRIVATE_OR_PROTECTED_MEMBER_0_CANNOT_BE_ACCESSED_ON_A_TYPE_PARAMETER,
+                        span,
+                        [name],
+                    ),
+                );
+                return;
+            }
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(access_node) else { return };
+        let span = self.error_span(access_node);
+        let index_text = self.type_to_string(index_type);
+        let object_text = self.type_to_string(object_type);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_0_CANNOT_BE_USED_TO_INDEX_TYPE_1,
+                span,
+                [index_text, object_text],
+            ),
+        );
+    }
+
+    /// `isGenericObjectType` for the TS4105 arm: an instantiable
+    /// non-primitive type, a generic mapped type, or a union or
+    /// intersection with one. A generic tuple is not distinguished; it has
+    /// no non-public members to find.
+    fn is_generic_object_for_index_report(&mut self, ty: TypeId) -> bool {
+        if self.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+            || self.is_generic_mapped_type(ty)
+        {
+            return true;
+        }
+        match &self.store.get(ty).data {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                let types = types.clone();
+                types.into_iter().any(|part| self.is_generic_object_for_index_report(part))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether native's check walk reaches the indexed access type `node`
+    /// as written: not inside the true branch of an enclosing conditional
+    /// type, not inside the template of a mapped type without an `as`
+    /// clause, and not inside an import type's type arguments.
+    ///
+    /// getConditionalFlowTypeOfType (`checker.go`) substitutes a type
+    /// written in a conditional's true branch (getImpliedConstraint), and a
+    /// mapped type's own parameter in its template when the homomorphic
+    /// type variable's constraint is every array or tuple (`number` or a
+    /// numeric string); this port's type node road has no substitution
+    /// types, so such an access is not certified (the conditional half is
+    /// the walk of `constraints.rs`' private `is_in_conditional_true_branch`). `checkImportType`
+    /// (`checker.go:3324`) checks its argument and the reference but never
+    /// `checkSourceElements` its type arguments, which `checkTypeReferenceNode`
+    /// (`:2994`) does; this port's walk visits them.
+    fn indexed_access_type_node_is_checked(&self, node: NodeId) -> bool {
+        let mut child = node;
+        while let Some(parent) = self.nodes.parent(child) {
+            match self.node_map.get(parent) {
+                Some(Node::ConditionalTypeNode(conditional))
+                    if conditional.true_type.and_then(|true_type| true_type.node_id())
+                        == Some(child) =>
+                {
+                    return false;
+                }
+                Some(Node::MappedTypeNode(mapped))
+                    if mapped.name_type.is_none()
+                        && mapped.r#type.and_then(|template| template.node_id()) == Some(child) =>
+                {
+                    return false;
+                }
+                Some(Node::ImportTypeNode(import))
+                    if import
+                        .type_arguments
+                        .iter()
+                        .any(|argument| argument.node_id() == Some(child)) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+            child = parent;
+        }
+        true
     }
 
     /// Is `node` (of type `ty`) inside the true branch of an enclosing
