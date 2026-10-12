@@ -862,17 +862,15 @@ impl Checker<'_, '_> {
                         [ModifierLike::Token(token)] if token.kind == SyntaxKind::AsyncKeyword
                     );
                     if !method.modifiers.is_empty() && !lone_async {
-                        // TS1184 on the method's first token, and return.
-                        if let Some(id) = method.node_id
-                            && let Some(file) = self.source_file_of_for_diagnostics(id)
-                        {
-                            let start = self.nodes.span(id).start;
-                            self.report(
-                                file,
-                                Diagnostic::new(
-                                    &messages::MODIFIERS_CANNOT_APPEAR_HERE,
-                                    tsr_core::Span::new(start, start + 1),
-                                ),
+                        // TS1184 on the method's first token
+                        // (`grammarErrorOnFirstToken(node, …)`, the whole
+                        // first modifier), and return. Correction of the
+                        // record: this reported a one-byte span (r7-grammar
+                        // §58).
+                        if let Some(id) = method.node_id {
+                            self.grammar_error_on_first_token(
+                                id,
+                                &messages::MODIFIERS_CANNOT_APPEAR_HERE,
                             );
                         }
                         continue;

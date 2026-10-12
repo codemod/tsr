@@ -1105,3 +1105,31 @@ Not here: `umdGlobalConflict`'s extra TS2300. Native adds a file's
 (`checker.go:1321`). This binder reports the second `export as namespace
 Alpha` while declaring into its program-wide `global_exports` table
 (binder.rs `Destination::GlobalExports`). That is the binder's, routed.
+
+## §58 TS6205's range and TS1184's first token on an object-literal method
+
+*TS6205.* `checkUnusedTypeParameters` reports `All type parameters are
+unused.` at `rangeOfTypeParameters` (`utilities.go:1554`):
+`[list.Pos() - 1, SkipTrivia(text, list.End()) + 1)`. This tree keeps no
+`NodeList` positions. unused.rs took one byte before the first parameter to
+its end, which is `<T` for `<T, V>` and wrong for every JS `@template` list.
+`range_of_type_parameters` recovers the list's positions:
+
+- A written list starts right after its `<`. That `<` is found by stepping
+  back over whitespace and block comments from the first parameter. `End()`
+  is after the last parameter, or after a trailing comma.
+- A JS list that `gatherTypeParameters` (`reparser.go:293`) hosts from
+  `@template` tags runs from the first template tag's `Pos()` to the last
+  one's `End()`. Those are the tags' own spans, so the range takes in the
+  `*` of the closing ` */` or of the next line, as native's does.
+
+Checked with `--pretty true` against `target/tsgo-pinned`: `< T, V >`,
+`<A,B,>`, `</*x*/A, B /*y*/ >`, and `@template` lists across tags, with a
+tag comment, with a constraint, and interleaved with `@param`.
+Converted: `unusedTypeParameters_templateTag2`.
+
+*TS1184.* `checkGrammarMethod` reports modifiers on an object-literal
+method (other than a lone `async`) with `grammarErrorOnFirstToken(node, …)`,
+i.e. the whole first modifier. grammar.rs's postfix-token walk reported a
+one-byte span there. Correction of the record: it now goes through
+`grammar_error_on_first_token`. Converted: `objectLiteralMemberWithModifiers1`.

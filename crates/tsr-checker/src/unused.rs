@@ -1215,10 +1215,7 @@ impl Checker<'_, '_> {
         }
         let all_unused = parameters.iter().all(|p| self.is_unreferenced_type_parameter(*p));
         if parameters.len() > 1 && all_unused {
-            // `rangeOfTypeParameters` (`utilities.go:1554`) starts one character
-            // before the list, which is the `<`.
-            let first = self.nodes.span(parameters[0]);
-            let span = tsr_core::Span::new(first.start.saturating_sub(1), first.end);
+            let span = self.range_of_type_parameters(&parameters);
             self.report_unused(
                 node,
                 UnusedKind::Parameter,
@@ -1492,6 +1489,55 @@ impl Checker<'_, '_> {
     /// for the comment's host: the node itself, or the ancestor (a variable
     /// statement, property, export assignment …) whose comment
     /// `jsdoc_function_like_host` maps to this node (r7-grammar §27).
+    /// `rangeOfTypeParameters` (`utilities.go:1554`):
+    /// `[list.Pos() - 1, SkipTrivia(text, list.End()) + 1)`, clamped to the
+    /// text. This tree keeps no list positions, so they are recovered.
+    ///
+    /// - A written `<…>` list starts right after the `<`, so `Pos() - 1` is
+    ///   the `<`: found by skipping whitespace and block comments back from
+    ///   the first parameter. Its `End()` is after the last parameter, or
+    ///   after a trailing comma.
+    /// - A JS list hosted from `@template` tags (`gatherTypeParameters`,
+    ///   `reparser.go:293`) spans the first template tag's `Pos()` to the
+    ///   last one's `End()`, which are the tags' own spans.
+    ///
+    /// Without source text the old approximation stands: one byte before the
+    /// first parameter, to its end (r7-grammar §58).
+    fn range_of_type_parameters(&self, parameters: &[NodeId]) -> tsr_core::Span {
+        let first = self.nodes.span(parameters[0]);
+        let last = self.nodes.span(parameters[parameters.len() - 1]);
+        let fallback = tsr_core::Span::new(first.start.saturating_sub(1), first.end);
+        let Some(text) = self
+            .source_file_of_for_diagnostics(parameters[0])
+            .and_then(|file| self.module_host?.source_text(file, self.nodes))
+        else {
+            return fallback;
+        };
+        let bytes = text.as_bytes();
+        let tag_of = |parameter: NodeId| {
+            self.nodes
+                .parent(parameter)
+                .filter(|&tag| self.nodes.kind(tag) == SyntaxKind::JSDocTemplateTag)
+        };
+        let (start, list_end) = if let (Some(first_tag), Some(last_tag)) =
+            (tag_of(parameters[0]), tag_of(parameters[parameters.len() - 1]))
+        {
+            (
+                self.nodes.span(first_tag).start.saturating_sub(1),
+                self.nodes.span(last_tag).end as usize,
+            )
+        } else {
+            let Some(open) = less_than_before(bytes, first.start as usize) else {
+                return fallback;
+            };
+            let mut end = skip_trivia(bytes, last.end as usize);
+            end = if bytes.get(end) == Some(&b',') { end + 1 } else { last.end as usize };
+            (u32::try_from(open).unwrap_or(first.start), end)
+        };
+        let end = (skip_trivia(bytes, list_end) + 1).min(bytes.len());
+        tsr_core::Span::new(start, u32::try_from(end).unwrap_or(last.end))
+    }
+
     fn type_parameters_of(&self, node: NodeId) -> Vec<NodeId> {
         let written = self.written_type_parameters_of(node);
         if !written.is_empty() || !self.in_js_file(node) {
@@ -1699,6 +1745,50 @@ pub(crate) type MemberNames = FxHashSet<String>;
 /// counts a write as a reference (`markPropertyAsReferenced`).
 fn member_write_key(name: &str) -> String {
     format!("\u{1}set:{name}")
+}
+
+/// `scanner.SkipTrivia` for whitespace and comments: the first byte at or
+/// after `pos` that is neither.
+fn skip_trivia(text: &[u8], mut pos: usize) -> usize {
+    loop {
+        match text.get(pos) {
+            Some(b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) => pos += 1,
+            Some(b'/') if text.get(pos + 1) == Some(&b'/') => {
+                while text.get(pos).is_some_and(|&b| b != b'\n' && b != b'\r') {
+                    pos += 1;
+                }
+            }
+            Some(b'/') if text.get(pos + 1) == Some(&b'*') => {
+                pos += 2;
+                while pos < text.len() && !(text[pos] == b'*' && text.get(pos + 1) == Some(&b'/')) {
+                    pos += 1;
+                }
+                pos = (pos + 2).min(text.len());
+            }
+            _ => return pos,
+        }
+    }
+}
+
+/// The `<` before a written type parameter list whose first parameter
+/// starts at `start`: back over whitespace and block comments.
+fn less_than_before(text: &[u8], start: usize) -> Option<usize> {
+    let mut pos = start;
+    loop {
+        let previous = pos.checked_sub(1)?;
+        match text[previous] {
+            b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c => pos = previous,
+            b'/' if previous >= 1 && text[previous - 1] == b'*' => {
+                let mut at = previous.checked_sub(2)?;
+                while !(text[at] == b'/' && text.get(at + 1) == Some(&b'*')) {
+                    at = at.checked_sub(1)?;
+                }
+                pos = at;
+            }
+            b'<' => return Some(previous),
+            _ => return None,
+        }
+    }
 }
 
 #[cfg(test)]
