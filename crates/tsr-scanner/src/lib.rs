@@ -29,6 +29,8 @@ pub use jsdoc::{CommentRange, is_jsdoc_like_text, jsdoc_ranges_in};
 pub use regexp::{RegExpError, scan_regular_expression_errors};
 pub use token::{Token, TokenFlags};
 
+use std::borrow::Cow;
+
 use tsr_ast::SyntaxKind;
 use tsr_core::Span;
 use tsr_diagnostics::{Diagnostic, messages};
@@ -202,9 +204,13 @@ pub struct Scanner<'a> {
     token: Token,
     /// Decoded value for identifiers, strings, and numbers.
     ///
-    /// Only populated when the raw text differs from the value (escapes, numeric
-    /// separators), so the common case allocates nothing.
-    value: Option<String>,
+    /// Only populated when the raw text differs from the value: escapes,
+    /// numeric separators, and the quotes around every string literal. A value
+    /// that is a slice of the source — a string or template part without
+    /// escapes, which is nearly all of them — borrows it, as native's
+    /// `tokenValue = s.text[start:pos]` does, so only a decoded escape
+    /// allocates (`r7-perf.md` §41.4).
+    value: Option<Cow<'a, str>>,
     /// Whether a template continuation should report an invalid escape.
     ///
     /// Set by [`Scanner::rescan_template`] and read by the continuation rescan,
@@ -277,6 +283,15 @@ impl<'a> Scanner<'a> {
     #[must_use]
     pub fn decoded_value(&self) -> Option<&str> {
         self.value.as_deref()
+    }
+
+    /// [`Scanner::decoded_value`] for a caller that keeps it past the next
+    /// token: `Borrowed` when the value is a slice of the source, so keeping
+    /// it needs no copy, and `Owned` only for a decoded escape.
+    #[must_use]
+    #[inline]
+    pub fn captured_value(&self) -> Option<&Cow<'a, str>> {
+        self.value.as_ref()
     }
 
     /// Diagnostics produced so far.
@@ -395,18 +410,19 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    /// Flags describing a block comment that was just skipped.
+    /// Flags describing a block comment that was just skipped, given the tag
+    /// flags [`Scanner::skip_block_comment`] collected on its way through.
     ///
     /// JSDoc is recorded here rather than parsed: the parser only needs to know
-    /// that a `/** … */` was in this token's trivia, and the two tag scans are
-    /// substring searches that let it skip the JSDoc parse entirely for the
-    /// overwhelming majority of nodes. See `docs/architecture/jsdoc.md`.
-    fn classify_block_comment(&self, start: u32) -> TokenFlags {
+    /// that a `/** … */` was in this token's trivia, and the two tag tests let
+    /// it skip the JSDoc parse entirely for the overwhelming majority of nodes.
+    /// See `docs/architecture/jsdoc.md`.
+    fn classify_block_comment(&self, start: u32, tags: TokenFlags) -> TokenFlags {
         let text = &self.source[start as usize..self.pos as usize];
         if !is_jsdoc_like_text(text) {
             return TokenFlags::empty();
         }
-        TokenFlags::PRECEDING_JSDOC_COMMENT | jsdoc_tag_flags(text)
+        TokenFlags::PRECEDING_JSDOC_COMMENT | tags
     }
 
     fn error(&mut self, message: &'static tsr_diagnostics::Message, span: Span) {
@@ -571,10 +587,11 @@ impl<'a> Scanner<'a> {
             if ch == '/' {
                 if self.peek_at(1) == Some('*') {
                     let comment_start = self.pos;
-                    if self.skip_block_comment() {
+                    let (crossed_line, tags) = self.skip_block_comment();
+                    if crossed_line {
                         flags |= TokenFlags::PRECEDING_LINE_BREAK;
                     }
-                    flags |= self.classify_block_comment(comment_start);
+                    flags |= self.classify_block_comment(comment_start, tags);
                 } else {
                     // A line comment stopped at a non-ASCII character.
                     self.skip_line_comment();
@@ -609,21 +626,29 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    /// Skip `/* … */`, returning whether it spanned a line break.
+    /// Skip `/* … */`, returning whether it spanned a line break and the
+    /// JSDoc tag flags of the `@`s in it.
     ///
     /// Driven by bytes, like the trivia loop in [`Scanner::scan`]: comment text
     /// is most of the bytes in a commented declaration file (`lib.dom.d.ts`),
     /// and a `char` decode per byte made this the scanner's largest self cost
-    /// (`r5-bind.md` §3). Only `*`, `/`, `\n`, `\r` and the UTF-8 lead of
+    /// (`r5-bind.md` §3). Only `*`, `/`, `@`, `\n`, `\r` and the UTF-8 lead of
     /// U+2028/U+2029 matter, all of which are bytes no UTF-8 continuation
     /// byte can equal, so every other byte is skipped without decoding.
-    fn skip_block_comment(&mut self) -> bool {
+    ///
+    /// The tags are tested here, at each `@` the walk meets, where native's
+    /// `scanJSDocCommentForTags` (`scanner.go:350`) searches the finished
+    /// comment for `@` a second time. The answer is the same — a tag is
+    /// letters, so it can never reach past the closing `*/` — and the second
+    /// pass over every JSDoc comment's text is gone (`r7-perf.md` §41.3).
+    fn skip_block_comment(&mut self) -> (bool, TokenFlags) {
         let start = self.pos;
-        let bytes = self.source.as_bytes();
-        let limit = self.limit as usize;
+        let bytes = &self.source.as_bytes()[..self.limit as usize];
+        let limit = bytes.len();
         // Past the opening `/*`.
         let mut i = start as usize + 2;
         let mut crossed_line = false;
+        let mut tags = TokenFlags::empty();
         while i < limit {
             match bytes[i] {
                 b'*' if i + 1 < limit && bytes[i + 1] == b'/' => {
@@ -631,8 +656,9 @@ impl<'a> Scanner<'a> {
                     {
                         self.pos = (i + 2) as u32;
                     }
-                    return crossed_line;
+                    return (crossed_line, tags);
                 }
+                b'@' => tags |= jsdoc_tag_at(bytes, i + 1, tags),
                 b'\n' | b'\r' => {
                     crossed_line = true;
                     break;
@@ -650,22 +676,25 @@ impl<'a> Scanner<'a> {
             }
             i += 1;
         }
-        // Once a line break is seen only the terminator matters, and `*` is
-        // found by the library's word-at-a-time `memchr` rather than per byte.
-        // `i` sits on an ASCII byte or a U+2028/U+2029 lead, so the slice
-        // starts on a character boundary.
+        // Once a line break is seen only the terminator and the tags matter,
+        // and they are found a word at a time rather than per byte. The search
+        // is for the `/`, then the byte before it is tested: every JSDoc line
+        // opens with ` * `, so a search for `*` stops once per line, while `/`
+        // is rare in comment prose (`r7-perf.md` §41.2). `i` sits on the line
+        // break, so a `/` found is at `i + 1` or later and the `*` before it
+        // can never be the opener's.
         if crossed_line {
-            let text = &self.source[..limit];
-            while let Some(offset) = text[i..].find('*') {
-                let star = i + offset;
-                if star + 1 < limit && bytes[star + 1] == b'/' {
+            while let Some(found) = find_slash_or_at(bytes, i) {
+                if bytes[found] == b'@' {
+                    tags |= jsdoc_tag_at(bytes, found + 1, tags);
+                } else if bytes[found - 1] == b'*' {
                     #[allow(clippy::cast_possible_truncation)]
                     {
-                        self.pos = (star + 2) as u32;
+                        self.pos = (found + 1) as u32;
                     }
-                    return true;
+                    return (true, tags);
                 }
-                i = star + 1;
+                i = found + 1;
             }
             i = limit;
         }
@@ -675,7 +704,7 @@ impl<'a> Scanner<'a> {
         // opening delimiter.
         self.pos = self.limit;
         self.error(&messages::ASTERISK_SLASH_EXPECTED, Span::at(self.pos));
-        crossed_line
+        (crossed_line, tags)
     }
 
     fn scan_token(&mut self, flags: &mut TokenFlags) -> SyntaxKind {
@@ -800,7 +829,7 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
 
         while let Some(ch) = self.peek() {
             if ch == '\\' {
@@ -883,10 +912,10 @@ impl<'a> Scanner<'a> {
         // never a keyword") was exactly backwards.
         let lookup = decoded.as_deref().unwrap_or(text);
         if let Some(kind) = keyword_kind(lookup) {
-            self.value = decoded;
+            self.value = decoded.map(Cow::Owned);
             return kind;
         }
-        self.value = decoded;
+        self.value = decoded.map(Cow::Owned);
         SyntaxKind::Identifier
     }
 
@@ -1140,7 +1169,7 @@ impl<'a> Scanner<'a> {
             {
                 // The `n` stays part of the literal, as upstream's token
                 // value (`text[start:end]`) leaves it out.
-                self.value = Some(self.source[start as usize..end as usize].to_string());
+                self.value = Some(Cow::Borrowed(&self.source[start as usize..end as usize]));
                 if scientific {
                     self.error(
                         &messages::A_BIGINT_LITERAL_CANNOT_USE_EXPONENTIAL_NOTATION,
@@ -1224,7 +1253,7 @@ impl<'a> Scanner<'a> {
             *flags |= TokenFlags::SINGLE_QUOTE;
         }
         let start = self.pos;
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
 
         loop {
             let Some(ch) = self.peek() else {
@@ -1269,14 +1298,12 @@ impl<'a> Scanner<'a> {
         // `scanString` (`scanner.go:1586`) writes `text[start:pos]` before
         // the closing quote is consumed; an unterminated literal keeps every
         // character up to the line break or end of text.
-        self.value = Some(decoded.unwrap_or_else(|| {
-            let end = if flags.contains(TokenFlags::UNTERMINATED) {
-                self.pos
-            } else {
-                self.pos.saturating_sub(1).max(start)
-            };
-            self.source[start as usize..end as usize].to_string()
-        }));
+        let end = if flags.contains(TokenFlags::UNTERMINATED) {
+            self.pos
+        } else {
+            self.pos.saturating_sub(1).max(start)
+        };
+        self.value = Some(self.decoded_or_source(decoded, start, end));
         SyntaxKind::StringLiteral
     }
 
@@ -1448,6 +1475,15 @@ impl<'a> Scanner<'a> {
         self.scan_template_body(flags, true, false)
     }
 
+    /// A string's or template part's value: what was decoded, or else the
+    /// source between `start` and `end`, borrowed.
+    fn decoded_or_source(&self, decoded: Option<String>, start: u32, end: u32) -> Cow<'a, str> {
+        match decoded {
+            Some(decoded) => Cow::Owned(decoded),
+            None => Cow::Borrowed(&self.source[start as usize..end as usize]),
+        }
+    }
+
     fn scan_template_body(
         &mut self,
         flags: &mut TokenFlags,
@@ -1455,7 +1491,7 @@ impl<'a> Scanner<'a> {
         report_escapes: bool,
     ) -> SyntaxKind {
         let start = self.pos;
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
 
         loop {
             let Some(ch) = self.peek() else {
@@ -1468,10 +1504,7 @@ impl<'a> Scanner<'a> {
                 // unterminated-template case in the corpus: 12 cases, and TS1160
                 // was the *only* difference in all twelve.
                 self.error(&messages::UNTERMINATED_TEMPLATE_LITERAL, Span::new(self.pos, self.pos));
-                self.value =
-                    Some(decoded.unwrap_or_else(|| {
-                        self.source[start as usize..self.pos as usize].to_string()
-                    }));
+                self.value = Some(self.decoded_or_source(decoded, start, self.pos));
                 return if is_head {
                     SyntaxKind::NoSubstitutionTemplateLiteral
                 } else {
@@ -1482,10 +1515,7 @@ impl<'a> Scanner<'a> {
             if ch == '`' {
                 let end = self.pos;
                 self.bump();
-                self.value = Some(
-                    decoded
-                        .unwrap_or_else(|| self.source[start as usize..end as usize].to_string()),
-                );
+                self.value = Some(self.decoded_or_source(decoded, start, end));
                 return if is_head {
                     SyntaxKind::NoSubstitutionTemplateLiteral
                 } else {
@@ -1497,10 +1527,7 @@ impl<'a> Scanner<'a> {
                 let end = self.pos;
                 self.bump();
                 self.bump();
-                self.value = Some(
-                    decoded
-                        .unwrap_or_else(|| self.source[start as usize..end as usize].to_string()),
-                );
+                self.value = Some(self.decoded_or_source(decoded, start, end));
                 return if is_head { SyntaxKind::TemplateHead } else { SyntaxKind::TemplateMiddle };
             }
 
@@ -1830,7 +1857,7 @@ impl<'a> Scanner<'a> {
         // into two. The decoded value is rebuilt only when an escape appears —
         // or already appeared: upstream appends to the decoded `tokenValue`, so
         // `<\u0061-b>` is named `a-b` and matches `</a-b>`.
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
         while let Some(ch) = self.peek() {
             if ch == '-' || is_identifier_part(ch) {
                 if let Some(value) = decoded.as_mut() {
@@ -1870,7 +1897,7 @@ impl<'a> Scanner<'a> {
             if decoded.is_some() {
                 flags |= TokenFlags::UNICODE_ESCAPE;
             }
-            self.value = decoded;
+            self.value = decoded.map(Cow::Owned);
             self.token = Token::new(SyntaxKind::Identifier, Span::new(start, self.pos), flags);
         }
         self.token
@@ -1907,7 +1934,7 @@ impl<'a> Scanner<'a> {
                 if !unterminated {
                     self.bump();
                 }
-                self.value = Some(self.source[start as usize..end as usize].to_string());
+                self.value = Some(Cow::Borrowed(&self.source[start as usize..end as usize]));
                 let mut flags = TokenFlags::empty();
                 if unterminated {
                     flags |= TokenFlags::UNTERMINATED;
@@ -2235,20 +2262,21 @@ pub fn tokenize(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
     (tokens, diagnostics)
 }
 
-/// Which of `@deprecated` and `@see`/`@link`/`@linkcode`/`@linkplain` a
-/// JSDoc comment mentions, in one pass over its `@`s (two passes, one per
-/// set, were 2.5% of generic-imports' instructions).
+/// Which of `@deprecated` and `@see`/`@link`/`@linkcode`/`@linkplain` the
+/// `@` before `bytes[after]` starts, skipping a set already in `found`:
+/// `scanJSDocCommentForTags` and `hasJSDocTag` (`scanner.go:350`, `:372`) for
+/// one `@`. `bytes` runs to the end of the scanned text, not the comment; a
+/// tag is letters, so it cannot reach past a closing `*/` either way.
 ///
 /// Deliberately approximate — it does not know about backticks, nesting, or code
 /// fences, so it over-reports. That is the safe direction: the flag only causes
 /// the comment to be parsed, and the parse settles the question.
-fn jsdoc_tag_flags(text: &str) -> TokenFlags {
-    const DEPRECATED: &[&str] = &["deprecated"];
-    const SEE_OR_LINK: &[&str] = &["see", "link", "linkcode", "linkplain"];
-    let bytes = text.as_bytes();
-    let mentions = |after: usize, tags: &[&str]| {
+fn jsdoc_tag_at(bytes: &[u8], after: usize, found: TokenFlags) -> TokenFlags {
+    const DEPRECATED: &[&[u8]] = &[b"deprecated"];
+    const SEE_OR_LINK: &[&[u8]] = &[b"see", b"link", b"linkcode", b"linkplain"];
+    let mentions = |tags: &[&[u8]]| {
         tags.iter().any(|tag| {
-            text[after..].starts_with(tag) && {
+            bytes[after..].starts_with(tag) && {
                 let terminator = bytes.get(after + tag.len());
                 // A tag name ends at whitespace, `}` (from `{@link x}`), `*`, or
                 // the end of the comment. Without this check `@seeder` matches
@@ -2260,22 +2288,38 @@ fn jsdoc_tag_flags(text: &str) -> TokenFlags {
         })
     };
     let mut flags = TokenFlags::empty();
-    let mut i = 0;
-    while let Some(offset) = text[i..].find('@') {
-        let after = i + offset + 1;
-        if mentions(after, DEPRECATED) {
-            flags |= TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED;
-        }
-        if mentions(after, SEE_OR_LINK) {
-            flags |= TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
-        }
-        if flags.contains(
-            TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED
-                | TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK,
-        ) {
-            break;
-        }
-        i = after;
+    if !found.contains(TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED) && mentions(DEPRECATED) {
+        flags |= TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED;
+    }
+    if !found.contains(TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK) && mentions(SEE_OR_LINK) {
+        flags |= TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
     }
     flags
+}
+
+/// The first index at or after `from` holding `/` or `@`.
+///
+/// Eight bytes at a time, with the zero-byte test of `core`'s own `memchr`
+/// applied for both bytes: the standard library searches for one byte only,
+/// and two searches would read every JSDoc comment twice, which is what this
+/// replaces (`r7-perf.md` §41.3). The lowest flagged byte is always a real
+/// match; a false positive can only sit above a real one.
+fn find_slash_or_at(bytes: &[u8], from: usize) -> Option<usize> {
+    const LO: u64 = u64::from_ne_bytes([0x01; 8]);
+    const HI: u64 = u64::from_ne_bytes([0x80; 8]);
+    const SLASH: u64 = u64::from_ne_bytes([b'/'; 8]);
+    const AT: u64 = u64::from_ne_bytes([b'@'; 8]);
+    let mut chunks = bytes[from..].chunks_exact(8);
+    let mut base = from;
+    for chunk in chunks.by_ref() {
+        let word = u64::from_le_bytes(chunk.try_into().expect("an 8-byte chunk"));
+        let slash = word ^ SLASH;
+        let at = word ^ AT;
+        let hits = (slash.wrapping_sub(LO) & !slash | at.wrapping_sub(LO) & !at) & HI;
+        if hits != 0 {
+            return Some(base + (hits.trailing_zeros() / 8) as usize);
+        }
+        base += 8;
+    }
+    chunks.remainder().iter().position(|&b| b == b'/' || b == b'@').map(|p| base + p)
 }

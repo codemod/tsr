@@ -40,7 +40,7 @@
 
 use tsr_ast::{
     BindingName, Expression, ForInitializer, Node, NodeFlags, NodeId, NodeTable,
-    ObjectLiteralElementLike, SourceFile, Statement, SyntaxKind, push_children,
+    ObjectLiteralElementLike, SourceFile, Statement, SyntaxKind, for_each_child,
 };
 use tsr_core::Idx as _;
 use tsr_diagnostics::{Diagnostic, messages};
@@ -384,10 +384,6 @@ pub(crate) struct Binder<'a, 'n> {
     /// an ancestor as a *node* read it from here. Bounded by source nesting
     /// depth, so a few hundred entries at worst.
     ancestors: Vec<(NodeId, Node<'a>)>,
-    /// One shared stack for the generic child walk, rather than a `Vec` per
-    /// level. Each frame appends above the previous one's high-water mark and
-    /// truncates back to it on the way out.
-    children: Vec<Node<'a>>,
 }
 
 impl<'a, 'n> Binder<'a, 'n> {
@@ -694,7 +690,6 @@ impl<'a, 'n> Binder<'a, 'n> {
             return_flow,
             fallthrough_flow,
             ancestors: Vec::new(),
-            children: Vec::new(),
         }
     }
 
@@ -1385,15 +1380,24 @@ impl<'a, 'n> Binder<'a, 'n> {
     }
 
     /// Every child, in syntactic order (`bindEachChild`).
+    ///
+    /// Through a callback, as native's `ForEachChild` is: the children were
+    /// pushed into a shared buffer, read back and truncated around every node
+    /// (`r7-perf.md` §41.5).
+    ///
+    /// Unoptimised, `for_each_child` reserves a stack slot per arm, about
+    /// 12 KiB, so 32 levels of it no longer fit [`STACK_CHECK_INTERVAL`]'s
+    /// budget; optimised, it inlines into `bind_inner`, whose frame is about
+    /// 300 bytes. A build with debug assertions therefore checks the stack at
+    /// every level here, and the measured build pays nothing.
     fn bind_each_child(&mut self, node: Node<'a>) {
-        let base = self.children.len();
-        push_children(node, &mut self.children);
-        let end = self.children.len();
-        for index in base..end {
-            let child = self.children[index];
-            self.bind(child);
+        if cfg!(debug_assertions) {
+            tsr_core::stack::ensure_sufficient(|| {
+                for_each_child(node, |child| self.bind(child));
+            });
+        } else {
+            for_each_child(node, |child| self.bind(child));
         }
-        self.children.truncate(base);
     }
 
     /// Function declarations first, then everything else
