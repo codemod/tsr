@@ -2743,3 +2743,20 @@ object-then-index arm before the type-id fallback. Measured with and
 without the hunk on the same tree: quick oracles over `keyof`, `ndexed`,
 `appedType`, `onditional` and `nion` gained `indexedAccessConstraints` and
 lost nothing.
+
+## 98. Ambient enum members without initializers have unknown values
+
+`computeEnumMemberValue`: in an ambient non-const enum, a member without an
+initializer is computed, and its value is unknown, not auto-incremented.
+`isEnumTypeRelatedTo` then reports *One value of 'DiagnosticCategory.Warning'
+is the string '"Warning"', and the other is assumed to be an unknown numeric
+value.* where the port had printed `Each declaration of … '0' was given.`
+(`enumAssignmentCompat6` is EXACT).
+
+`enum_relation_failure` treats such a member's value as unknown. Ambience
+is asked of the enum's ancestors (`is_in_ambient_context`), because the
+port's parser does not set `NodeFlags::AMBIENT` (`bd tsr-o9tl`). The
+relater's own `is_enum_type_related_to` still reads the auto values. Its
+decisions agree with native's except for an ambient member against a known
+numeric value that differs from the auto value. That would be a change in
+the relation, not the report, so it is left alone and noted here.

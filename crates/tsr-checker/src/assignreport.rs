@@ -2890,6 +2890,28 @@ impl<'a> Checker<'a, '_> {
             };
             let source_type = self.get_declared_type_of_symbol(source_member);
             let target_type = self.get_declared_type_of_symbol(target_member);
+            // `computeEnumMemberValue`: in an ambient non-const enum a member
+            // without an initializer is computed, its value unknown.
+            let ambient_computed = |checker: &Self, member: SymbolId| {
+                let Some(declaration) = checker.binder.symbols().get(member).value_declaration
+                else {
+                    return false;
+                };
+                let Some(Node::EnumMember(node)) = checker.node_map.get(declaration) else {
+                    return false;
+                };
+                node.initializer.is_none()
+                    && checker.nodes.parent(declaration).is_some_and(|enumeration| {
+                        checker.is_in_ambient_context(enumeration)
+                            && !matches!(checker.node_map.get(enumeration),
+                                Some(Node::EnumDeclaration(declaration))
+                                    if declaration.modifiers.iter().any(|modifier| matches!(modifier,
+                                        tsr_ast::ModifierLike::Token(token)
+                                            if token.kind == SyntaxKind::ConstKeyword)))
+                    })
+            };
+            let source_unknown = ambient_computed(self, source_member);
+            let target_unknown = ambient_computed(self, target_member);
             let value = |checker: &Self, ty: TypeId| {
                 checker.enum_member_payload(ty).map(|(_, value)| match value {
                     crate::types::EnumLiteralValue::Number(text) => (false, text.clone()),
@@ -2898,7 +2920,8 @@ impl<'a> Checker<'a, '_> {
                     }
                 })
             };
-            let (source_value, target_value) = (value(self, source_type), value(self, target_type));
+            let source_value = if source_unknown { None } else { value(self, source_type) };
+            let target_value = if target_unknown { None } else { value(self, target_type) };
             if source_value == target_value {
                 continue;
             }
