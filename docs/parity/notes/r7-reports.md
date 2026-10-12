@@ -2397,3 +2397,22 @@ TS2769's inner line).
   and the head's normalized source (`Partial<T>[keyof T]` prints as `T[keyof
   T] | undefined` in `reportErrorResults` when the original has no alias),
   which the port's head printer does not do yet.
+
+## 82. Mapped-type instances have no signatures in the retrace
+
+`Dictionary<string> → Record<string, Bar | null>` reported its head with no
+chain. Native's chain is `'string' index signatures are incompatible.` /
+`Type 'string' is not assignable to type 'Bar'.`
+(`emptyObjectNotSubtypeOfIndexSignatureContainingObject1`, whose own
+return statement is a separate relation miss).
+
+- **The cause.** `explain_object_relation` asks for the target's call and
+  construct signatures before it reaches `indexSignaturesRelatedTo`. For an
+  instance of a mapped type (`Record<string, X>`) the port's
+  `signatures_of_type_kind` answers `None`, so the walk declined.
+  `resolveMappedTypeMembers` sets no signatures on any mapped type.
+- **The change.** `chain_signatures_of_kind` answers an empty list for a
+  non-generic mapped type when the general reader is undecided. A generic
+  mapped type relates through its own arms and still declines.
+- **Measured.** Quick oracles over `appedType`, `ecord` and `ndexSignature`:
+  0 lost.

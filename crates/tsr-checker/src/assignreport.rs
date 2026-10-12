@@ -6933,13 +6933,15 @@ impl Checker<'_, '_> {
         if properties_only {
             return None;
         }
-        // `signaturesRelatedTo(Call)`, then `(Construct)`.
+        // `signaturesRelatedTo(Call)`, then `(Construct)`. A resolved
+        // (non-generic) mapped type has neither kind:
+        // `resolveMappedTypeMembers` sets no signatures (r7-reports §82).
         for kind in [SignatureKind::Call, SignatureKind::Construct] {
-            let target_signatures = self.signatures_of_type_kind(target, kind)?;
+            let target_signatures = self.chain_signatures_of_kind(target, kind)?;
             if target_signatures.is_empty() {
                 continue;
             }
-            let source_signatures = self.signatures_of_type_kind(source, kind)?;
+            let source_signatures = self.chain_signatures_of_kind(source, kind)?;
             // An abstract constructor type is not assignable to a
             // non-abstract one (`relater.go:4455`).
             if kind == SignatureKind::Construct
@@ -6982,6 +6984,21 @@ impl Checker<'_, '_> {
             };
         }
         self.explain_index_signatures(stack, source, target, depth)
+    }
+
+    /// The signatures of one kind for the retrace: an instance of a
+    /// non-generic mapped type has none (`resolveMappedTypeMembers`), which
+    /// the port's signature reader leaves undecided.
+    fn chain_signatures_of_kind(
+        &mut self,
+        ty: TypeId,
+        kind: crate::signatures::SignatureKind,
+    ) -> Option<Vec<crate::signatures::Signature>> {
+        if let Some(signatures) = self.signatures_of_type_kind(ty, kind) {
+            return Some(signatures);
+        }
+        self.ensure_mapped_type_info(ty);
+        (self.mapped_types.contains_key(&ty) && !self.is_generic_mapped_type(ty)).then(Vec::new)
     }
 
     /// `indexSignaturesRelatedTo` (`relater.go:4578`): each target index
