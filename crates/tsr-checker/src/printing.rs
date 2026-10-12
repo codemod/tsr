@@ -252,6 +252,81 @@ impl Checker<'_, '_> {
     ) -> Option<String> {
         self.certified_object_literal_text_at(id, reference, visit_identity)
             .or_else(|| self.deferred_member_text_at(id, reference))
+            .or_else(|| self.spread_object_text_at(id, reference))
+    }
+
+    /// r7-printer §35: an object literal with a spread (`{ ...stuff }`) has
+    /// no certified member plan (`object_member_plan_matches_source` refuses
+    /// a `SpreadAssignment`), so its members kept their creation-time print:
+    /// `klass: typeof klass`. Native serializes each member at the site
+    /// (`createTypeNodesFromResolvedType` → `addPropertyToElementList`),
+    /// where `klass` is reached through the namespace import:
+    /// `typeof stuff.klass`. The baked member list is rebuilt from the
+    /// image's own complete properties, and must reproduce the baked text
+    /// exactly, or this declines. Then each property that yields one plain
+    /// property member is re-printed at the site; methods, accessors,
+    /// literal and intrinsic slots keep their print. No cache or table.
+    fn spread_object_text_at(&mut self, id: TypeId, reference: tsr_ast::NodeId) -> Option<String> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return None;
+        };
+        let [declaration] = self.binder.symbols().get(owner).declarations.as_slice() else {
+            return None;
+        };
+        let tsr_ast::Node::ObjectLiteralExpression(literal) = self.node_map.get(*declaration)?
+        else {
+            return None;
+        };
+        if !literal.properties.iter().any(|element| {
+            matches!(element, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+        }) || self.object_literal_index_infos.get(&id).is_some_and(|indices| !indices.is_empty())
+            || self.rendering_composites.contains(&id)
+        {
+            return None;
+        }
+        let (properties, complete) = self.anonymous_properties.get(&id)?.clone();
+        if !complete {
+            return None;
+        }
+        let mut groups = Vec::with_capacity(properties.len());
+        for property in &properties {
+            groups.push(self.anonymous_property_members(std::slice::from_ref(property))?);
+        }
+        let baked: Vec<_> = groups.iter().flatten().cloned().collect();
+        if crate::objects::render_object_type(&baked) != self.type_to_string(id) {
+            return None;
+        }
+        self.rendering_composites.insert(id);
+        for (group, property) in groups.iter_mut().zip(&properties) {
+            let [crate::objects::Member::Property { printed, .. }] = group.as_mut_slice() else {
+                continue;
+            };
+            let property_type = self.property_type(property);
+            if matches!(
+                self.store.get(property_type).data,
+                TypeData::Intrinsic { .. }
+                    | TypeData::StringLiteral(_)
+                    | TypeData::NumberLiteral(_)
+                    | TypeData::BigIntLiteral(_)
+                    | TypeData::BooleanLiteral(_)
+            ) {
+                continue;
+            }
+            // Only a slot whose baked text is its type's own print is
+            // re-printed: a producer that adjusted the display (an optional
+            // property's missing `undefined` removed, as
+            // `addPropertyToElementList` does) keeps it
+            // (`spreadObjectPermutations`' `x?: string | number`).
+            if *printed != self.type_to_string(property_type) {
+                continue;
+            }
+            if let Some(text) = self.type_to_string_at(property_type, reference) {
+                *printed = text;
+            }
+        }
+        self.rendering_composites.remove(&id);
+        let members: Vec<_> = groups.into_iter().flatten().collect();
+        Some(crate::objects::render_object_type(&members))
     }
 
     /// An object image whose member plan the certified renderer declines

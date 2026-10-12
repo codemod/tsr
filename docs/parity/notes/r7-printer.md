@@ -1373,3 +1373,37 @@ native's loop, which skips the shadowed text. No cache or table.
 see the gate record in the integration report.
 `inferenceContextualReturnTypeUnion3` (2 lines) still differs: there the
 port's multi-signature print names a declaration `T` but its uses `T_1`.
+
+## 35. A spread object's members are printed at the site
+
+**Forcing constraint.** `spreadExpressionContextualTypeWithNamespace`,
+16 lines: for `const thing = { ...stuff }` over a namespace import, native
+prints `klass: typeof stuff.klass`; the port printed `typeof klass`.
+
+**Cause.** Native serializes each member at the print site
+(`createTypeNodesFromResolvedType` → `addPropertyToElementList`), where
+`klass` is reached through the namespace import. The port's certified
+member renderer refuses a literal with a spread
+(`object_member_plan_matches_source`), so the image kept its creation-time
+member print.
+
+**The port.** `spread_object_text_at` (printing.rs), after the certified
+and deferred roads:
+- it rebuilds the member list from the image's own complete properties and
+  requires it to reproduce the baked text exactly, or it declines;
+- it then re-prints, at the site, each property that yields one plain
+  property member;
+- methods, accessors, literal and intrinsic slots keep their print, as the
+  certified renderer keeps them;
+- a slot whose baked text is not its type's own site-free print keeps it.
+  The producer adjusted that display. The first cut lacked this guard and
+  lost `spreadObjectPermutations` 0:9/0:10 (×2 configurations): the optional
+  `x?: string | number` re-printed with the optionality's `| undefined`,
+  which `addPropertyToElementList` removes.
+
+The visited check is `rendering_composites`. No cache or table.
+
+**Alternative rejected.** Certifying spread plans in
+`object_member_plan_matches_source` would reshape r7-perf's certified plan
+for every spread literal. This road only re-prints slot texts and leaves
+member names, order and kinds as already printed.

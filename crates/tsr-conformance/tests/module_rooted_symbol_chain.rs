@@ -373,3 +373,26 @@ const { style } = N.options();
     );
     assert_has(&lines, &["style : keyof Registry", "style : keyof N.Registry"]);
 }
+
+/// A spread object's members print at the site: `klass` is reached through
+/// the namespace import (`spreadExpressionContextualTypeWithNamespace`;
+/// r7-printer §35). Expected line from pinned native tsgo 5b1047d on the
+/// same source.
+#[test]
+fn a_spread_object_member_is_named_at_the_site() {
+    let lines = assertions(
+        "probe/spread_object_site",
+        r#"// @module: commonjs
+// @target: es2015
+// @filename: m.ts
+class klass {}
+const obj = { x: true };
+export { klass, obj };
+// @filename: use.ts
+import * as stuff from "./m";
+const thing = { ...stuff };
+thing;
+"#,
+    );
+    assert_has(&lines, &["thing : { klass: typeof stuff.klass; obj: { x: boolean; }; }"]);
+}
