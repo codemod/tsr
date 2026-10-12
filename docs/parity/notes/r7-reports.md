@@ -2675,3 +2675,19 @@ checks membership. No quick-oracle movement (`xactOptional`: 0 gained, 0
 lost). The `Partial<{ a: string }>` write in `strictOptionalProperties1`
 still reports TS2322, because the mapped property's type does not carry the
 missing type in this port. That is the mapped-type lane's question.
+
+## 95. Tuple targets against non-array sources
+
+`StrNum → [number]`, where `StrNum` is an interface that extends
+`Array<string | number>`, is not an array or tuple source. Native skips the
+tuple arm and walks the target's properties. Their order comes from
+`getNamedMembers`' `compareSymbols`: the tuple's synthesized `0`, `1`, …
+and its overriding `length` have no declarations, so they sort after the
+declared `Array` members. The first failing member is `pop`, which folds
+into *The types returned by 'pop()' are incompatible between these types.*
+(`arityAndOrderCompatibility01`).
+
+The retrace had no property list for a tuple target and declined. It now
+takes the relater's `tuple_target_properties` and moves the synthesized
+names (`length` and the numeric names) after the inherited ones. Quick
+oracles over `uple`, `rray`, `rity` and `estructuring`: 0 lost.

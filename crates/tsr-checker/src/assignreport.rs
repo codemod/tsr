@@ -7128,6 +7128,13 @@ impl Checker<'_, '_> {
         // function symbol without exports).
         let names = match self.get_property_names_of_type(target) {
             Some(names) => names,
+            // A tuple target's members: its synthesized elements and
+            // `length`, then the `Array` members it inherits.
+            None if self.tuple_element_lists.contains_key(&target)
+                || self.variadic_tuple_elements.contains_key(&target) =>
+            {
+                self.tuple_target_properties(target)?.into_iter().map(|(name, _)| name).collect()
+            }
             None if self
                 .completed_callable_symbol(target)
                 .is_some_and(|symbol| self.binder.symbols().get(symbol).exports.is_empty()) =>
@@ -7135,6 +7142,21 @@ impl Checker<'_, '_> {
                 Vec::new()
             }
             None => return None,
+        };
+        // A tuple's own members (`0`, `1`, …, `length`) are synthesized
+        // without declarations, so `getNamedMembers`' `compareSymbols` puts
+        // them after the declared `Array` members they extend or override
+        // (r7-reports §95).
+        let names = if self.tuple_element_lists.contains_key(&target)
+            || self.variadic_tuple_elements.contains_key(&target)
+        {
+            let synthesized =
+                |name: &String| name == "length" || name.bytes().all(|byte| byte.is_ascii_digit());
+            let (own, inherited): (Vec<String>, Vec<String>) =
+                names.into_iter().partition(|name| synthesized(name));
+            inherited.into_iter().chain(own).collect()
+        } else {
+            names
         };
         // `getUnmatchedProperty` first.
         for name in &names {
