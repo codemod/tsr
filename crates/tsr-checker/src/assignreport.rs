@@ -3029,6 +3029,55 @@ impl<'a> Checker<'a, '_> {
         best
     }
 
+    /// [`Self::explain_relation`]'s `hasExcessProperties` member arm:
+    /// `Some(explained)` when a member fails against its check types,
+    /// `None` when every member relates (the union arms then explain) or a
+    /// step is unreadable.
+    #[allow(clippy::option_option)]
+    fn explain_excess_member_types(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<Option<()>> {
+        use crate::relater::Ternary;
+        let discriminated = self.find_matching_discriminant_type(source, target)?;
+        let reduced = if discriminated == target {
+            self.filter_primitives_if_contains_non_primitive(target)
+        } else {
+            discriminated
+        };
+        let check_types = match &self.type_of(reduced).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![reduced],
+        };
+        for name in self.get_property_names_of_type(source)? {
+            let member = self.get_type_of_property_of_type(source, &name)?;
+            let mut parts = Vec::with_capacity(check_types.len());
+            for &part in &check_types {
+                parts.push(self.get_type_of_property_of_type(part, &name)?);
+            }
+            let expected = self.get_union_type(&parts);
+            match self.chain_relate(stack, member, expected) {
+                Ternary::Related => {}
+                Ternary::Unknown => return None,
+                Ternary::NotRelated => {
+                    let explained = self.explain_pair(stack, member, expected, depth);
+                    if explained.is_some() {
+                        let display = self.chain_property_symbol_display(source, &name);
+                        stack.push(ChainEntry {
+                            message: &messages::TYPES_OF_PROPERTY_0_ARE_INCOMPATIBLE,
+                            args: vec![display],
+                        });
+                    }
+                    return Some(explained);
+                }
+            }
+        }
+        None
+    }
+
     /// The global `Object` interface's own declared type.
     fn is_global_object_type(&mut self, ty: TypeId) -> bool {
         matches!(self.type_of(ty).data, TypeData::Named { members: Some(owner), .. }
@@ -6783,6 +6832,19 @@ impl Checker<'_, '_> {
             && target_flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
         {
             return Some(());
+        }
+        // `hasExcessProperties`' member check (`relater.go:2786`) for a fresh
+        // literal against a union: each member against its type in the
+        // discriminated constituents (`getTypeOfPropertyInTypes`). The
+        // first that fails reports `Types of property 'p' are
+        // incompatible.` and ends the pair before any union arm
+        // (r7-reports §116).
+        if target_flags.contains(TypeFlags::UNION)
+            && !stack.intersection_target
+            && self.fresh_object_literal_types.contains(&source)
+            && let Some(explained) = self.explain_excess_member_types(stack, source, target, depth)
+        {
+            return explained;
         }
         // `typeRelatedToSomeType`: only `getBestMatchingType`'s pick is
         // elaborated, with no elaboration when there is none.

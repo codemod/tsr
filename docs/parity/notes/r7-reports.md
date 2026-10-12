@@ -3069,3 +3069,18 @@ element(s) but target requires 2.` (`genericRestParameters3`). The retrace
 had no property list for tuples and declined. `tuple_union_best_match`
 handles fixed tuples only; optional, rest and variadic elements go through
 the general path. Quick oracles over `uple`, `estParam` and `pread`: 0 lost.
+
+## 116. `hasExcessProperties`' member check for fresh literals against unions
+
+A fresh object literal against a union target meets `hasExcessProperties`
+inside `isRelatedTo` before any union arm. With the target discriminated
+down (`findMatchingDiscriminantType`, otherwise the non-primitive
+constituents), each member is related to its type in those check types
+(`getTypeOfPropertyInTypes`). The first failure reports `Types of property
+'value' are incompatible.` with its own chain, and the pair ends there.
+There is no `Type '{…}' is not assignable to type '{ key: "foo"; … }'` line,
+which the retrace had produced through the union's best match
+(`mappedTypeIndexedAccess`). `explain_excess_member_types` now runs first
+for a fresh source against a union. When every member relates, the union
+arms explain as before. Quick oracles over `xcess`, `iscriminat`, `nion` and
+`bjectLiteral`: 0 lost.
