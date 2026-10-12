@@ -2592,6 +2592,17 @@ impl<'a> Checker<'a, '_> {
         Some((map, parameters, names))
     }
 
+    /// `core.Some(inferenceContext.inferences, hasInferenceCandidatesOrDefault)`
+    /// (`instantiateContextualType`, `checker.go:30817`) for the live
+    /// inference context around `node`: whether the `ContextFlagsSignature`
+    /// read instantiates through the non-fixing mapper at all.
+    pub(crate) fn live_inference_has_candidates_or_default(&self, node: NodeId) -> bool {
+        let Some(call) = self.live_inference_context(node) else { return false };
+        let Some(context) = self.active_inference_contexts.get(&call) else { return false };
+        context.inferences.iter().any(InferenceInfo::has_candidates)
+            || context.signature.type_parameters.iter().any(|parameter| parameter.default.is_some())
+    }
+
     #[allow(clippy::type_complexity)]
     pub(crate) fn live_contextual_return_mapper(
         &mut self,

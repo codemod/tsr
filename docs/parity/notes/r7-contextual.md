@@ -1203,3 +1203,16 @@ inferred `never`. The visited-pair scope now covers the mapped-target arm and
 the unrelated test, as `inferFromObjectTypes` does inside `invokeOnce`
 (`call2(xx)` infers `"A" | "B"`, as tsgo's d.ts emit does). No loss across
 34,661 related verdict lines.
+
+## 42. §40 lands after §41
+
+With §41's phase-1 candidate in place, §40's gate (instantiate through the
+non-fixing mapper only when some inference has candidates or a default,
+otherwise through the return mapper only) no longer costs correlatedUnions.
+Locally, on the b70 merge, correlatedUnions stays at 5 non-RIGHT lines with
+clean diagnostics, mappedTypeContextualTypesApplied goes 4 → 0, and there is no
+loss across 50,940 related verdict lines (`*nfer*`, `*ontextual*`, `*apped*`,
+`*orrelated*`, `*ndexed*`, `*everse*`, `*omomorphic*`, `*eneric*`). The
+implementation is §40's as written there (`live_inference_has_candidates_or_default`
+in inference.rs, the guard in `instantiate_contextual_inference_type`). The
+corpus measurement is this commit's gate.

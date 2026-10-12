@@ -573,6 +573,27 @@ impl<'a> Checker<'a, '_> {
         if self.contextual_prefers_uninstantiated {
             return ty;
         }
+        // No candidate and no default yet: native skips the non-fixing mapper
+        // and reads only the return mapper, so a bare `T` keeps its constraint
+        // as the apparent type (`mapped2<T extends { [P in keyof T]:
+        // TakeString }>({ foo: s => 42 })` types `s` through `TakeString`).
+        if self.live_inference_context(node).is_some()
+            && !self.live_inference_has_candidates_or_default(node)
+        {
+            if let Some((map, parameters, names)) = self.live_contextual_return_mapper(node) {
+                let names: Vec<_> = names.iter().map(String::as_str).collect();
+                let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
+                if !self
+                    .store
+                    .get(image)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY | crate::flags::TypeFlags::UNKNOWN)
+                {
+                    return image;
+                }
+            }
+            return ty;
+        }
         if let Some((map, parameters, names)) = self.live_contextual_mapper(node, &[]) {
             let names: Vec<_> = names.iter().map(String::as_str).collect();
             let image = self.instantiate_instantiable_types(ty, &map, &parameters, &names);
