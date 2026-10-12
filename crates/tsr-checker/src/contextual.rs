@@ -695,7 +695,40 @@ impl<'a> Checker<'a, '_> {
             return self.get_union_type_without_reduction(&types);
         }
         let ty = if self.store.get(ty).flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
-            self.base_constraint_of_type(ty).unwrap_or(self.intrinsics.unknown)
+            match self.base_constraint_of_type(ty) {
+                Some(constraint) => constraint,
+                // computeBaseConstraint's conditional arm is the base of
+                // getConstraintFromConditionalType, which for a check type
+                // that is no type parameter (not distributive) is
+                // getDefaultConstraintOfConditionalType: the union of the two
+                // branches (`checker.go:17263`). `string extends keyof P ?
+                // { [K in keyof P]: P[K] } : …` contextually types members
+                // through those mapped branches.
+                None if self.store.get(ty).flags.contains(crate::flags::TypeFlags::CONDITIONAL)
+                    && self.conditional_root_operands(ty).is_some_and(|[check, ..]| {
+                        !self
+                            .store
+                            .get(check)
+                            .flags
+                            .contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                    }) =>
+                {
+                    match self.default_constraint_of_conditional_type(ty) {
+                        Some(constraint)
+                            if constraint != ty
+                                && !self
+                                    .store
+                                    .get(constraint)
+                                    .flags
+                                    .contains(crate::flags::TypeFlags::CONDITIONAL) =>
+                        {
+                            return self.apparent_contextual_type(constraint);
+                        }
+                        _ => self.intrinsics.unknown,
+                    }
+                }
+                None => self.intrinsics.unknown,
+            }
         } else {
             ty
         };
@@ -2908,7 +2941,7 @@ impl<'a> Checker<'a, '_> {
     /// unannotated non-empty binding pattern supplies
     /// `getTypeFromBindingPattern(name, true, false)`, unless the caller skips
     /// binding patterns.
-    fn initializer_binding_pattern_context(
+    pub(crate) fn initializer_binding_pattern_context(
         &mut self,
         name: Option<BindingName<'a>>,
         initializer: NodeId,

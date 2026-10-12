@@ -995,3 +995,50 @@ lines on the verdict dump. The last three wait on mapped.rs:
 (`contextual_mapped_key_base_constraint`). Native's `getBaseConstraintOrType`
 gives `string | symbol`, which admits the key, so during inference the
 `[A]` arrow gets no contextual signature and caches `error`.
+
+## 33. A conditional contextual type is apparent through its default constraint
+
+`getApparentTypeOfContextualType` maps the instantiated contextual type
+through `getApparentType`, which takes an instantiable type's base
+constraint. For a conditional, that is `computeBaseConstraint`'s
+conditional arm: the base of `getConstraintFromConditionalType`, i.e. the
+distributive constraint when the check type is a type parameter, and
+otherwise `getDefaultConstraintOfConditionalType`, the union of the two
+branches (`checker.go:17263`). `base_constraint_of_type` (constraints.rs)
+declines for such a conditional, and `apparent_contextual_type` answered
+`unknown`. `bad<P extends Props>(attrs: string extends keyof P ? { [K in keyof P]: P[K] } : …)`
+called with `{ when: value => false }` had no member context, so the arrow
+answered `error`. `apparent_contextual_type` now falls back to
+`default_constraint_of_conditional_type`, then the apparent type of that
+union, for a conditional whose check type is not a type parameter. A
+distributive conditional keeps `unknown`: its distributive constraint is not
+ported here. So does a default constraint that is itself conditional, so the
+fallback cannot recurse. conditionalTypeContextualTypeSimplificationsSuceeds
+8 → 0 and complicatedIndexesOfIntersectionsAreInferencable 7 → 0 non-RIGHT
+lines on the verdict dump.
+
+## 34. An object binding pattern supplies the return mapper, and an annotated arrow default is context-independent
+
+`inferTypeArguments` (`checker.go:9405`) takes a contextual type that comes
+from a binding pattern into `context.returnMapper` only (isFromBindingPattern),
+which `instantiateContextualType` reads for a context-sensitive argument with
+no inferences yet. `binding_pattern_return_context` computed that slice for
+array patterns of plain identifiers only. An object pattern now answers its
+implied type through `initializer_binding_pattern_context`, the road the
+initializer's own contextual read already takes. The array slice keeps its
+hand-built tuple.
+
+The implied type itself needed one more certified default.
+`getTypeFromBindingElement` checks a default with the `unknown` contextual
+type. An arrow that is not context-sensitive (every parameter annotated, or
+type parameters, and no context-sensitive concise body) reads no contextual
+signature, and its type is its symbol's in both checks. So
+`binding_default_is_context_independent` admits it. A function expression
+without an explicit `this` parameter is context-sensitive natively
+(hasContextSensitiveParameters) and stays refused. A concise body that is
+itself a function, literal, conditional, binary, parenthesized or JSX form
+is refused unless a return type is written, since such a body may be
+context-sensitive. `const { f = (x: string) => x.length } = id({ f: x => x.charAt })`
+now types `x : string`, and `f` is
+`((x: string) => number) | ((x: string) => (pos: number) => string)`
+(objectBindingPatternContextuallyTypesArgument 9 → 0 non-RIGHT lines).

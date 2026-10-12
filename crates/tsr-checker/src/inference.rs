@@ -395,7 +395,8 @@ impl<'a> Checker<'a, '_> {
     /// [`Checker::create_tuple_type`]. Only that shape is computed (no
     /// cached contextual type changes); a pattern with a rest, a default, a
     /// nested pattern, or no element (`createIterableType(any)`) answers
-    /// `None`, as does an object pattern. `nonInferrableAnyType` is this
+    /// `None`. An object pattern answers its implied type through
+    /// `initializer_binding_pattern_context` (r7-contextual §34). `nonInferrableAnyType` is this
     /// port's `any`: inference infers whole tuples from the pattern, never
     /// its element alone, in the shapes accepted here.
     fn binding_pattern_return_context(&mut self, call: NodeId) -> Option<TypeId> {
@@ -412,6 +413,14 @@ impl<'a> Checker<'a, '_> {
         let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name else {
             return None;
         };
+        // An object pattern's implied type is the same one the initializer's
+        // own contextual read uses (getTypeFromBindingPattern with the
+        // pattern included): `const { f = (x: string) => x.length } =
+        // id({ f: x => x.charAt })` gives `T` the return-mapper image
+        // `{ f?: (x: string) => number; }`.
+        if self.nodes.kind(pattern.node_id?) == tsr_ast::SyntaxKind::ObjectBindingPattern {
+            return self.initializer_binding_pattern_context(declaration.name, call);
+        }
         if self.nodes.kind(pattern.node_id?) != tsr_ast::SyntaxKind::ArrayBindingPattern
             || pattern.elements.is_empty()
         {
