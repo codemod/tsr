@@ -2301,3 +2301,40 @@ generic indexed-access source: `T[K] → object` explains as `T[keyof T]`, then
   `ndexedAccess`, `keyof`, `onstrain`, `ypeParameter`, `eakType`) gained
   `errorMessageOnIntersectionsWithDiscriminants01`, `intersectionAndUnionTypes`
   and `typeParameterArgumentEquivalence3`, with 0 lost.
+
+## 79. Unconstrained type parameters against intersections; the `T & {}` hint
+
+- **`T → T & U`** (`intersectionTypeInference`). The intersection-target
+  arm took only non-instantiable sources and only targets without
+  instantiable constituents. Native's `unionOrIntersectionRelatedTo` runs
+  `typeRelatedToEachType` (reporting) for an instantiable source too. Its
+  fallthrough to the type-variable arm then relates `getConstraintOfType`,
+  which for an unconstrained parameter is `unknown`, related without
+  reporting (`relater.go:3672`). So the each-type report is the whole chain:
+  `Type 'T' is not assignable to type 'U'.` plus the arbitrary-type line.
+  The arm now admits an unconstrained (or `unknown`-constrained) type
+  parameter source, and type-parameter constituents in the target. A
+  constrained source still declines, because native then also reports the
+  constraint's relation, and the two report sets interleave in an order
+  this walk does not rebuild (`conditionalTypes1`'s line-17 chain ends with
+  the each-type line). Other instantiable or union target constituents
+  still decline, because `isRelatedTo` normalizes them first.
+- **The hint for `T → NonNullable<T>`.** `reportErrorResults` constrains a
+  clone of `T` to the target and asks `hasNonCircularBaseConstraint`. The
+  port called a target with the source as a constituent circular. Native
+  instantiates `T & {}` through `getIntersectionType`, and its two-member
+  constraint reduction (`checker.go:26131`: a type variable with a
+  primitive, `object` or `{}`) asks `getBaseConstraintOfType(clone)` before
+  the clone's constraint is assigned. That caches "no constraint", so the
+  later question answers non-circular, and native prints *This type
+  parameter might need an \`extends NonNullable<T>\` constraint.* That pair
+  shape is therefore not circular now. A generic string-like partner
+  (template literal, string mapping) is undecided and declines. A union
+  with the source as a member is still circular, because `getUnionType`
+  asks no constraint.
+- **Measured.** Quick oracles against base22 (`ntersection`,
+  `ypeParameter`, `onditional`, `eneric`) gained
+  `intersectionTypeInference`, `genericDerivedTypeWithSpecializedBase` and
+  `genericDerivedTypeWithSpecializedBase2`, in addition to §78's three,
+  with 0 lost. In `conditionalTypes1`, the line-12 chain and its two hints
+  match native now; the file is still non-exact on other lines.
