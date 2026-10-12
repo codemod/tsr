@@ -1273,3 +1273,19 @@ road's spelling. They find the sibling of the pair by the binder's merged
 accessor symbol instead of the written spelling, so `0` and `"0"` pair as the
 binder pairs them. tsgo's d.ts emit agrees on the five probes (`get 0`, the
 `0` pair, `get "s"`, a sibling data member, an identifier pair).
+
+## 46. Single-quoted member names escape, and an accessor pair single-quotes only when every declaration does
+
+Two spelling rules for string-named members (objectLiteralGettersAndSetters
+6 → 2 non-RIGHT lines; no loss across 53,535 related verdict lines):
+- A single-quoted written name is escaped under its quote, as the printer's
+  `escapeString` does: `{ get '\t'() { … } }` prints `{ '\t': string; }`.
+  `written_property_name`'s single-quote arm emitted the raw text. The new
+  `single_quoted` derives from `printing::quote`'s table, so one escape table
+  remains (the §77.3 argument for not copying it).
+- A getter/setter pair is one symbol. The node builder quotes from the
+  symbol's declarations, single only when every declaration's name is
+  single-quoted: `{ get ''() { … }, set ""(n) { … } }` is `{ "": string; }`
+  (`accessor_member_spelling`).
+The remaining two lines are the printer's annotation reuse (`Array<number>`
+written, `number[]` printed), not this lane's.
