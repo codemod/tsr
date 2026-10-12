@@ -1448,3 +1448,16 @@ parentheses are. No state.
 **Measured** (unfiltered against `58a511f1`): types **+1, 0 lost**
 (readonlyArraysAndTuples 0:7); diagnostics 0 / 0; jsTyping new_false 0 /
 lost_true 0; Ir gi 0.9999, dm 1.0000.
+
+## 45. §21 landed: `keyof` of a non-generic object that mentions a type parameter resolves now
+
+§21's held diff (`keyof_operand_resolves_now`: a plain object operand that is
+not generic, `is_generic_type`, has its keys now, as getIndexTypeEx defers
+only under shouldDeferIndexType) re-measured on the rebased `cfe2d4e5`: the
+deeplyNestedMappedTypes diagnostic it cost is gone (other lanes' relation
+work since `4af98855`), and the mapped-type rows it unblocks now land too.
+
+**Measured** (unfiltered against `cfe2d4e5`): types **+12, 0 lost**
+(deeplyNestedMappedTypes 11, thislessFunctionsNotContextSensitive1 1);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9998, dm
+1.0000.

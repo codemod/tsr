@@ -654,7 +654,8 @@ impl<'a> Checker<'a, '_> {
                             let target = self.get_type_from_type_node(inner);
                             target != self.intrinsics.error
                                 && (matches!(inner, TypeNode::ThisTypeNode(_))
-                                    || !self.mentions_any_type_parameter(target, 4))
+                                    || !self.mentions_any_type_parameter(target, 4)
+                                    || self.keyof_operand_resolves_now(target))
                         })) =>
             {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
@@ -702,7 +703,8 @@ impl<'a> Checker<'a, '_> {
                     .flags
                     .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::NEVER)
                     && !self.unresolved_types.contains(&target)
-                    && !self.mentions_any_type_parameter(target, 4)
+                    && (!self.mentions_any_type_parameter(target, 4)
+                        || self.keyof_operand_resolves_now(target))
                     && let Some(keys) = self.resolved_keyof_type(target)
                 {
                     return keys;
@@ -10636,6 +10638,23 @@ impl<'a> Checker<'a, '_> {
                 .is_some_and(|length| simple_tuple_length(extends) == Some(length)),
             _ => false,
         }
+    }
+
+    /// getIndexTypeEx (checker.go:26684) defers only when
+    /// shouldDeferIndexType (`:26834`) holds; an object type that merely
+    /// mentions a type parameter is not deferred. A plain (non-union,
+    /// non-intersection) object operand that is not generic
+    /// (`is_generic_type`) has its keys now: `keyof Dictionary<T>` over
+    /// `interface Dictionary<T> { [key: string]: T }` is `string | number`
+    /// whatever `T` is. Unions and intersections keep the existing road,
+    /// which defers them on a mentioned parameter (r7-declared §21).
+    fn keyof_operand_resolves_now(&mut self, target: TypeId) -> bool {
+        self.store.get(target).flags.contains(TypeFlags::OBJECT)
+            && !matches!(
+                self.store.get(target).data,
+                crate::types::TypeData::Union { .. } | crate::types::TypeData::Intersection { .. }
+            )
+            && !self.is_generic_type(target)
     }
 
     /// isDeferredType (checker.go:24475): generic, or, under `check_tuples`, a

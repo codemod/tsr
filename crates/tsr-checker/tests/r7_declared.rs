@@ -433,3 +433,15 @@ fn readonly_over_a_type_parameter_is_the_parameter() {
          const x = t;\n";
     assert_eq!(type_of_last_initializer(source), "number");
 }
+
+/// §45 (§21): `keyof` of a non-generic object that mentions a type
+/// parameter has its keys now (tsgo: `string | number`).
+#[test]
+fn keyof_a_non_generic_object_mentioning_a_parameter_resolves() {
+    let source = "interface Dictionary<T> { [key: string]: T }\n\
+         function f<T>() {\n\
+             declare const k: keyof Dictionary<T>;\n\
+             const x = k;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "string | number");
+}
