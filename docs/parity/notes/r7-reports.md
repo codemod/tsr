@@ -1991,3 +1991,16 @@ explains it: `overloadOnConstInheritance2` reads `Types of parameters 'x'
 and 'x' are incompatible.` → `Type '"foo"' is not assignable to type
 '"bar"'.` (The signature text there still prints the written `'bar'`
 quotes, which is the printer's.)
+
+## 65. The expected-type origin falls back to the target's declaration
+
+`elaborateElement` (`relater.go:587`) reads the target member's first
+declaration, or else **the target's own** (`target.symbol.Declarations[0]`).
+That covers a missing member with no applicable index signature, and a
+member with no declarations of its own: a mapped member without a
+modifiers property, as in `{[A in "foo"]: A}` and `MappedModel<"Foo">`.
+The origin is then the mapped type node. `add_expected_type_related_info`
+follows that order: index signature only for a missing member; then the
+member's declaration, the mapped type's declaration (`mapped_types`),
+and the target symbol's. `errorElaboration` and
+`genericMappedTypeAsClause` read the native position.

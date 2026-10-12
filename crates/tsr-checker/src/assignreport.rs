@@ -3898,40 +3898,58 @@ impl<'a> Checker<'a, '_> {
             };
             types.into_iter().find_map(|part| self.get_property_of_type(part, name))
         });
-        let related = if let Some(property) = property {
-            let Some(&declaration) = self.binder.symbols().get(property).declarations.first()
-            else {
-                return;
-            };
-            if self.in_default_library(declaration) {
-                return;
-            }
-            let declared_span = self.error_span(declaration);
-            let target_text = self.type_to_string(target);
-            self.related_diagnostic_at(
-                declaration,
-                &messages::THE_EXPECTED_TYPE_COMES_FROM_PROPERTY_0_WHICH_IS_DECLARED_HERE_ON_TYPE_1,
-                declared_span,
-                vec![name.to_owned(), target_text],
-            )
-        } else {
+        // No target member: the applicable index signature's declaration
+        // (TS6501). Otherwise, or when that has none, the member's first
+        // declaration, else the target's own (`target.symbol`): a mapped
+        // member without a modifiers property has none of its own.
+        let mut related = None;
+        if property.is_none() {
             let key = self.property_name_key_type(name);
-            let Some(declaration) =
+            if let Some(declaration) =
                 self.get_applicable_index_info(target, key).and_then(|info| info.declaration)
-            else {
-                return;
-            };
-            if self.in_default_library(declaration) {
-                return;
+                && !self.in_default_library(declaration)
+            {
+                let declared_span = self.error_span(declaration);
+                related = Some(self.related_diagnostic_at(
+                    declaration,
+                    &messages::THE_EXPECTED_TYPE_COMES_FROM_THIS_INDEX_SIGNATURE,
+                    declared_span,
+                    Vec::new(),
+                ));
             }
-            let declared_span = self.error_span(declaration);
-            self.related_diagnostic_at(
-                declaration,
-                &messages::THE_EXPECTED_TYPE_COMES_FROM_THIS_INDEX_SIGNATURE,
-                declared_span,
-                Vec::new(),
-            )
-        };
+        }
+        if related.is_none() {
+            let target_symbol = match &self.type_of(target).data {
+                TypeData::Anonymous { symbol, .. } => Some(*symbol),
+                TypeData::Named { members, .. } => *members,
+                _ => None,
+            };
+            // A mapped type's symbol is its own declaration's.
+            let mapped = self.mapped_types.get(&target).map(|info| info.declaration);
+            let declaration = property
+                .and_then(|property| {
+                    self.binder.symbols().get(property).declarations.first().copied()
+                })
+                .or(mapped)
+                .or_else(|| {
+                    target_symbol.and_then(|symbol| {
+                        self.binder.symbols().get(symbol).declarations.first().copied()
+                    })
+                });
+            if let Some(declaration) = declaration
+                && !self.in_default_library(declaration)
+            {
+                let declared_span = self.error_span(declaration);
+                let target_text = self.type_to_string(target);
+                related = Some(self.related_diagnostic_at(
+                    declaration,
+                    &messages::THE_EXPECTED_TYPE_COMES_FROM_PROPERTY_0_WHICH_IS_DECLARED_HERE_ON_TYPE_1,
+                    declared_span,
+                    vec![name.to_owned(), target_text],
+                ));
+            }
+        }
+        let Some(related) = related else { return };
         if related.file().is_none() {
             return;
         }
