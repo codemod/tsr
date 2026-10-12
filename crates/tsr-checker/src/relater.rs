@@ -920,8 +920,18 @@ impl Checker<'_, '_> {
     /// retrace, which names a pair as `isRelatedTo` normalized it
     /// (r7-reports §78).
     pub(crate) fn chain_simplified_indexed_access(&mut self, id: TypeId) -> TypeId {
+        self.chain_simplified_indexed_access_for(id, false)
+    }
+
+    /// [`Checker::chain_simplified_indexed_access`] for either side:
+    /// `isRelatedTo` normalizes its target as written to (`writing`).
+    pub(crate) fn chain_simplified_indexed_access_for(
+        &mut self,
+        id: TypeId,
+        writing: bool,
+    ) -> TypeId {
         let mut relater = Relater::new(self, Relation::Assignable, None);
-        relater.simplified_indexed_access(id, false)
+        relater.simplified_indexed_access(id, writing)
     }
 
     /// [`Checker::relate_ternary`] as `typeRelatedToEachType` relates each

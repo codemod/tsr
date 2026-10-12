@@ -2416,3 +2416,38 @@ return statement is a separate relation miss).
   mapped type relates through its own arms and still declines.
 - **Measured.** Quick oracles over `appedType`, `ecord` and `ndexSignature`:
   0 lost.
+
+## 83. Heads name the normalized indexed-access pair
+
+`x[k] = y[k]` with `y: Partial<T>` reported `Type 'Partial<T>[keyof T]' is
+not assignable to type 'T[keyof T]'.`. Native reports `Type 'T[keyof T] |
+undefined' is not assignable to type 'T[keyof T]'.`, followed by `'T[keyof T]'
+could be instantiated with an arbitrary type which could be unrelated to
+'T[keyof T] | undefined'.` (`mappedTypeRelationships`, eight heads;
+`conditionalTypes1`).
+
+- **The forcing constraint.** `isRelatedTo` normalizes both sides before
+  relating them: the source for reading, the target for writing.
+  `reportErrorResults` (`relater.go:4700`) names the normalized pair unless
+  the original has an alias. An indexed access over a mapped type has no
+  alias of its own; `Partial<T>` is the alias of its object, not of the
+  access.
+- **The change.** `normalized_head_pair` runs before the head is reported
+  and before its chain is retraced. A deferred indexed access that is not
+  an alias instantiation (no reference target) is replaced by
+  `simplified_indexed_access`: reading for the source, writing for the
+  target, where `Readonly<U>[K]` is `U[K]`. The target is replaced only
+  where the caller had not already chosen a different display target. The
+  missing-property paths run earlier and are unchanged.
+- **The head's own explanation.** For an indexed-access target over an
+  unconstrained type parameter, `computeBaseConstraint` has no constraint
+  for the object, so the access has none. The head therefore takes the
+  arbitrary-type line. §81 had declined whenever the base constraint was
+  undecided; an unconstrained type-parameter object now decides it
+  (`indexed_access_object_unconstrained`).
+- **Still blocked on union order.** The `T[string] | T[number] | T[symbol]`
+  chains of §78 reach these heads too. Until `unions.rs` orders two indexed
+  accesses (`CompareTypes`, `utilities.go:544`), they print `T[number]`
+  first.
+- **Measured.** Quick oracles over `appedType`, `onditional`, `keyof`,
+  `ndexedAccess` and `eneric`: 0 lost against the previous build.

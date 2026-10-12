@@ -2800,6 +2800,11 @@ impl<'a> Checker<'a, '_> {
         // checkTypeRelatedToEx's error chain under the head, retraced where
         // every step is decided (r7-reports §36).
         let explained = not_related && signature_error.is_none();
+        let (source, normalized, display_target) = if explained {
+            self.normalized_head_pair(source, normalized, display_target)
+        } else {
+            (source, normalized, display_target)
+        };
         let chain = if explained {
             self.relation_failure_chain(at, span, source, normalized)
         } else {
@@ -2822,6 +2827,35 @@ impl<'a> Checker<'a, '_> {
             chain,
         );
         true
+    }
+
+    /// `reportErrorResults` (`relater.go:4700`) names the pair `isRelatedTo`
+    /// normalized unless the original has an alias: an indexed access whose
+    /// object is a mapped type is printed as its substitution
+    /// (`Partial<T>[keyof T]` reads as `T[keyof T] | undefined`; as a target,
+    /// written to, `Readonly<U>[K]` is `U[K]`). An alias instantiation, which
+    /// the port records as a reference target, keeps its own name
+    /// (r7-reports §83).
+    fn normalized_head_pair(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        display_target: TypeId,
+    ) -> (TypeId, TypeId, TypeId) {
+        let normalize = |checker: &mut Self, ty: TypeId, writing: bool| {
+            if !checker.deferred_indexed_access_types.contains_key(&ty)
+                || checker.type_reference_targets.contains_key(&ty)
+            {
+                return ty;
+            }
+            checker.chain_simplified_indexed_access_for(ty, writing)
+        };
+        let source = normalize(self, source, false);
+        if target != display_target {
+            return (source, target, display_target);
+        }
+        let target = normalize(self, target, true);
+        (source, target, target)
     }
 
     /// `reportRelationError`'s missing-property suppression (`relater.go:4816`)
@@ -3159,7 +3193,8 @@ impl<'a> Checker<'a, '_> {
         let target_flags = self.type_of(target).flags;
         let explains_type_parameter = if target_flags.contains(TypeFlags::INDEXED_ACCESS) {
             self.indexed_access_target_explained(source, target) == Some(true)
-                && self.base_constraint_of_type(target).is_some()
+                && (self.base_constraint_of_type(target).is_some()
+                    || self.indexed_access_object_unconstrained(target))
         } else {
             target_flags.contains(TypeFlags::TYPE_PARAMETER)
         };
@@ -3215,6 +3250,17 @@ impl<'a> Checker<'a, '_> {
             return Some(false);
         }
         Some(self.type_of(object).flags.contains(TypeFlags::TYPE_PARAMETER))
+    }
+
+    /// `computeBaseConstraint`'s indexed-access arm (`checker.go`): with no
+    /// base constraint for the object, the access has none, so an
+    /// unconstrained type-parameter object decides a nil constraint.
+    fn indexed_access_object_unconstrained(&mut self, target: TypeId) -> bool {
+        let Some(&(object, _, _)) = self.deferred_indexed_access_types.get(&target) else {
+            return false;
+        };
+        self.type_of(object).flags.contains(TypeFlags::TYPE_PARAMETER)
+            && self.constraint_of_type(object) == crate::constraints::ConstraintOfType::Nil
     }
 
     /// An object literal against a union target, up to the outer report:
@@ -5850,7 +5896,10 @@ impl Checker<'_, '_> {
         // relation error (`relater.go:4768`).
         if explains_type_parameter && !self.variance_marker_types.contains(&target) {
             let constraint = self.base_constraint_of_type(target);
-            if constraint.is_none() && target_flags.contains(TypeFlags::INDEXED_ACCESS) {
+            if constraint.is_none()
+                && target_flags.contains(TypeFlags::INDEXED_ACCESS)
+                && !self.indexed_access_object_unconstrained(target)
+            {
                 return None;
             }
             let assignable = constraint.and_then(|constraint| {
