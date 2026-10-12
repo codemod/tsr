@@ -1755,3 +1755,26 @@ is unchanged.
 Measured (§67–§69) on `98781152`: types **+6**, diagnostics **+1** case, 0
 lost; exact oracle +2, 0 lost; jsTyping gap 22 → 22, new_false 0, lost_true
 0; Ir gi 0.9999, dm 1.0004.
+
+## §70 `isTypeDerivedFrom`'s `ReadonlyArray` arm
+
+`isTypeDerivedFrom`'s default arm (`relater.go:4989`) also derives a source
+from a mutable `Array` target when the source derives from
+`ReadonlyArray`. `is_derived_from_decidable` lacked it, so the false branch
+of `x instanceof Array` kept `readonly number[]`
+(`instanceofNarrowReadonlyArray`'s false TS2322).
+
+## §71 `isTypePresencePossible` reads an anonymous object's own optionality
+
+`getWidenedType` of a union of object literals adds each missing property as
+an optional `undefined` member (`getUndefinedProperty`); `"a" in z` keeps
+such a constituent on the true branch (an optional property's presence is
+possible). This port's widened image carries those members in
+`anonymous_properties` without a symbol, so `get_property_of_type` missed
+them and the constituent was dropped (`discriminateWithOptionalProperty4`'s
+`z.a`, `strictOptionalProperties1`). `is_type_presence_possible` asks the
+anonymous image first.
+
+Measured (§70 with §71) on `8fddcb64`: types **+6**, diagnostics **+2**
+cases, 0 lost; exact oracle +2, 0 lost; jsTyping gap 22 → 22, new_false 0,
+lost_true 0; Ir gi 1.0001, dm 0.9999.
