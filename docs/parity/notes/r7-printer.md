@@ -1269,3 +1269,22 @@ this entry), EXACT oracle against main `bdd9ce108` + §29:
   `inlineJsxFactoryLocalTypeGlobalFallback` lose their 6 naming diffs, so
   13 lines remain. Both cases still differ for other reasons (a missing
   TS2609, related information).
+
+## 31. The printer writes JSDoc nullable and non-nullable types
+
+**Forcing constraint.** The printer round-trip suite on main `02301e3bc`
+had 5 UNSUP cases: `parseInvalidNullableTypes`,
+`parseInvalidNonNullableTypes`, `decoratorMetadata-jsdoc`,
+`namedTupleMembersErrors` and `restTupleElements1`. tsr-printer had no arm
+for `JSDocNullableType` / `JSDocNonNullableType`; these are also the type
+arguments of instantiation expressions such as `foo<?string?>`.
+
+**The port.** tsr-printer's type dispatch ports `emitJSDocAllType`,
+`emitJSDocNonNullableType`, `emitJSDocNullableType`, `emitJSDocOptionalType`
+and `emitJSDocVariadicType` (`printer.go:2422-2452`). Native writes the
+nullable and non-nullable forms as prefixes whichever side the source used,
+so `number?` prints `?number`. The reparse yields the same node kind, so
+the tree round-trips.
+
+**Measured.** Round-trip: passed 11805 → 11810, failed 4 → 4, unsupported
+5 → 0, no other case moved.
