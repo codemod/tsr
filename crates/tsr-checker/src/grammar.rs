@@ -882,6 +882,27 @@ impl Checker<'_, '_> {
                         }
                         continue;
                     }
+                    // `checkGrammarMethod`'s last object-literal arm
+                    // (`grammarchecks.go:1451`): a method with no body (the
+                    // parser's `parseFunctionBlockOrSemicolon` stopped at `;`
+                    // or an ASI point) is `'{' expected` over the character
+                    // before the method's end, after the `?`/`!` arms.
+                    if method.postfix_token.is_none()
+                        && method.body.is_none()
+                        && let Some(id) = method.node_id
+                        && let Some(file) = self.source_file_of_for_diagnostics(id)
+                    {
+                        let end = self.nodes.span(id).end;
+                        self.report(
+                            file,
+                            Diagnostic::with_args(
+                                &messages::_0_EXPECTED,
+                                tsr_core::Span::new(end - 1, end),
+                                ["{".to_string()],
+                            ),
+                        );
+                        continue;
+                    }
                     method.postfix_token
                 }
                 _ => continue,

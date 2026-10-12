@@ -273,6 +273,7 @@ function whose recovery differed. Each landed as its own commit:
 | `parseTypedefTag`'s second `@type` (`jsdoc.go:1048`) | TS8033 carried no related report; native relates TS8034 "The tag was first specified here." at `(0, 0)`, the range it builds | typedefDuplicateTypeDeclaration (with the compiler's related-info file) |
 | `scanner.TokenToString` (`scanner.go:124`) | `'{0}' expected` knew twenty token texts and printed any other kind's name (`'LessThanSlashToken' expected.`) | message text only (the exact oracle; the diagnostics suite compares codes) |
 | `scanString` (`scanner.go:1586`) | an unterminated string literal's value dropped its last character: the slow path ended the value one before the cursor, as if a closing quote had been consumed | scannerStringLiterals (types) |
+| `parseMethodDeclaration`'s `parseFunctionBlockOrSemicolon` (`:1950`, `:3481`) for an object-literal method, with `checkGrammarMethod`'s missing-body arm (`grammarchecks.go:1451`, in `grammar.rs`) and the walk's dispatch (`check.rs`), both integrator's grants | an object-literal method always parsed a block, so `async * x: 1;` reported `'{' expected` at `;` and checked an empty body against the return type `1` (TS2322). The parser's `'{' expected` stood in for the grammar arm, which reports only when the file has no parse errors. With no body, the walk also had to stop running `checkFunctionOrConstructorSymbol` (TS2391/TS2393) on object-literal methods: native reaches them through `checkObjectLiteralMethod` (`checker.go:13865`), never `checkFunctionOrMethodDeclaration` | parser.asyncGenerators.objectLiteralMethods.es2018; objectLiteralMemberWithoutBlock1 now parses cleanly (printer_round_trip +1) |
 
 The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
 parseType)`; its diagnostics stand when the list is accepted and the
@@ -472,17 +473,11 @@ diagnostics (TS1xxx, TS17xxx), `parser.*`/`scanner.*` emitters and the
   (TS1098/TS1099/TS1092/TS1025/TS1013, 12 cases), TS1326, TS1200, TS1341,
   TS1368, TS1141 on a JSDoc `@import` specifier, TS8023.
 
-Two parser ports wait on a checker partner, so they are held rather than
-landed alone:
-
-- an object-literal method takes native's `parseFunctionBlockOrSemicolon`
-  (no body at `;` or ASI), which needs `checkGrammarMethod`'s
-  `'{' expected` at `End() - 1` and no `checkFunctionOrConstructorSymbol`
-  for object-literal methods (native never calls it for them). The parser
-  half alone reports TS2391 on `var v = { foo(); }`. Converts
-  parser.asyncGenerators.objectLiteralMethods.es2018;
-- `parseEntityName` under `parseTypeReference` (§6, held), with
-  `resolveEntityName`'s skip of a missing name.
+Two parser ports need a checker partner. An object-literal method's
+`parseFunctionBlockOrSemicolon` landed with it, under the integrator's grant
+(§6's table; the parser half alone reports TS2391 on `var v = { foo(); }`).
+`parseEntityName` under `parseTypeReference` is still held (§6), waiting on
+`resolveEntityName`'s skip of a missing name.
 
 Parse time is not a wall bottleneck: on domain-model TSR's parse phase is
 17–36 ms against tsgo's 53–66 ms (`--extendedDiagnostics`, noisy 4-core box),
