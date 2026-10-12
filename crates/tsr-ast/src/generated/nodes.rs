@@ -57,6 +57,18 @@ impl<'a> ArrayLiteralExpression<'a> {
     pub fn new(elements: &'a [Expression<'a>], multi_line: bool) -> Self {
         Self { node_id: None, elements, multi_line }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ArrayLiteralExpression<'_> {
@@ -98,6 +110,18 @@ impl<'a> ArrayTypeNode<'a> {
     #[must_use]
     pub fn new(element_type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, element_type }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -174,6 +198,18 @@ impl<'a> ArrowFunction<'a> {
             asterisk_token,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ArrowFunction<'_> {
@@ -218,6 +254,18 @@ impl<'a> AsExpression<'a> {
     pub fn new(expression: Option<Expression<'a>>, r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, expression, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for AsExpression<'_> {
@@ -259,6 +307,18 @@ impl<'a> AwaitExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -303,6 +363,18 @@ impl<'a> BigIntLiteral<'a> {
     #[must_use]
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
         Self { node_id: None, text, token_flags }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -360,6 +432,18 @@ impl<'a> BinaryExpression<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, left, r#type, operator_token, right }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for BinaryExpression<'_> {
@@ -413,6 +497,18 @@ impl<'a> BindingElement<'a> {
     ) -> Self {
         Self { node_id: None, dot_dot_dot_token, property_name, name, initializer }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for BindingElement<'_> {
@@ -456,6 +552,18 @@ impl<'a> BindingPattern<'a> {
     #[must_use]
     pub fn new(kind: &'a Token<'a>, elements: &'a [&'a BindingElement<'a>]) -> Self {
         Self { node_id: None, kind, elements }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -501,6 +609,18 @@ impl<'a> Block<'a> {
     pub fn new(statements: &'a [Statement<'a>], multi_line: bool) -> Self {
         Self { node_id: None, statements, multi_line }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for Block<'_> {
@@ -542,6 +662,18 @@ impl<'a> BreakStatement<'a> {
     #[must_use]
     pub fn new(label: Option<&'a Identifier<'a>>) -> Self {
         Self { node_id: None, label }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -596,6 +728,18 @@ impl<'a> CallExpression<'a> {
     ) -> Self {
         Self { node_id: None, expression, question_dot_token, type_arguments, arguments }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for CallExpression<'_> {
@@ -649,6 +793,18 @@ impl<'a> CallSignatureDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, type_parameters, parameters, r#type, full_signature }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for CallSignatureDeclaration<'_> {
@@ -690,6 +846,18 @@ impl<'a> CaseBlock<'a> {
     #[must_use]
     pub fn new(clauses: &'a [&'a CaseOrDefaultClause<'a>]) -> Self {
         Self { node_id: None, clauses }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -741,6 +909,18 @@ impl<'a> CaseOrDefaultClause<'a> {
     ) -> Self {
         Self { node_id: None, kind, expression, statements }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for CaseOrDefaultClause<'_> {
@@ -787,6 +967,18 @@ impl<'a> CatchClause<'a> {
         block: Option<&'a Block<'a>>,
     ) -> Self {
         Self { node_id: None, variable_declaration, block }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -844,6 +1036,18 @@ impl<'a> ClassDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, name, type_parameters, heritage_clauses, members }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ClassDeclaration<'_> {
@@ -900,6 +1104,18 @@ impl<'a> ClassExpression<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, name, type_parameters, heritage_clauses, members }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ClassExpression<'_> {
@@ -944,6 +1160,18 @@ impl<'a> ClassStaticBlockDeclaration<'a> {
     pub fn new(modifiers: &'a [ModifierLike<'a>], body: Option<&'a Block<'a>>) -> Self {
         Self { node_id: None, modifiers, body }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ClassStaticBlockDeclaration<'_> {
@@ -985,6 +1213,18 @@ impl<'a> ComputedPropertyName<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1042,6 +1282,18 @@ impl<'a> ConditionalExpression<'a> {
     ) -> Self {
         Self { node_id: None, condition, question_token, when_true, colon_token, when_false }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ConditionalExpression<'_> {
@@ -1095,6 +1347,18 @@ impl<'a> ConditionalTypeNode<'a> {
     ) -> Self {
         Self { node_id: None, check_type, extends_type, true_type, false_type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ConditionalTypeNode<'_> {
@@ -1147,6 +1411,18 @@ impl<'a> ConstructSignatureDeclaration<'a> {
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
         Self { node_id: None, type_parameters, parameters, r#type, full_signature }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1219,6 +1495,18 @@ impl<'a> ConstructorDeclaration<'a> {
             asterisk_token,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ConstructorDeclaration<'_> {
@@ -1275,6 +1563,18 @@ impl<'a> ConstructorTypeNode<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, type_parameters, parameters, r#type, full_signature }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ConstructorTypeNode<'_> {
@@ -1316,6 +1616,18 @@ impl<'a> ContinueStatement<'a> {
     #[must_use]
     pub fn new(label: Option<&'a Identifier<'a>>) -> Self {
         Self { node_id: None, label }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1360,6 +1672,18 @@ impl DebuggerStatement<'_> {
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for DebuggerStatement<'_> {
@@ -1402,6 +1726,18 @@ impl<'a> Decorator<'a> {
     pub fn new(expression: Option<LeftHandSideExpression<'a>>) -> Self {
         Self { node_id: None, expression }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for Decorator<'_> {
@@ -1443,6 +1779,18 @@ impl<'a> DeleteExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1487,6 +1835,18 @@ impl<'a> DoStatement<'a> {
     #[must_use]
     pub fn new(statement: Statement<'a>, expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, statement, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1538,6 +1898,18 @@ impl<'a> ElementAccessExpression<'a> {
     ) -> Self {
         Self { node_id: None, expression, question_dot_token, argument_expression }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ElementAccessExpression<'_> {
@@ -1580,6 +1952,18 @@ impl EmptyStatement<'_> {
     #[must_use]
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1630,6 +2014,18 @@ impl<'a> EnumDeclaration<'a> {
         members: &'a [&'a EnumMember<'a>],
     ) -> Self {
         Self { node_id: None, modifiers, name, members }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1684,6 +2080,18 @@ impl<'a> EnumMember<'a> {
     ) -> Self {
         Self { node_id: None, name, initializer, modifiers, postfix_token }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for EnumMember<'_> {
@@ -1736,6 +2144,18 @@ impl<'a> ExportAssignment<'a> {
         expression: Option<Expression<'a>>,
     ) -> Self {
         Self { node_id: None, modifiers, is_export_equals, r#type, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1793,6 +2213,18 @@ impl<'a> ExportDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, is_type_only, export_clause, module_specifier, attributes }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ExportDeclaration<'_> {
@@ -1843,6 +2275,18 @@ impl<'a> ExportSpecifier<'a> {
     ) -> Self {
         Self { node_id: None, is_type_only, property_name, name }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ExportSpecifier<'_> {
@@ -1884,6 +2328,18 @@ impl<'a> ExpressionStatement<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -1929,6 +2385,18 @@ impl<'a> ExpressionWithTypeArguments<'a> {
     pub fn new(expression: Option<Expression<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
         Self { node_id: None, expression, type_arguments }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ExpressionWithTypeArguments<'_> {
@@ -1970,6 +2438,18 @@ impl<'a> ExternalModuleReference<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -2027,6 +2507,18 @@ impl<'a> ForInOrOfStatement<'a> {
     ) -> Self {
         Self { node_id: None, kind, await_modifier, initializer, expression, statement }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ForInOrOfStatement<'_> {
@@ -2079,6 +2571,18 @@ impl<'a> ForStatement<'a> {
         statement: Statement<'a>,
     ) -> Self {
         Self { node_id: None, initializer, condition, incrementor, statement }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -2155,6 +2659,18 @@ impl<'a> FunctionDeclaration<'a> {
             body,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for FunctionDeclaration<'_> {
@@ -2230,6 +2746,18 @@ impl<'a> FunctionExpression<'a> {
             body,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for FunctionExpression<'_> {
@@ -2285,6 +2813,18 @@ impl<'a> FunctionTypeNode<'a> {
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
         Self { node_id: None, type_parameters, parameters, r#type, modifiers, full_signature }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -2365,6 +2905,18 @@ impl<'a> GetAccessorDeclaration<'a> {
             asterisk_token,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for GetAccessorDeclaration<'_> {
@@ -2409,6 +2961,18 @@ impl<'a> HeritageClause<'a> {
     pub fn new(token: &'a Token<'a>, types: &'a [&'a ExpressionWithTypeArguments<'a>]) -> Self {
         Self { node_id: None, token, types }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for HeritageClause<'_> {
@@ -2450,6 +3014,18 @@ impl<'a> Identifier<'a> {
     #[must_use]
     pub fn new(text: &'a str) -> Self {
         Self { node_id: None, text }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -2501,6 +3077,18 @@ impl<'a> IfStatement<'a> {
     ) -> Self {
         Self { node_id: None, expression, then_statement, else_statement }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for IfStatement<'_> {
@@ -2544,6 +3132,18 @@ impl<'a> ImportAttribute<'a> {
     #[must_use]
     pub fn new(name: Option<ImportAttributeName<'a>>, value: Option<Expression<'a>>) -> Self {
         Self { node_id: None, name, value }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -2595,6 +3195,18 @@ impl<'a> ImportAttributes<'a> {
     ) -> Self {
         Self { node_id: None, token, attributes, multi_line }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ImportAttributes<'_> {
@@ -2644,6 +3256,18 @@ impl<'a> ImportClause<'a> {
         named_bindings: Option<NamedImportBindings<'a>>,
     ) -> Self {
         Self { node_id: None, phase_modifier, name, named_bindings }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -2698,6 +3322,18 @@ impl<'a> ImportDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, import_clause, module_specifier, attributes }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ImportDeclaration<'_> {
@@ -2751,6 +3387,18 @@ impl<'a> ImportEqualsDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, is_type_only, name, module_reference }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ImportEqualsDeclaration<'_> {
@@ -2800,6 +3448,18 @@ impl<'a> ImportSpecifier<'a> {
         name: Option<&'a Identifier<'a>>,
     ) -> Self {
         Self { node_id: None, is_type_only, property_name, name }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -2857,6 +3517,18 @@ impl<'a> ImportTypeNode<'a> {
     ) -> Self {
         Self { node_id: None, is_type_of, argument, attributes, qualifier, type_arguments }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ImportTypeNode<'_> {
@@ -2913,6 +3585,18 @@ impl<'a> IndexSignatureDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, parameters, r#type, full_signature, type_parameters }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for IndexSignatureDeclaration<'_> {
@@ -2957,6 +3641,18 @@ impl<'a> IndexedAccessTypeNode<'a> {
     pub fn new(object_type: Option<TypeNode<'a>>, index_type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, object_type, index_type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for IndexedAccessTypeNode<'_> {
@@ -2998,6 +3694,18 @@ impl<'a> InferTypeNode<'a> {
     #[must_use]
     pub fn new(type_parameter: Option<&'a TypeParameterDeclaration<'a>>) -> Self {
         Self { node_id: None, type_parameter }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3055,6 +3763,18 @@ impl<'a> InterfaceDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, name, type_parameters, heritage_clauses, members }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for InterfaceDeclaration<'_> {
@@ -3096,6 +3816,18 @@ impl<'a> IntersectionTypeNode<'a> {
     #[must_use]
     pub fn new(types: &'a [TypeNode<'a>]) -> Self {
         Self { node_id: None, types }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3141,6 +3873,18 @@ impl<'a> JSDoc<'a> {
     pub fn new(comment: &'a [JSDocComment<'a>], tags: &'a [JSDocTag<'a>]) -> Self {
         Self { node_id: None, comment, tags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDoc<'_> {
@@ -3183,6 +3927,18 @@ impl JSDocAllType<'_> {
     #[must_use]
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3233,6 +3989,18 @@ impl<'a> JSDocAugmentsTag<'a> {
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
         Self { node_id: None, tag_name, class_name, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3287,6 +4055,18 @@ impl<'a> JSDocCallbackTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, name, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocCallbackTag<'_> {
@@ -3330,6 +4110,18 @@ impl<'a> JSDocDeprecatedTag<'a> {
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
         Self { node_id: None, tag_name, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3380,6 +4172,18 @@ impl<'a> JSDocImplementsTag<'a> {
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
         Self { node_id: None, tag_name, class_name, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3437,6 +4241,18 @@ impl<'a> JSDocImportTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, import_clause, module_specifier, attributes, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocImportTag<'_> {
@@ -3480,6 +4296,18 @@ impl<'a> JSDocLink<'a> {
     #[must_use]
     pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
         Self { node_id: None, name, text }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3525,6 +4353,18 @@ impl<'a> JSDocLinkCode<'a> {
     pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
         Self { node_id: None, name, text }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocLinkCode<'_> {
@@ -3569,6 +4409,18 @@ impl<'a> JSDocLinkPlain<'a> {
     pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
         Self { node_id: None, name, text }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocLinkPlain<'_> {
@@ -3610,6 +4462,18 @@ impl<'a> JSDocNameReference<'a> {
     #[must_use]
     pub fn new(name: Option<EntityName<'a>>) -> Self {
         Self { node_id: None, name }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3653,6 +4517,18 @@ impl<'a> JSDocNonNullableType<'a> {
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocNonNullableType<'_> {
@@ -3695,6 +4571,18 @@ impl<'a> JSDocNullableType<'a> {
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocNullableType<'_> {
@@ -3736,6 +4624,18 @@ impl<'a> JSDocOptionalType<'a> {
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3787,6 +4687,18 @@ impl<'a> JSDocOverloadTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocOverloadTag<'_> {
@@ -3830,6 +4742,18 @@ impl<'a> JSDocOverrideTag<'a> {
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
         Self { node_id: None, tag_name, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3902,6 +4826,18 @@ impl<'a> JSDocParameterOrPropertyTag<'a> {
             comment,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocParameterOrPropertyTag<'_> {
@@ -3945,6 +4881,18 @@ impl<'a> JSDocPrivateTag<'a> {
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
         Self { node_id: None, tag_name, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -3990,6 +4938,18 @@ impl<'a> JSDocProtectedTag<'a> {
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
         Self { node_id: None, tag_name, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocProtectedTag<'_> {
@@ -4034,6 +4994,18 @@ impl<'a> JSDocPublicTag<'a> {
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
         Self { node_id: None, tag_name, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocPublicTag<'_> {
@@ -4077,6 +5049,18 @@ impl<'a> JSDocReadonlyTag<'a> {
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
         Self { node_id: None, tag_name, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4128,6 +5112,18 @@ impl<'a> JSDocReturnTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocReturnTag<'_> {
@@ -4178,6 +5174,18 @@ impl<'a> JSDocSatisfiesTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocSatisfiesTag<'_> {
@@ -4227,6 +5235,18 @@ impl<'a> JSDocSeeTag<'a> {
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
         Self { node_id: None, tag_name, name_expression, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4281,6 +5301,18 @@ impl<'a> JSDocSignature<'a> {
     ) -> Self {
         Self { node_id: None, type_parameters, parameters, r#type, full_signature }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocSignature<'_> {
@@ -4334,6 +5366,18 @@ impl<'a> JSDocTemplateTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, constraint, type_parameters, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocTemplateTag<'_> {
@@ -4375,6 +5419,18 @@ impl<'a> JSDocText<'a> {
     #[must_use]
     pub fn new(text: &'a [&'a str]) -> Self {
         Self { node_id: None, text }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4426,6 +5482,18 @@ impl<'a> JSDocThisTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocThisTag<'_> {
@@ -4476,6 +5544,18 @@ impl<'a> JSDocThrowsTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocThrowsTag<'_> {
@@ -4517,6 +5597,18 @@ impl<'a> JSDocTypeExpression<'a> {
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4561,6 +5653,18 @@ impl<'a> JSDocTypeLiteral<'a> {
     #[must_use]
     pub fn new(js_doc_property_tags: &'a [JSDocTag<'a>], is_array_type: bool) -> Self {
         Self { node_id: None, js_doc_property_tags, is_array_type }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4611,6 +5715,18 @@ impl<'a> JSDocTypeTag<'a> {
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, comment }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4665,6 +5781,18 @@ impl<'a> JSDocTypedefTag<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_expression, name, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocTypedefTag<'_> {
@@ -4709,6 +5837,18 @@ impl<'a> JSDocUnknownTag<'a> {
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
         Self { node_id: None, tag_name, comment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JSDocUnknownTag<'_> {
@@ -4750,6 +5890,18 @@ impl<'a> JSDocVariadicType<'a> {
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4798,6 +5950,18 @@ impl<'a> JsxAttribute<'a> {
     ) -> Self {
         Self { node_id: None, name, initializer }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JsxAttribute<'_> {
@@ -4839,6 +6003,18 @@ impl<'a> JsxAttributes<'a> {
     #[must_use]
     pub fn new(properties: &'a [JsxAttributeLike<'a>]) -> Self {
         Self { node_id: None, properties }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4882,6 +6058,18 @@ impl<'a> JsxClosingElement<'a> {
     pub fn new(tag_name: Option<JsxTagNameExpression<'a>>) -> Self {
         Self { node_id: None, tag_name }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JsxClosingElement<'_> {
@@ -4924,6 +6112,18 @@ impl JsxClosingFragment<'_> {
     #[must_use]
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -4975,6 +6175,18 @@ impl<'a> JsxElement<'a> {
     ) -> Self {
         Self { node_id: None, opening_element, children, closing_element }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JsxElement<'_> {
@@ -5021,6 +6233,18 @@ impl<'a> JsxExpression<'a> {
         expression: Option<Expression<'a>>,
     ) -> Self {
         Self { node_id: None, dot_dot_dot_token, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5072,6 +6296,18 @@ impl<'a> JsxFragment<'a> {
     ) -> Self {
         Self { node_id: None, opening_fragment, children, closing_fragment }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JsxFragment<'_> {
@@ -5115,6 +6351,18 @@ impl<'a> JsxNamespacedName<'a> {
     #[must_use]
     pub fn new(namespace: Option<&'a Identifier<'a>>, name: Option<&'a Identifier<'a>>) -> Self {
         Self { node_id: None, namespace, name }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5166,6 +6414,18 @@ impl<'a> JsxOpeningElement<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_arguments, attributes }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JsxOpeningElement<'_> {
@@ -5208,6 +6468,18 @@ impl JsxOpeningFragment<'_> {
     #[must_use]
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5259,6 +6531,18 @@ impl<'a> JsxSelfClosingElement<'a> {
     ) -> Self {
         Self { node_id: None, tag_name, type_arguments, attributes }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JsxSelfClosingElement<'_> {
@@ -5300,6 +6584,18 @@ impl<'a> JsxSpreadAttribute<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5351,6 +6647,18 @@ impl<'a> JsxText<'a> {
     ) -> Self {
         Self { node_id: None, text, contains_only_trivia_white_spaces, token_flags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for JsxText<'_> {
@@ -5395,6 +6703,18 @@ impl KeywordExpression<'_> {
     #[must_use]
     pub fn new(kind: SyntaxKind) -> Self {
         Self { node_id: None, kind, _marker: std::marker::PhantomData }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5441,6 +6761,18 @@ impl KeywordTypeNode<'_> {
     pub fn new(kind: SyntaxKind) -> Self {
         Self { node_id: None, kind, _marker: std::marker::PhantomData }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for KeywordTypeNode<'_> {
@@ -5485,6 +6817,18 @@ impl<'a> LabeledStatement<'a> {
     pub fn new(label: Option<&'a Identifier<'a>>, statement: Option<Statement<'a>>) -> Self {
         Self { node_id: None, label, statement }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for LabeledStatement<'_> {
@@ -5526,6 +6870,18 @@ impl<'a> LiteralTypeNode<'a> {
     #[must_use]
     pub fn new(literal: Option<Node<'a>>) -> Self {
         Self { node_id: None, literal }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5594,6 +6950,18 @@ impl<'a> MappedTypeNode<'a> {
             members,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for MappedTypeNode<'_> {
@@ -5637,6 +7005,18 @@ impl<'a> MetaProperty<'a> {
     #[must_use]
     pub fn new(keyword_token: &'a Token<'a>, name: Option<&'a Identifier<'a>>) -> Self {
         Self { node_id: None, keyword_token, name }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5717,6 +7097,18 @@ impl<'a> MethodDeclaration<'a> {
             body,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for MethodDeclaration<'_> {
@@ -5788,6 +7180,18 @@ impl<'a> MethodSignatureDeclaration<'a> {
             full_signature,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for MethodSignatureDeclaration<'_> {
@@ -5830,6 +7234,18 @@ impl<'a> MissingDeclaration<'a> {
     pub fn new(modifiers: &'a [ModifierLike<'a>]) -> Self {
         Self { node_id: None, modifiers }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for MissingDeclaration<'_> {
@@ -5871,6 +7287,18 @@ impl<'a> ModuleBlock<'a> {
     #[must_use]
     pub fn new(statements: &'a [Statement<'a>]) -> Self {
         Self { node_id: None, statements }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -5928,6 +7356,18 @@ impl<'a> ModuleDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, keyword, name, body, asterisk_token }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ModuleDeclaration<'_> {
@@ -5970,6 +7410,18 @@ impl<'a> NamedExports<'a> {
     pub fn new(elements: &'a [&'a ExportSpecifier<'a>]) -> Self {
         Self { node_id: None, elements }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for NamedExports<'_> {
@@ -6011,6 +7463,18 @@ impl<'a> NamedImports<'a> {
     #[must_use]
     pub fn new(elements: &'a [&'a ImportSpecifier<'a>]) -> Self {
         Self { node_id: None, elements }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6065,6 +7529,18 @@ impl<'a> NamedTupleMember<'a> {
     ) -> Self {
         Self { node_id: None, dot_dot_dot_token, name, question_token, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for NamedTupleMember<'_> {
@@ -6106,6 +7582,18 @@ impl<'a> NamespaceExport<'a> {
     #[must_use]
     pub fn new(name: Option<ModuleExportName<'a>>) -> Self {
         Self { node_id: None, name }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6151,6 +7639,18 @@ impl<'a> NamespaceExportDeclaration<'a> {
     pub fn new(modifiers: &'a [ModifierLike<'a>], name: Option<&'a Identifier<'a>>) -> Self {
         Self { node_id: None, modifiers, name }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for NamespaceExportDeclaration<'_> {
@@ -6192,6 +7692,18 @@ impl<'a> NamespaceImport<'a> {
     #[must_use]
     pub fn new(name: Option<&'a Identifier<'a>>) -> Self {
         Self { node_id: None, name }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6242,6 +7754,18 @@ impl<'a> NewExpression<'a> {
         arguments: &'a [Expression<'a>],
     ) -> Self {
         Self { node_id: None, expression, type_arguments, arguments }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6296,6 +7820,18 @@ impl<'a> NoSubstitutionTemplateLiteral<'a> {
     ) -> Self {
         Self { node_id: None, text, template_flags, token_flags, raw_text }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for NoSubstitutionTemplateLiteral<'_> {
@@ -6337,6 +7873,18 @@ impl<'a> NonNullExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6381,6 +7929,18 @@ impl NotEmittedStatement<'_> {
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for NotEmittedStatement<'_> {
@@ -6423,6 +7983,18 @@ impl NotEmittedTypeElement<'_> {
     #[must_use]
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6468,6 +8040,18 @@ impl<'a> NumericLiteral<'a> {
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
         Self { node_id: None, text, token_flags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for NumericLiteral<'_> {
@@ -6512,6 +8096,18 @@ impl<'a> ObjectLiteralExpression<'a> {
     pub fn new(properties: &'a [ObjectLiteralElementLike<'a>], multi_line: bool) -> Self {
         Self { node_id: None, properties, multi_line }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ObjectLiteralExpression<'_> {
@@ -6555,6 +8151,18 @@ impl OmittedExpression<'_> {
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for OmittedExpression<'_> {
@@ -6596,6 +8204,18 @@ impl<'a> OptionalTypeNode<'a> {
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6664,6 +8284,18 @@ impl<'a> ParameterDeclaration<'a> {
             initializer,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ParameterDeclaration<'_> {
@@ -6705,6 +8337,18 @@ impl<'a> ParenthesizedExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6748,6 +8392,18 @@ impl<'a> ParenthesizedTypeNode<'a> {
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ParenthesizedTypeNode<'_> {
@@ -6789,6 +8445,18 @@ impl<'a> PartiallyEmittedExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6834,6 +8502,18 @@ impl<'a> PostfixUnaryExpression<'a> {
     pub fn new(operand: Option<Expression<'a>>, operator: &'a Token<'a>) -> Self {
         Self { node_id: None, operand, operator }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for PostfixUnaryExpression<'_> {
@@ -6878,6 +8558,18 @@ impl<'a> PrefixUnaryExpression<'a> {
     pub fn new(operator: &'a Token<'a>, operand: Option<Expression<'a>>) -> Self {
         Self { node_id: None, operator, operand }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for PrefixUnaryExpression<'_> {
@@ -6919,6 +8611,18 @@ impl<'a> PrivateIdentifier<'a> {
     #[must_use]
     pub fn new(text: &'a str) -> Self {
         Self { node_id: None, text }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -6969,6 +8673,18 @@ impl<'a> PropertyAccessExpression<'a> {
         name: Option<MemberName<'a>>,
     ) -> Self {
         Self { node_id: None, expression, question_dot_token, name }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7026,6 +8742,18 @@ impl<'a> PropertyAssignment<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, name, postfix_token, r#type, initializer }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for PropertyAssignment<'_> {
@@ -7081,6 +8809,18 @@ impl<'a> PropertyDeclaration<'a> {
         initializer: Option<Expression<'a>>,
     ) -> Self {
         Self { node_id: None, modifiers, name, postfix_token, r#type, initializer }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7138,6 +8878,18 @@ impl<'a> PropertySignatureDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, name, postfix_token, r#type, initializer }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for PropertySignatureDeclaration<'_> {
@@ -7181,6 +8933,18 @@ impl<'a> QualifiedName<'a> {
     #[must_use]
     pub fn new(left: Option<EntityName<'a>>, right: Option<&'a Identifier<'a>>) -> Self {
         Self { node_id: None, left, right }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7226,6 +8990,18 @@ impl<'a> RegularExpressionLiteral<'a> {
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
         Self { node_id: None, text, token_flags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for RegularExpressionLiteral<'_> {
@@ -7268,6 +9044,18 @@ impl<'a> RestTypeNode<'a> {
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for RestTypeNode<'_> {
@@ -7309,6 +9097,18 @@ impl<'a> ReturnStatement<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7354,6 +9154,18 @@ impl<'a> SatisfiesExpression<'a> {
     pub fn new(expression: Option<Expression<'a>>, r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, expression, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for SatisfiesExpression<'_> {
@@ -7396,6 +9208,18 @@ impl SemicolonClassElement<'_> {
     #[must_use]
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7476,6 +9300,18 @@ impl<'a> SetAccessorDeclaration<'a> {
             asterisk_token,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for SetAccessorDeclaration<'_> {
@@ -7543,6 +9379,18 @@ impl<'a> ShorthandPropertyAssignment<'a> {
             object_assignment_initializer,
         }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ShorthandPropertyAssignment<'_> {
@@ -7587,6 +9435,18 @@ impl<'a> SourceFile<'a> {
     pub fn new(statements: &'a [Statement<'a>], end_of_file_token: &'a Token<'a>) -> Self {
         Self { node_id: None, statements, end_of_file_token }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for SourceFile<'_> {
@@ -7629,6 +9489,18 @@ impl<'a> SpreadAssignment<'a> {
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for SpreadAssignment<'_> {
@@ -7670,6 +9542,18 @@ impl<'a> SpreadElement<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7715,6 +9599,18 @@ impl<'a> StringLiteral<'a> {
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
         Self { node_id: None, text, token_flags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for StringLiteral<'_> {
@@ -7759,6 +9655,18 @@ impl<'a> SwitchStatement<'a> {
     pub fn new(expression: Option<Expression<'a>>, case_block: Option<&'a CaseBlock<'a>>) -> Self {
         Self { node_id: None, expression, case_block }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for SwitchStatement<'_> {
@@ -7800,6 +9708,18 @@ impl<'a> SyntaxList<'a> {
     #[must_use]
     pub fn new(children: &'a [Node<'a>]) -> Self {
         Self { node_id: None, children }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7847,6 +9767,18 @@ impl<'a> SyntheticExpression<'a> {
     pub fn new(r#type: Node<'a>, is_spread: bool, tuple_name_source: Option<Node<'a>>) -> Self {
         Self { node_id: None, r#type, is_spread, tuple_name_source }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for SyntheticExpression<'_> {
@@ -7890,6 +9822,18 @@ impl<'a> SyntheticReferenceExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, this_arg: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression, this_arg }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -7944,6 +9888,18 @@ impl<'a> TaggedTemplateExpression<'a> {
     ) -> Self {
         Self { node_id: None, tag, question_dot_token, type_arguments, template }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TaggedTemplateExpression<'_> {
@@ -7990,6 +9946,18 @@ impl<'a> TemplateExpression<'a> {
         template_spans: &'a [&'a TemplateSpan<'a>],
     ) -> Self {
         Self { node_id: None, head, template_spans }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8044,6 +10012,18 @@ impl<'a> TemplateHead<'a> {
     ) -> Self {
         Self { node_id: None, text, raw_text, template_flags, token_flags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TemplateHead<'_> {
@@ -8091,6 +10071,18 @@ impl<'a> TemplateLiteralTypeNode<'a> {
     ) -> Self {
         Self { node_id: None, head, template_spans }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TemplateLiteralTypeNode<'_> {
@@ -8134,6 +10126,18 @@ impl<'a> TemplateLiteralTypeSpan<'a> {
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>, literal: Option<TemplateMiddleOrTail<'a>>) -> Self {
         Self { node_id: None, r#type, literal }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8188,6 +10192,18 @@ impl<'a> TemplateMiddle<'a> {
     ) -> Self {
         Self { node_id: None, text, raw_text, template_flags, token_flags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TemplateMiddle<'_> {
@@ -8234,6 +10250,18 @@ impl<'a> TemplateSpan<'a> {
         literal: Option<TemplateMiddleOrTail<'a>>,
     ) -> Self {
         Self { node_id: None, expression, literal }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8288,6 +10316,18 @@ impl<'a> TemplateTail<'a> {
     ) -> Self {
         Self { node_id: None, text, raw_text, template_flags, token_flags }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TemplateTail<'_> {
@@ -8331,6 +10371,18 @@ impl ThisTypeNode<'_> {
     pub fn new() -> Self {
         Self { node_id: None, _marker: std::marker::PhantomData }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for ThisTypeNode<'_> {
@@ -8372,6 +10424,18 @@ impl<'a> ThrowStatement<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8423,6 +10487,18 @@ impl<'a> TryStatement<'a> {
     ) -> Self {
         Self { node_id: None, try_block, catch_clause, finally_block }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TryStatement<'_> {
@@ -8464,6 +10540,18 @@ impl<'a> TupleTypeNode<'a> {
     #[must_use]
     pub fn new(elements: &'a [TypeNode<'a>]) -> Self {
         Self { node_id: None, elements }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8518,6 +10606,18 @@ impl<'a> TypeAliasDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, name, type_parameters, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TypeAliasDeclaration<'_> {
@@ -8562,6 +10662,18 @@ impl<'a> TypeAssertion<'a> {
     pub fn new(r#type: Option<TypeNode<'a>>, expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, r#type, expression }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TypeAssertion<'_> {
@@ -8604,6 +10716,18 @@ impl<'a> TypeLiteralNode<'a> {
     pub fn new(members: &'a [TypeElement<'a>]) -> Self {
         Self { node_id: None, members }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TypeLiteralNode<'_> {
@@ -8645,6 +10769,18 @@ impl<'a> TypeOfExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8689,6 +10825,18 @@ impl<'a> TypeOperatorNode<'a> {
     #[must_use]
     pub fn new(operator: &'a Token<'a>, r#type: Option<TypeNode<'a>>) -> Self {
         Self { node_id: None, operator, r#type }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8746,6 +10894,18 @@ impl<'a> TypeParameterDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, name, constraint, expression, default_type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TypeParameterDeclaration<'_> {
@@ -8796,6 +10956,18 @@ impl<'a> TypePredicateNode<'a> {
     ) -> Self {
         Self { node_id: None, asserts_modifier, parameter_name, r#type }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TypePredicateNode<'_> {
@@ -8839,6 +11011,18 @@ impl<'a> TypeQueryNode<'a> {
     #[must_use]
     pub fn new(expr_name: Option<EntityName<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
         Self { node_id: None, expr_name, type_arguments }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8884,6 +11068,18 @@ impl<'a> TypeReferenceNode<'a> {
     pub fn new(type_name: Option<EntityName<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
         Self { node_id: None, type_name, type_arguments }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for TypeReferenceNode<'_> {
@@ -8925,6 +11121,18 @@ impl<'a> UnionTypeNode<'a> {
     #[must_use]
     pub fn new(types: &'a [TypeNode<'a>]) -> Self {
         Self { node_id: None, types }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -8979,6 +11187,18 @@ impl<'a> VariableDeclaration<'a> {
     ) -> Self {
         Self { node_id: None, name, exclamation_token, r#type, initializer }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for VariableDeclaration<'_> {
@@ -9020,6 +11240,18 @@ impl<'a> VariableDeclarationList<'a> {
     #[must_use]
     pub fn new(declarations: &'a [&'a VariableDeclaration<'a>]) -> Self {
         Self { node_id: None, declarations }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -9068,6 +11300,18 @@ impl<'a> VariableStatement<'a> {
     ) -> Self {
         Self { node_id: None, modifiers, declaration_list }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for VariableStatement<'_> {
@@ -9109,6 +11353,18 @@ impl<'a> VoidExpression<'a> {
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 
@@ -9154,6 +11410,18 @@ impl<'a> WhileStatement<'a> {
     pub fn new(expression: Option<Expression<'a>>, statement: Statement<'a>) -> Self {
         Self { node_id: None, expression, statement }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for WhileStatement<'_> {
@@ -9198,6 +11466,18 @@ impl<'a> WithStatement<'a> {
     pub fn new(expression: Option<Expression<'a>>, statement: Option<Statement<'a>>) -> Self {
         Self { node_id: None, expression, statement }
     }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
+    }
 }
 
 impl crate::HasNodeId for WithStatement<'_> {
@@ -9241,6 +11521,18 @@ impl<'a> YieldExpression<'a> {
     #[must_use]
     pub fn new(asterisk_token: Option<&'a Token<'a>>, expression: Option<Expression<'a>>) -> Self {
         Self { node_id: None, asterisk_token, expression }
+    }
+
+    /// The id the parser registered this node under; `None` until it
+    /// does.
+    ///
+    /// Read ids through this, not the field: ADR-0056 changes the
+    /// field's type behind it, and the field becomes private once
+    /// no reader outside `tsr-ast` remains.
+    #[inline]
+    #[must_use]
+    pub fn node_id(&self) -> Option<NodeId> {
+        self.node_id
     }
 }
 

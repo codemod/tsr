@@ -13190,7 +13190,11 @@ impl Checker<'_, '_> {
     /// One helper rather than one per caller: §675 split this test across two
     /// branches of one upstream function and the halves drifted for fourteen
     /// builds. §693.
-    fn alias_chain_carries(&mut self, symbol: tsr_binder::SymbolId, meaning: SymbolFlags) -> bool {
+    pub(crate) fn alias_chain_carries(
+        &mut self,
+        symbol: tsr_binder::SymbolId,
+        meaning: SymbolFlags,
+    ) -> bool {
         let mut at = Some(symbol);
         for _ in 0..MAX_ALIAS_HOPS {
             let Some(current) = at else { break };

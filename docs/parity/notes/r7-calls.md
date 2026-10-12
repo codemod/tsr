@@ -1356,6 +1356,45 @@ the walk's failure answer takes it when the call has written type
 arguments. genericCombinators2 becomes exact (TS2345 at the callback,
 `r5a: Collection<any, any>`).
 
+## 43. A JSDoc name that resolves only as a value is TS2749
+
+`check_type_reference_name` declined every name inside a JSDoc comment
+(r6-names §6). Lifting the whole decline cost 6 cases, all on the TS2304
+rung: typedef placement, `import()` types and `@callback` names still
+resolve differently from native. The meaning arms of `onFailedToResolveSymbol`
+(`checker.go:1564`) are a different question. TS2709
+(`checkAndReportErrorForUsingNamespaceAsTypeOrValue`) and TS2749
+(`checkAndReportErrorForUsingValueAsType`, `checker.go:1722`) fire only when
+the name **does** resolve, under a meaning the position does not want.
+tsgo has no JS value-as-type fallback: Strada's `getTypeFromJSDocValueReference`
+and `@enum` are gone, and `resolveTypeReferenceName` (`checker.go:23087`) is
+one `resolveEntityName` at the type meaning. So `@param {Image}`,
+`@type {Thing}` for an `@enum` const, and a constructor-function name used
+as a type are all TS2749 natively. This was the second bucket of the JS/JSDoc
+rank on main `f4117160` (33 cases missing a TS2749).
+
+The JSDoc arm of `check_type_reference_name` now calls
+`report_jsdoc_meaning_mismatch` (`jsdoc_checks.rs`) and returns. The new
+function keeps the same shape tests as the TypeScript path: an identifier
+that is a `TypeReferenceNode`'s whole type name, and silence when the
+`TYPE` lookup's alias chain carries `TYPE`. It then runs
+`report_meaning_mismatch_in_type_position`. The TS2304 rung stays declined.
+
+A qualified JSDoc name (`@type {Ns.One}`, `jsEnumCrossFileExport`) is not
+covered. Its TS2749 comes from `resolveQualifiedName`'s right-hand lookup,
+which `check_type_reference_name` never reaches for either language.
+
+Consumer hunks under the default grant (same root):
+
+- `check.rs::check_type_reference_name` splits the JSDoc half out of the
+  early return.
+- `check.rs::alias_chain_carries` becomes `pub(crate)`.
+
+**Falsifier.** A JS baseline where a JSDoc type name resolves only as a
+value and native reports nothing. That would mean tsgo kept a value-as-type
+path for that declaration kind. The CommonJS `require` class alias is the
+candidate, and the alias-chain test is what keeps it silent here.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

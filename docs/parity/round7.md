@@ -1305,3 +1305,18 @@ previous freeze: types +42 RIGHT / 0 lost / 0 missing, diagnostics +2 cases / 0 
 | `checker_types_configured` | 1,853 | 1,853 |
 | `diagnostics` | 5,127 | 5,129 |
 | `diagnostics_configured` | 1,036 | 1,036 |
+
+### Batch 80 — r7-calls `62fefad4`, r7-flow `06968dce`, r7-perf `6c0efed2`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **11225 / 12797 EXACT (87.72%)**, 18 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +0 RIGHT / 0 lost / 0 missing, diagnostics +0 cases / 0 lost / 0 missing. jsTyping 100 → 100 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 0.9999, domain-model 1.0001. No suite's failure count rose.
+
+| Suite | Before | Batch 80 |
+|---|---|---|
+| `checker_types` | 9,061 | 9,061 |
+| `checker_types_configured` | 1,853 | 1,853 |
+| `diagnostics` | 5,129 | 5,129 |
+| `diagnostics_configured` | 1,036 | 1,036 |
+
+r7-grammar conflicted in `check.rs` once r7-calls merged, so it was skipped. The other three lanes passed every leg and were landed by hand; the loop now skips a conflicting lane instead of blocking the batch.

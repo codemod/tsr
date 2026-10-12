@@ -412,7 +412,6 @@ impl Node<'_> {
     /// does at construction; in a finished tree this is always `Some`.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             Node::ArrayLiteralExpression(n) => n.node_id(),
             Node::ArrayTypeNode(n) => n.node_id(),
@@ -617,7 +616,6 @@ impl Node<'_> {
     /// absent, or when it is a list — there is no single id to return.
     #[must_use]
     pub fn name_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             Node::BindingElement(n) => n.name?.node_id(),
             Node::ClassDeclaration(n) => n.name?.node_id(),
@@ -864,7 +862,6 @@ impl AccessExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             AccessExpression::ElementAccessExpression(n) => n.node_id(),
             AccessExpression::PropertyAccessExpression(n) => n.node_id(),
@@ -910,7 +907,6 @@ impl AccessorDeclaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             AccessorDeclaration::GetAccessorDeclaration(n) => n.node_id(),
             AccessorDeclaration::SetAccessorDeclaration(n) => n.node_id(),
@@ -956,7 +952,6 @@ impl AnyImportSyntax<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             AnyImportSyntax::ImportDeclaration(n) => n.node_id(),
             AnyImportSyntax::ImportEqualsDeclaration(n) => n.node_id(),
@@ -1002,7 +997,6 @@ impl ArrayBindingElement<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ArrayBindingElement::BindingElement(n) => n.node_id(),
             ArrayBindingElement::OmittedExpression(n) => n.node_id(),
@@ -1046,7 +1040,6 @@ impl ArrayDestructuringAssignment<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ArrayDestructuringAssignment::BinaryExpression(n) => n.node_id(),
         }
@@ -1089,7 +1082,6 @@ impl AssertionExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             AssertionExpression::AsExpression(n) => n.node_id(),
             AssertionExpression::TypeAssertion(n) => n.node_id(),
@@ -1135,7 +1127,6 @@ impl BindingName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             BindingName::BindingPattern(n) => n.node_id(),
             BindingName::Identifier(n) => n.node_id(),
@@ -1279,7 +1270,6 @@ impl BlockOrExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             BlockOrExpression::ArrayLiteralExpression(n) => n.node_id(),
             BlockOrExpression::ArrowFunction(n) => n.node_id(),
@@ -1484,7 +1474,6 @@ impl BooleanLiteral<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             BooleanLiteral::KeywordExpression(n) => n.node_id(),
         }
@@ -1527,7 +1516,6 @@ impl BreakOrContinueStatement<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             BreakOrContinueStatement::BreakStatement(n) => n.node_id(),
             BreakOrContinueStatement::ContinueStatement(n) => n.node_id(),
@@ -1583,7 +1571,6 @@ impl CallLikeExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             CallLikeExpression::BinaryExpression(n) => n.node_id(),
             CallLikeExpression::CallExpression(n) => n.node_id(),
@@ -1646,7 +1633,6 @@ impl CallOrNewExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             CallOrNewExpression::CallExpression(n) => n.node_id(),
             CallOrNewExpression::NewExpression(n) => n.node_id(),
@@ -1704,7 +1690,6 @@ impl ClassElement<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ClassElement::ClassStaticBlockDeclaration(n) => n.node_id(),
             ClassElement::ConstructorDeclaration(n) => n.node_id(),
@@ -1770,7 +1755,6 @@ impl ClassLikeDeclaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ClassLikeDeclaration::ClassDeclaration(n) => n.node_id(),
             ClassLikeDeclaration::ClassExpression(n) => n.node_id(),
@@ -1914,7 +1898,6 @@ impl ConciseBody<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ConciseBody::ArrayLiteralExpression(n) => n.node_id(),
             ConciseBody::ArrowFunction(n) => n.node_id(),
@@ -2215,7 +2198,6 @@ impl Declaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             Declaration::ArrowFunction(n) => n.node_id(),
             Declaration::BinaryExpression(n) => n.node_id(),
@@ -2437,7 +2419,6 @@ impl DeclarationName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             DeclarationName::BigIntLiteral(n) => n.node_id(),
             DeclarationName::BindingPattern(n) => n.node_id(),
@@ -2506,7 +2487,6 @@ impl DestructuringAssignment<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             DestructuringAssignment::BinaryExpression(n) => n.node_id(),
         }
@@ -2549,7 +2529,6 @@ impl EntityName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             EntityName::Identifier(n) => n.node_id(),
             EntityName::QualifiedName(n) => n.node_id(),
@@ -2691,7 +2670,6 @@ impl Expression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             Expression::ArrayLiteralExpression(n) => n.node_id(),
             Expression::ArrowFunction(n) => n.node_id(),
@@ -2985,7 +2963,6 @@ impl ForInitializer<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ForInitializer::ArrayLiteralExpression(n) => n.node_id(),
             ForInitializer::ArrowFunction(n) => n.node_id(),
@@ -3191,7 +3168,6 @@ impl FunctionBody<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             FunctionBody::Block(n) => n.node_id(),
         }
@@ -3244,7 +3220,6 @@ impl FunctionLikeDeclaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             FunctionLikeDeclaration::ArrowFunction(n) => n.node_id(),
             FunctionLikeDeclaration::ConstructorDeclaration(n) => n.node_id(),
@@ -3311,7 +3286,6 @@ impl ImportAttributeName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ImportAttributeName::Identifier(n) => n.node_id(),
             ImportAttributeName::StringLiteral(n) => n.node_id(),
@@ -3357,7 +3331,6 @@ impl ImportClauseOrBindingPattern<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ImportClauseOrBindingPattern::BindingPattern(n) => n.node_id(),
             ImportClauseOrBindingPattern::ImportClause(n) => n.node_id(),
@@ -3453,7 +3426,6 @@ impl IncrementExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             IncrementExpression::ArrayLiteralExpression(n) => n.node_id(),
             IncrementExpression::BigIntLiteral(n) => n.node_id(),
@@ -3592,7 +3564,6 @@ impl JSDocComment<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JSDocComment::JSDocLink(n) => n.node_id(),
             JSDocComment::JSDocLinkCode(n) => n.node_id(),
@@ -3644,7 +3615,6 @@ impl JSDocFullName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JSDocFullName::Identifier(n) => n.node_id(),
             JSDocFullName::ModuleDeclaration(n) => n.node_id(),
@@ -3728,7 +3698,6 @@ impl JSDocTag<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JSDocTag::JSDocAugmentsTag(n) => n.node_id(),
             JSDocTag::JSDocCallbackTag(n) => n.node_id(),
@@ -3831,7 +3800,6 @@ impl JsxAttributeLike<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JsxAttributeLike::JsxAttribute(n) => n.node_id(),
             JsxAttributeLike::JsxSpreadAttribute(n) => n.node_id(),
@@ -3877,7 +3845,6 @@ impl JsxAttributeName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JsxAttributeName::Identifier(n) => n.node_id(),
             JsxAttributeName::JsxNamespacedName(n) => n.node_id(),
@@ -3929,7 +3896,6 @@ impl JsxAttributeValue<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JsxAttributeValue::JsxElement(n) => n.node_id(),
             JsxAttributeValue::JsxExpression(n) => n.node_id(),
@@ -3990,7 +3956,6 @@ impl JsxChild<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JsxChild::JsxElement(n) => n.node_id(),
             JsxChild::JsxExpression(n) => n.node_id(),
@@ -4045,7 +4010,6 @@ impl JsxOpeningLikeElement<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JsxOpeningLikeElement::JsxOpeningElement(n) => n.node_id(),
             JsxOpeningLikeElement::JsxSelfClosingElement(n) => n.node_id(),
@@ -4095,7 +4059,6 @@ impl JsxTagNameExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             JsxTagNameExpression::Identifier(n) => n.node_id(),
             JsxTagNameExpression::JsxNamespacedName(n) => n.node_id(),
@@ -4195,7 +4158,6 @@ impl LeftHandSideExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             LeftHandSideExpression::ArrayLiteralExpression(n) => n.node_id(),
             LeftHandSideExpression::BigIntLiteral(n) => n.node_id(),
@@ -4344,7 +4306,6 @@ impl LiteralExpression<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             LiteralExpression::BigIntLiteral(n) => n.node_id(),
             LiteralExpression::NoSubstitutionTemplateLiteral(n) => n.node_id(),
@@ -4411,7 +4372,6 @@ impl LiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             LiteralLikeNode::BigIntLiteral(n) => n.node_id(),
             LiteralLikeNode::JsxText(n) => n.node_id(),
@@ -4477,7 +4437,6 @@ impl LiteralToken<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             LiteralToken::BigIntLiteral(n) => n.node_id(),
             LiteralToken::JsxText(n) => n.node_id(),
@@ -4539,7 +4498,6 @@ impl MemberName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             MemberName::Identifier(n) => n.node_id(),
             MemberName::PrivateIdentifier(n) => n.node_id(),
@@ -4583,7 +4541,6 @@ impl Modifier<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             Modifier::Token(n) => n.node_id(),
         }
@@ -4626,7 +4583,6 @@ impl ModifierLike<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ModifierLike::Decorator(n) => n.node_id(),
             ModifierLike::Token(n) => n.node_id(),
@@ -4672,7 +4628,6 @@ impl ModuleBody<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ModuleBody::ModuleBlock(n) => n.node_id(),
             ModuleBody::ModuleDeclaration(n) => n.node_id(),
@@ -4718,7 +4673,6 @@ impl ModuleExportName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ModuleExportName::Identifier(n) => n.node_id(),
             ModuleExportName::StringLiteral(n) => n.node_id(),
@@ -4764,7 +4718,6 @@ impl ModuleName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ModuleName::Identifier(n) => n.node_id(),
             ModuleName::StringLiteral(n) => n.node_id(),
@@ -4812,7 +4765,6 @@ impl ModuleReference<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ModuleReference::ExternalModuleReference(n) => n.node_id(),
             ModuleReference::Identifier(n) => n.node_id(),
@@ -4861,7 +4813,6 @@ impl NamedExportBindings<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             NamedExportBindings::NamedExports(n) => n.node_id(),
             NamedExportBindings::NamespaceExport(n) => n.node_id(),
@@ -4907,7 +4858,6 @@ impl NamedImportBindings<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             NamedImportBindings::NamedImports(n) => n.node_id(),
             NamedImportBindings::NamespaceImport(n) => n.node_id(),
@@ -4953,7 +4903,6 @@ impl NamedImportsOrExports<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             NamedImportsOrExports::NamedExports(n) => n.node_id(),
             NamedImportsOrExports::NamedImports(n) => n.node_id(),
@@ -5101,7 +5050,6 @@ impl NodeBody<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             NodeBody::ArrayLiteralExpression(n) => n.node_id(),
             NodeBody::ArrowFunction(n) => n.node_id(),
@@ -5304,7 +5252,6 @@ impl NumericOrStringLikeLiteral<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             NumericOrStringLikeLiteral::NoSubstitutionTemplateLiteral(n) => n.node_id(),
             NumericOrStringLikeLiteral::NumericLiteral(n) => n.node_id(),
@@ -5355,7 +5302,6 @@ impl ObjectDestructuringAssignment<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ObjectDestructuringAssignment::BinaryExpression(n) => n.node_id(),
         }
@@ -5408,7 +5354,6 @@ impl ObjectLiteralElement<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ObjectLiteralElement::GetAccessorDeclaration(n) => n.node_id(),
             ObjectLiteralElement::JsxSpreadAttribute(n) => n.node_id(),
@@ -5481,7 +5426,6 @@ impl ObjectLiteralElementLike<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ObjectLiteralElementLike::GetAccessorDeclaration(n) => n.node_id(),
             ObjectLiteralElementLike::MethodDeclaration(n) => n.node_id(),
@@ -5547,7 +5491,6 @@ impl ObjectLiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ObjectLiteralLikeNode::BindingPattern(n) => n.node_id(),
             ObjectLiteralLikeNode::ObjectLiteralExpression(n) => n.node_id(),
@@ -5599,7 +5542,6 @@ impl ObjectTypeDeclaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             ObjectTypeDeclaration::ClassDeclaration(n) => n.node_id(),
             ObjectTypeDeclaration::ClassExpression(n) => n.node_id(),
@@ -5661,7 +5603,6 @@ impl PropertyName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             PropertyName::BigIntLiteral(n) => n.node_id(),
             PropertyName::ComputedPropertyName(n) => n.node_id(),
@@ -5728,7 +5669,6 @@ impl PropertyNameLiteral<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             PropertyNameLiteral::Identifier(n) => n.node_id(),
             PropertyNameLiteral::NumericLiteral(n) => n.node_id(),
@@ -5775,7 +5715,6 @@ impl PseudoLiteralToken<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             PseudoLiteralToken::Token(n) => n.node_id(),
         }
@@ -5840,7 +5779,6 @@ impl SignatureDeclaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             SignatureDeclaration::ArrowFunction(n) => n.node_id(),
             SignatureDeclaration::CallSignatureDeclaration(n) => n.node_id(),
@@ -5993,7 +5931,6 @@ impl Statement<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             Statement::Block(n) => n.node_id(),
             Statement::BreakStatement(n) => n.node_id(),
@@ -6129,7 +6066,6 @@ impl StringLiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             StringLiteralLikeNode::NoSubstitutionTemplateLiteral(n) => n.node_id(),
             StringLiteralLikeNode::StringLiteral(n) => n.node_id(),
@@ -6179,7 +6115,6 @@ impl TemplateLiteral<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             TemplateLiteral::NoSubstitutionTemplateLiteral(n) => n.node_id(),
             TemplateLiteral::TemplateExpression(n) => n.node_id(),
@@ -6227,7 +6162,6 @@ impl TemplateLiteralLikeNode<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             TemplateLiteralLikeNode::Token(n) => n.node_id(),
         }
@@ -6270,7 +6204,6 @@ impl TemplateLiteralToken<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             TemplateLiteralToken::NoSubstitutionTemplateLiteral(n) => n.node_id(),
             TemplateLiteralToken::Token(n) => n.node_id(),
@@ -6320,7 +6253,6 @@ impl TemplateMiddleOrTail<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             TemplateMiddleOrTail::TemplateMiddle(n) => n.node_id(),
             TemplateMiddleOrTail::TemplateTail(n) => n.node_id(),
@@ -6378,7 +6310,6 @@ impl TypeElement<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             TypeElement::CallSignatureDeclaration(n) => n.node_id(),
             TypeElement::ConstructSignatureDeclaration(n) => n.node_id(),
@@ -6510,7 +6441,6 @@ impl TypeNode<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             TypeNode::ArrayTypeNode(n) => n.node_id(),
             TypeNode::ConditionalTypeNode(n) => n.node_id(),
@@ -6652,7 +6582,6 @@ impl TypePredicateParameterName<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             TypePredicateParameterName::Identifier(n) => n.node_id(),
             TypePredicateParameterName::ThisTypeNode(n) => n.node_id(),
@@ -6698,7 +6627,6 @@ impl UnionOrIntersectionTypeNode<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             UnionOrIntersectionTypeNode::IntersectionTypeNode(n) => n.node_id(),
             UnionOrIntersectionTypeNode::UnionTypeNode(n) => n.node_id(),
@@ -6746,7 +6674,6 @@ impl VariableOrParameterDeclaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             VariableOrParameterDeclaration::ParameterDeclaration(n) => n.node_id(),
             VariableOrParameterDeclaration::VariableDeclaration(n) => n.node_id(),
@@ -6798,7 +6725,6 @@ impl VariableOrPropertyDeclaration<'_> {
     /// The id assigned when the parser registered this node.
     #[must_use]
     pub fn node_id(&self) -> Option<crate::NodeId> {
-        use crate::HasNodeId as _;
         match self {
             VariableOrPropertyDeclaration::PropertyDeclaration(n) => n.node_id(),
             VariableOrPropertyDeclaration::VariableDeclaration(n) => n.node_id(),

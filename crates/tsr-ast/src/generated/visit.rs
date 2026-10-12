@@ -5614,9 +5614,6 @@ pub fn for_each_child<'a>(node: Node<'a>, mut f: impl FnMut(Node<'a>)) {
 /// Children that were never registered are skipped. Does not recurse, and
 /// does not build an intermediate collection.
 pub fn for_each_child_id(node: Node<'_>, mut f: impl FnMut(crate::NodeId)) {
-    // Concrete nodes carry a `node_id` *field*; without the trait in scope
-    // `child.node_id()` resolves to that field rather than the accessor.
-    use crate::HasNodeId as _;
     match node {
         Node::ArrayLiteralExpression(n) => {
             for child in n.elements {

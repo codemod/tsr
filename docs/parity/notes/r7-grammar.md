@@ -1900,3 +1900,28 @@ Three corrections to §74, from the exact oracle:
 
 Checked with `--pretty true` against `target/tsgo-pinned`: `typeOnlyMerge2`,
 `importEquals1`, `filterNamespace_import`, and the §74 cases.
+
+## §86 Merging r7-calls §43 into the JSDoc type-name lift
+
+r7-calls §43 (main `62fefad4f`) and this lane's JSDoc type-name lift
+(§80 `is_intended_jsdoc_type_reference_name`) changed the same early return
+in `check.rs::check_type_reference_name`. §43 kept declining a JSDoc name
+after `jsdoc_checks.rs::report_jsdoc_meaning_mismatch` had run the meaning
+arms. The lift declines only the names `getIntendedTypeFromJSDocTypeReference`
+answers and sends every other JSDoc name through the whole cascade. That
+cascade runs the same three tests in the same order: the whole type name of a
+`TypeReferenceNode`, silence when the `TYPE` lookup's alias chain carries
+`TYPE`, then `report_meaning_mismatch_in_type_position`. So the lift covers
+§43, and the merge keeps the lift.
+
+`report_jsdoc_meaning_mismatch` is left with no caller, and it is removed in
+the merge (`jsdoc_checks.rs`, a consumer hunk under the default grant). Its
+measured cases come from the cascade's meaning rung. All 27 JS baselines with
+a `.js` TS2749 line were checked against the merged binary. Three still
+differ on TS2749: `commonJSImportNestedClassTypeReference`, `importTag17` and
+`jsDeclarationsReferenceToClassInstanceCrossFile`. All three were already in
+this lane's pre-merge `-2749` list, so no TS2749 line moved.
+
+**Falsifier.** A case §43 gained and the merged binary loses. That would mean
+the cascade declines before its meaning rung somewhere §43's direct call did
+not.

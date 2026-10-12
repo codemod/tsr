@@ -40,7 +40,7 @@ Amp-Thread-ID: https://ampcode.com/threads/T-01a12477-cad4-767b-9d14-9bb9aa372e7
   grep -q '^TEST_EXIT 0' $g || fail="$fail test"
   grep -q 'new_false=0 lost_true=0' $g || fail="$fail jstyping"
   grep -q '^ORACLE_EXIT 0' $g || fail="$fail oracle"
-  grep -q '^CONFLICT b' $g && fail="$fail conflict"
+  # a conflicting lane is skipped by gate.sh (CONFLICT line) and stays for its owner
   for r in $(grep '^IR ' $g | sed 's/.*ratio=//'); do
     python3 -c "import sys; sys.exit(0 if float('$r') <= 1.005 else 1)" || fail="$fail ir:$r"
   done
