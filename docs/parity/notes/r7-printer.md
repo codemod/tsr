@@ -1407,3 +1407,25 @@ The visited check is `rendering_composites`. No cache or table.
 `object_member_plan_matches_source` would reshape r7-perf's certified plan
 for every spread literal. This road only re-prints slot texts and leaves
 member names, order and kinds as already printed.
+
+## 36. A synthesized object image's members are printed at the site too
+
+**Forcing constraint.** `legacyNodeModulesExportsSpecifierGenerationConditions`,
+3 lines: `(await import("inner"))` prints
+`{ x: () => import("./node_modules/inner/private").Thing; default: typeof import("inner"); }`
+natively; the port printed `x: () => Thing`.
+
+**Cause.** The module object of a dynamic import under the synthetic
+default (`getTypeWithSyntheticDefaultImportType`) is an owner-less image
+(`Named { members: None }` with complete properties). Its members kept their
+creation-time print, and no site road reached it.
+
+**The port.** §35's `spread_object_text_at` also admits an owner-less image,
+under the same guard: the rebuilt member list must reproduce the baked text
+exactly, and only plain property slots are re-printed. No cache or table.
+
+A resolved mapped object is excluded: it is owner-less too, but
+`mapped_object_text_at` prints it at the site later in the worker,
+computed keys included. The first cut pre-empted that road and lost
+`declarationEmitMappedTypeTemplateTypeofSymbol` 1:1/1:2
+(`[x.timestampSymbol]` printed `[timestampSymbol]`), at +51 / −2.

@@ -396,3 +396,54 @@ thing;
     );
     assert_has(&lines, &["thing : { klass: typeof stuff.klass; obj: { x: boolean; }; }"]);
 }
+
+/// The synthetic-default module object of a dynamic import prints its
+/// members at the site (`legacyNodeModulesExportsSpecifierGenerationConditions`'
+/// native baseline; r7-printer §36).
+#[test]
+fn a_synthetic_module_object_member_is_named_at_the_site() {
+    let lines = assertions(
+        "probe/synthetic_module_object_site",
+        r#"// @target: es2015
+// @module: commonjs
+// @lib: es2020
+// @declaration: true
+// @filename: index.ts
+export const a = async () => (await import("inner")).x();
+// @filename: node_modules/inner/index.d.ts
+export { x } from "./other.js";
+// @filename: node_modules/inner/other.d.ts
+import { Thing } from "./private.js"
+export const x: () => Thing;
+// @filename: node_modules/inner/private.d.ts
+export interface Thing {}
+// @filename: package.json
+{
+    "name": "package",
+    "private": true,
+    "type": "module",
+    "exports": "./index.js"
+}
+// @filename: node_modules/inner/package.json
+{
+    "name": "inner",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": {
+            "default": "./index.js"
+        },
+        "./other": {
+            "default": "./other.js"
+        }
+    }
+}
+"#,
+    );
+    assert_has(
+        &lines,
+        &[
+            "(await import(\"inner\")) : { x: () => import(\"./node_modules/inner/private\").Thing; default: typeof import(\"inner\"); }",
+        ],
+    );
+}

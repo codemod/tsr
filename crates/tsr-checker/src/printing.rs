@@ -267,19 +267,33 @@ impl Checker<'_, '_> {
     /// property member is re-printed at the site; methods, accessors,
     /// literal and intrinsic slots keep their print. No cache or table.
     fn spread_object_text_at(&mut self, id: TypeId, reference: tsr_ast::NodeId) -> Option<String> {
-        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+        let TypeData::Named { members: owner, .. } = self.store.get(id).data else {
             return None;
         };
-        let [declaration] = self.binder.symbols().get(owner).declarations.as_slice() else {
-            return None;
+        // A spread literal's image, or (§36) an owner-less synthesized one
+        // such as `getTypeWithSyntheticDefaultImportType`'s module object
+        // `{ x: …; default: typeof import("inner") }`.
+        let spread_or_synthetic = match owner {
+            None => true,
+            Some(owner) => {
+                let [declaration] = self.binder.symbols().get(owner).declarations.as_slice() else {
+                    return None;
+                };
+                let tsr_ast::Node::ObjectLiteralExpression(literal) =
+                    self.node_map.get(*declaration)?
+                else {
+                    return None;
+                };
+                literal.properties.iter().any(|element| {
+                    matches!(element, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+                })
+            }
         };
-        let tsr_ast::Node::ObjectLiteralExpression(literal) = self.node_map.get(*declaration)?
-        else {
-            return None;
-        };
-        if !literal.properties.iter().any(|element| {
-            matches!(element, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
-        }) || self.object_literal_index_infos.get(&id).is_some_and(|indices| !indices.is_empty())
+        // A resolved mapped object has its own site road
+        // (`mapped_object_text_at`), which names its keys too.
+        if !spread_or_synthetic
+            || self.mapped_types.contains_key(&id)
+            || self.object_literal_index_infos.get(&id).is_some_and(|indices| !indices.is_empty())
             || self.rendering_composites.contains(&id)
         {
             return None;
