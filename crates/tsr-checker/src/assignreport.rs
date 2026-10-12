@@ -6595,9 +6595,7 @@ impl Checker<'_, '_> {
         (callback, bivariant_callback): (bool, bool),
     ) -> Option<()> {
         use crate::relater::Ternary;
-        if source.this_parameter.is_some()
-            || target.this_parameter.is_some()
-            || source.predicate.is_some()
+        if source.predicate.is_some()
             || target.predicate.is_some()
             || source.parameters.iter().chain(&target.parameters).any(|parameter| parameter.rest)
         {
@@ -6635,6 +6633,39 @@ impl Checker<'_, '_> {
                     | SyntaxKind::MethodSignature
                     | SyntaxKind::Constructor
             );
+        // The `this` types (`relater.go:1505`): a `void` source `this`
+        // accepts anything; otherwise forward (unless strict), then reverse.
+        if let (Some(source_this), Some(target_this)) =
+            (&source.this_parameter, &target.this_parameter)
+        {
+            let source_this = self.parameter_type(source_this);
+            let target_this = self.parameter_type(target_this);
+            if source_this != self.intrinsics.void {
+                let forward = if strict_variance {
+                    Ternary::NotRelated
+                } else {
+                    self.chain_relate(stack, source_this, target_this)
+                };
+                match forward {
+                    Ternary::Related => {}
+                    Ternary::Unknown => return None,
+                    Ternary::NotRelated => {
+                        match self.chain_relate(stack, target_this, source_this) {
+                            Ternary::Related => {}
+                            Ternary::Unknown => return None,
+                            Ternary::NotRelated => {
+                                self.explain_pair(stack, target_this, source_this, depth)?;
+                                stack.push(ChainEntry {
+                                message: &messages::THE_THIS_TYPES_OF_EACH_SIGNATURE_ARE_INCOMPATIBLE,
+                                args: Vec::new(),
+                            });
+                                return Some(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for index in 0..source_count.max(target_count) {
             let (Some(source_type), Some(target_type)) = (
                 self.signature_type_at_position(source, index),

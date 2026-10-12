@@ -1804,3 +1804,13 @@ position mapping, `removeMissingType` and the variadic messages are not
 retraced. A readonly source against a mutable target also declines: the
 arm fails silently there, and `tryElaborateArrayLikeErrors` reports
 instead.
+
+## 53. `this` types in the chain
+
+`compareSignaturesRelated` (`relater.go:1505`) compares the `this` types
+before any parameter. A `void` source `this` accepts anything. Otherwise
+the pair is related forward (unless strict variance), then in reverse.
+The reverse failure is reported under `The 'this' types of each signature
+are incompatible.` `explain_signature` declined every signature with a
+`this` parameter; it now runs this arm. Only one side having `this` is
+not compared, as upstream does.
