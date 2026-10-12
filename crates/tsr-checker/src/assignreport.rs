@@ -7263,8 +7263,14 @@ impl Checker<'_, '_> {
         target: TypeId,
         name: &str,
     ) -> Option<bool> {
-        let source_property = self.get_property_of_type(source, name)?;
-        let target_property = self.get_property_of_type(target, name)?;
+        // A member whose symbol the port cannot name (an inherited member
+        // of an instantiated derived class) has no modifier to read; the
+        // relation that failed did not fail on one either.
+        let (Some(source_property), Some(target_property)) =
+            (self.get_property_of_type(source, name), self.get_property_of_type(target, name))
+        else {
+            return Some(false);
+        };
         let private = |checker: &Self, property| {
             checker.property_has_modifier(property, SyntaxKind::PrivateKeyword)
                 || name.starts_with('#')

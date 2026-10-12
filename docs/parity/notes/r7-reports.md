@@ -2116,3 +2116,14 @@ compares indexed accesses by object and then index (`CompareTypes`,
   intersection source also enters the union-target best-match arm
   (`findMostOverlappyType` reads intersections). `intersectionAndUnionTypes`
   is EXACT.
+
+## 72. A member symbol the port cannot name has no modifiers to read
+
+`chain_property_privacy` declined when `get_property_of_type` had no
+symbol for the member on either side. That happens for an inherited
+member of an instantiated derived class (`B<number>`'s `x` from `A<{…}>`),
+even though `get_type_of_property_of_type` answers its type. Such a member
+carries no `private`/`protected` this port could read, and the relation
+that failed did not fail on one either. The retrace now treats it as
+public and relates the types. `genericDerivedTypeWithSpecializedBase` and
+`…2` are EXACT.
