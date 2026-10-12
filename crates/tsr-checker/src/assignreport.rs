@@ -6662,6 +6662,12 @@ impl Checker<'_, '_> {
             stack.push(ChainEntry { message, args: vec![text, property] });
             return Some(());
         }
+        // A `never` target: `isSimpleTypeRelatedTo` decides the failure for
+        // every source but a union (the each-type arm below), and nothing
+        // structural reports below (r7-reports §114).
+        if target_flags.contains(TypeFlags::NEVER) && !source_flags.contains(TypeFlags::UNION) {
+            return Some(());
+        }
         // An `any` source fails only where `isSimpleTypeRelatedTo` decided
         // it (a `never` target), and nothing structural reports below
         // (r7-reports §90).
