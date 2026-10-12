@@ -2184,3 +2184,29 @@ entry whose binder symbol has more than one declaration, and whose type is
 already resolved from its own initializer, is read from the list even when
 the list is incomplete. `lastPropertyInLiteralWins` is EXACT. A quick
 oracle over every `uplicate` case reads 0 lost against base20.
+
+## 76. Non-strict `void` against an object; a missing-property chain suppresses its head
+
+Routed from r7-calls (TS2684 silenced in non-strict mode).
+
+- **`void` against an object** (`isSimpleTypeRelatedTo`). Outside strict
+  null checks, `undefined` and `null` relate to every object, but `void`
+  has no such arm, so it fails against an object in either mode. The
+  relater's decided-failure rule covered the nullable flags only under
+  `strictNullChecks`, and non-strict `void → C` was `Unknown`, which kept
+  TS2684 (`The 'this' context of type 'void'…`) from reporting
+  (`thisTypeInFunctionsNegative`, strict false). `relater.rs` now decides
+  `void` the same way in both modes.
+- **A primitive source against an intersection target** enters the
+  intersection arm: `typeRelatedToEachType` explains the first failing
+  constituent (`Type 'void' is not assignable to type 'A'.` under TS2684,
+  `unionTypeCallSignatures6`).
+- **The chain's missing-property message suppresses the head.**
+  `reportRelationError` (`relater.go:4816`) pushes no head when the
+  message below it is the pair's own TS2741/TS2739/TS2740 (`chainArgsMatch`),
+  unless the head is a conversion or implementation message. The
+  `missing_property_chain` path did this already. A chain retraced through
+  §71's intersection-source arm did not: TS2684 over `A & C & {…}` → `B`
+  kept its head. Both the TS2322-family and TS2345 sites now report the
+  missing-property message alone in that case. `unionTypeCallSignatures6`
+  is EXACT.

@@ -2437,6 +2437,12 @@ impl<'a> Checker<'a, '_> {
         } else {
             None
         };
+        if let Some(alone) =
+            self.suppressed_head_chain(chain.as_ref(), source, display_target, None)
+        {
+            self.report(file, alone);
+            return true;
+        }
         self.report_argument_head(at, file, span, source, display_target, signature_error, chain);
         true
     }
@@ -2799,6 +2805,12 @@ impl<'a> Checker<'a, '_> {
         } else {
             None
         };
+        if let Some(alone) =
+            self.suppressed_head_chain(chain.as_ref(), source, display_target, head)
+        {
+            self.report(file, alone);
+            return true;
+        }
         self.report_relation_head(
             at,
             file,
@@ -2810,6 +2822,40 @@ impl<'a> Checker<'a, '_> {
             chain,
         );
         true
+    }
+
+    /// `reportRelationError`'s missing-property suppression (`relater.go:4816`)
+    /// for a retraced chain: when its outermost message is the pair's own
+    /// TS2741/TS2739/TS2740 (`chainArgsMatch` on the printed source and
+    /// target), the head is never pushed and that message is the report,
+    /// unless the head is a conversion or implementation message (§45).
+    fn suppressed_head_chain(
+        &mut self,
+        chain: Option<&Diagnostic>,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) -> Option<Diagnostic> {
+        let chain = chain?;
+        if head.is_some_and(is_conversion_or_interface_implementation_message) {
+            return None;
+        }
+        let missing = [
+            messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2.code(),
+            messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2.code(),
+            messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE
+                .code(),
+        ];
+        if !missing.contains(&chain.message.code()) {
+            return None;
+        }
+        let (source_index, target_index) =
+            if chain.message.code() == missing[0] { (1, 2) } else { (0, 1) };
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        (chain.args.get(source_index) == Some(&source_text)
+            && chain.args.get(target_index) == Some(&target_text))
+        .then(|| chain.clone())
     }
 
     /// Report `diagnostic` as the relation's head, with the head pair's
@@ -6079,7 +6125,8 @@ impl Checker<'_, '_> {
         // extra `propertiesRelatedTo` over the intersection as one object
         // (`relater.go:2770`) is what failed.
         if let TypeData::Intersection { types, .. } = self.type_of(target).data.clone()
-            && source_flags.intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
+            && source_flags
+                .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::PRIMITIVE)
             && !source_flags.intersects(TypeFlags::INSTANTIABLE)
             && !(source_flags.contains(TypeFlags::INTERSECTION)
                 && self.intersection_has_instantiable(source))
