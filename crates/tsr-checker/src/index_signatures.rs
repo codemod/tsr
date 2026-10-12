@@ -212,15 +212,36 @@ impl<'a> Checker<'a, '_> {
         // reason, and a value that cannot be rebuilt becomes `errorType` — the
         // access stays a gap rather than answering the type parameter.
         // `bd tsr-4qx`.
+        // A homomorphic identity alias image (`Partial<Foo>`,
+        // `instantiate_identity_mapped_alias`, declared.rs) reads its source's
+        // index signatures through the mapped type's template and modifiers:
+        // getTemplateTypeFromMappedType adds `undefined` under `?`
+        // (checker.go:22697), and a `readonly` modifier sets the index's
+        // (r7-declared §60).
+        let modifiers = self.mapped_identity_optionality.get(&id).copied();
         Some(
             infos
                 .into_iter()
-                .map(|info| IndexInfo {
-                    components: info.components,
-                    declaration: info.declaration,
-                    key: info.key,
-                    value: self.instantiate_for_reference(id, info.value),
-                    readonly: info.readonly,
+                .map(|info| {
+                    let value = self.instantiate_for_reference(id, info.value);
+                    let (value, readonly) = match modifiers {
+                        Some((optional, readonly)) => (
+                            if optional == Some(true) {
+                                self.instantiate_identity_mapped_element(value, optional, false)
+                            } else {
+                                value
+                            },
+                            readonly.unwrap_or(info.readonly),
+                        ),
+                        None => (value, info.readonly),
+                    };
+                    IndexInfo {
+                        components: info.components,
+                        declaration: info.declaration,
+                        key: info.key,
+                        value,
+                        readonly,
+                    }
                 })
                 .collect(),
         )

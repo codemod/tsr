@@ -5847,7 +5847,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The identity-template case of instantiateMappedTypeTemplate.
-    fn instantiate_identity_mapped_element(
+    pub(crate) fn instantiate_identity_mapped_element(
         &mut self,
         element: TypeId,
         optionality: Option<bool>,

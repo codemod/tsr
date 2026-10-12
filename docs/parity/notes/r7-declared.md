@@ -1999,3 +1999,29 @@ known declines. No state.
 **Measured** (unfiltered, against §58 on `1e4a24d9`): types **+1, 0
 lost** (limitDeepInstantiations 0:3); diagnostics 0 / 0; jsTyping 0 / 0;
 Ir gi 0.9999, dm 1.0001; exact oracle: see the stack's tip verification.
+
+## 60. An identity alias image's index signatures read through the mapped template
+
+**Forcing constraint.** mappedTypeModifiers 0:100: over `type Foo = {
+prop: number, [x: string]: number }`, `x["other"]` with `x: Partial<Foo>`
+is `number | undefined`; TSR read `number` (the inline `{ [P in keyof
+Foo]?: Foo[P] }` already answered `number | undefined`). A homomorphic
+identity alias instance is this port's image over the source's member
+table (`instantiate_identity_mapped_alias`, with its modifiers in
+`mapped_identity_optionality`). Property reads applied the modifiers;
+index reads took the source's signatures unchanged. resolveMappedTypeMembers'
+index arm instantiates getTemplateTypeFromMappedType, which adds
+`undefined` under `?` (checker.go:22697), and the mapped type's `readonly`
+modifier sets the index's.
+
+**Port.** `get_index_infos_of_type` (index_signatures.rs, a consumer hunk
+of this image under the integrator's default grant for same-root-cause
+hunks) applies the image's modifiers to each index info:
+`instantiate_identity_mapped_element` (made `pub(crate)`) adds `undefined`
+for `?`, and an explicit `readonly`/`-readonly` replaces the source's flag.
+No state.
+
+**Measured** (unfiltered, against §55–§59 on `6923b9e8`): types **+1,
+0 lost** (mappedTypeModifiers 0:100); diagnostics 0 / 0; jsTyping 0 / 0;
+Ir gi 0.9999, dm 1.0001; exact oracle +4 (mappedTypeModifiers, with three
+cases the tip run had left unreported), 0 lost.
