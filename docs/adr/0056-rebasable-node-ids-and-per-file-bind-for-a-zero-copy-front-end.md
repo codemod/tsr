@@ -1,11 +1,12 @@
 # ADR-0056: Rebasable node ids and per-file bind for a zero-copy parallel front end
 
-- **Status:** **proposed**, not built. It is the design record for
+- **Status:** **accepted** on 2026-10-12 by the round-7 integrator, and
+  being built in stages; only stage 0b exists so far (see "Staging" below).
+  It was **proposed** on 2026-10-10 as the design record for
   `tsr-2zk.17.4` (rebasable node ids) and `tsr-2zk.17.5` (per-file binding
   with id-offset merge), which `tsr-2zk.17.3` (parse and bind source files
-  in parallel) is blocked on. The round-7 integrator decides whether to fund
-  it from the measured gain below.
-- **Date:** 2026-10-10
+  in parallel) is blocked on.
+- **Date:** 2026-10-10 (proposed), 2026-10-12 (accepted)
 - **Would supersede:** [ADR-0012](0012-ast-is-sync.md) in part: the
   `node_id` field becomes write-once-after-construction instead of a plain
   field. It would also amend [ADR-0034](0034-a-program-needs-one-identity-space.md)'s
@@ -92,6 +93,10 @@ rewrite every node, which is why it copies.
   them in `tsr-checker`. The field-to-accessor change is mechanical (the
   generated alias `node_id()` already exists), done by codegen plus one
   rewrite.
+  **Corrected 2026-10-12:** 2,994 counted the 1,653 calls that already went
+  through an accessor. The field reads were 1,503 at main `8940d068`
+  (`r7-perf.md` §40.2, where a scratch codemod rewrote all of them) and 1,362
+  in 290 files at `d7cb3d4b` (`r7-perf.md` §42).
 
 ### 2. Per-file bind with id-offset merge (`tsr-2zk.17.5`)
 
@@ -111,6 +116,31 @@ coordinator publishes in file order as results arrive, so identities stay
 in program order. The r5-loader §3 gate and the static-lib exclusion in
 `prepare_dependencies` (r5-loader §2) go away, because publication no
 longer costs a copy.
+
+## Staging (added on acceptance, 2026-10-12)
+
+The integrator chose `r7-perf.md` §40.2's option (b), no flag day:
+
+- **0b** (built): the generator emits an inherent `node_id()` on every
+  concrete node struct, beside the field, and `Token` has one by hand. The
+  field stays `pub`. A field and a method may share a name, so every
+  existing `.node_id` read still compiles, and no lane's branch conflicts.
+- **Migration**: lanes switch field reads to `node_id()` as they touch
+  code. No commit is required to do so.
+- **0 flip** (scheduled by the integrator for a quiet moment): the field
+  becomes `pub(crate)`, and the remaining reads are rewritten by a codemod
+  driven by rustc's E0616 errors.
+- **1**: `NodeIdCell` (relaxed `AtomicU32`) replaces `Option<NodeId>`
+  behind the unchanged accessor. Writes go through `HasNodeId::set_node_id`
+  and the generated constructors.
+- **2**: publication becomes a rebase pass (`ParsedFile::publish` adds the
+  file's base instead of copying).
+- **3, 4**: `ArenaPool` and per-file bind on the workers, as in "The
+  proposal" above.
+
+Each stage's measured wall and Ir on generic-imports, domain-model and
+domain-model-large is recorded in `r7-perf.md` when it lands. The
+falsifiers below still decide the end state.
 
 ## Alternatives
 

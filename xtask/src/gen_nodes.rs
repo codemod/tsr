@@ -512,7 +512,17 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
              /// kind and span in the side tables.\n    \
              #[must_use]\n    \
              pub fn new({params}) -> Self {{\n        \
-             Self {{ node_id: None{}{} }}\n    }}\n}}\n",
+             Self {{ node_id: None{}{} }}\n    }}\n\n    \
+             /// The id the parser registered this node under; `None` until it\n    \
+             /// does.\n    \
+             ///\n    \
+             /// Read ids through this, not the field: ADR-0056 changes the\n    \
+             /// field's type behind it, and the field becomes private once\n    \
+             /// no reader outside `tsr-ast` remains.\n    \
+             #[inline]\n    \
+             #[must_use]\n    \
+             pub fn node_id(&self) -> Option<NodeId> {{\n        \
+             self.node_id\n    }}\n}}\n",
             if inits.is_empty() { String::new() } else { format!(", {inits}") },
             marker,
         )?;
@@ -625,7 +635,7 @@ pub fn generate_aliases(ast: &AstDefinition, nullability: &GoNullability) -> Res
     // the next time `ast.json` grows a node. Anything keyed by node identity (the
     // side tables, JSDoc attachment, the binder's symbol map) goes through here.
     out.push_str(
-        "impl Node<'_> {\n             /// The id assigned when the parser registered this node.\n             ///\n             /// `None` only for a node that has not been registered, which the parser\n             /// does at construction; in a finished tree this is always `Some`.\n             #[must_use]\n             pub fn node_id(&self) -> Option<crate::NodeId> {\n                 use crate::HasNodeId as _;\n                 match self {\n",
+        "impl Node<'_> {\n             /// The id assigned when the parser registered this node.\n             ///\n             /// `None` only for a node that has not been registered, which the parser\n             /// does at construction; in a finished tree this is always `Some`.\n             #[must_use]\n             pub fn node_id(&self) -> Option<crate::NodeId> {\n                 match self {\n",
     );
     for name in ast.nodes.definitions.keys() {
         writeln!(out, "            Node::{name}(n) => n.node_id(),")?;
@@ -665,7 +675,6 @@ pub fn generate_aliases(ast: &AstDefinition, nullability: &GoNullability) -> Res
              /// The id assigned when the parser registered this node.\n    \
              #[must_use]\n    \
              pub fn node_id(&self) -> Option<crate::NodeId> {{\n        \
-             use crate::HasNodeId as _;\n        \
              match self {{"
         )?;
         for m in &members {
@@ -830,18 +839,13 @@ fn generate_named_child_accessors(
     let mut out = String::new();
     out.push_str("impl Node<'_> {\n");
     for (field_name, method) in NAMED_CHILD_ACCESSORS {
-        // Arms first, because whether the `HasNodeId` import is needed depends on
-        // them: a field typed as a *concrete* node has a `node_id` field that
-        // shadows the accessor, so the trait must be in scope — while a field
-        // typed as an alias resolves inherently and the import would be unused.
-        // Emitting it unconditionally fails `-D warnings` on generated code.
+        // Every node type, concrete or alias, has an inherent `node_id()`, so
+        // no arm needs the `HasNodeId` trait in scope.
         let mut arms = String::new();
-        let mut needs_trait = false;
         for def_name in ast.nodes.definitions.keys() {
             let fields = resolve_fields(ast, nullability, def_name)?;
             let Some(field) = fields.iter().find(|f| f.name == *field_name) else { continue };
-            let Some((arm, concrete)) = named_child_arm(ast, field) else { continue };
-            needs_trait |= concrete;
+            let Some(arm) = named_child_arm(ast, field) else { continue };
             writeln!(arms, "            Node::{def_name}(n) => {arm},")?;
         }
         writeln!(
@@ -853,9 +857,6 @@ fn generate_named_child_accessors(
              #[must_use]\n    \
              pub fn {method}(&self) -> Option<crate::NodeId> {{"
         )?;
-        if needs_trait {
-            out.push_str("        use crate::HasNodeId as _;\n");
-        }
         out.push_str("        match self {\n");
         out.push_str(&arms);
         out.push_str("            _ => None,\n        }\n    }\n");
@@ -868,7 +869,7 @@ fn generate_named_child_accessors(
 ///
 /// Mirrors [`child_id_call`]'s type analysis, minus the list case: a list has no
 /// single id.
-fn named_child_arm(ast: &AstDefinition, field: &ResolvedField) -> Option<(String, bool)> {
+fn named_child_arm(ast: &AstDefinition, field: &ResolvedField) -> Option<String> {
     let ty = &field.rust_type;
     let name = &field.rust_name;
 
@@ -886,14 +887,11 @@ fn named_child_arm(ast: &AstDefinition, field: &ResolvedField) -> Option<(String
     // `?` rather than `and_then`: it reads better, and it avoids a redundant
     // closure that `-D warnings` rejects in generated code. The semantics are the
     // ones wanted — an absent field means the accessor answers `None`.
-    let arm = if ty.starts_with("Option<") {
+    Some(if ty.starts_with("Option<") {
         format!("n.{name}?.node_id()")
     } else {
         format!("n.{name}.node_id()")
-    };
-    // `true` when the field's static type is a concrete node, which is what makes
-    // the `HasNodeId` import necessary.
-    Some((arm, is_node || base == "Token"))
+    })
 }
 
 pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Result<String> {
@@ -1051,9 +1049,6 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
          /// Children that were never registered are skipped. Does not recurse, and\n\
          /// does not build an intermediate collection.\n\
          pub fn for_each_child_id(node: Node<'_>, mut f: impl FnMut(crate::NodeId)) {\n    \
-         // Concrete nodes carry a `node_id` *field*; without the trait in scope\n    \
-         // `child.node_id()` resolves to that field rather than the accessor.\n    \
-         use crate::HasNodeId as _;\n    \
          match node {\n",
     );
     let mut idless: Vec<String> = Vec::new();

@@ -37,6 +37,7 @@
 //! answers from hash lookups when no comment applies.
 
 use tsr_ast::{JSDocTag, Node, NodeId, SyntaxKind, TypeNode};
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -436,5 +437,30 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(function) else { return };
         let span = self.nodes.span(name);
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// `checkAndReportErrorForUsingValueAsType` (`checker.go:1722`) and the
+    /// namespace arm before it, for a name inside a JSDoc type.
+    ///
+    /// `check_type_reference_name` declines a JSDoc name's TS2304 (r6-names
+    /// §6: the not-found rung still disagrees with native on typedef
+    /// placement, `import()` types and `@callback` names). The cascade's
+    /// meaning arms are a different question: they fire only when the name
+    /// **resolves**, under a meaning the position does not want. tsgo has no
+    /// JS value-as-type fallback (Strada's `getTypeFromJSDocValueReference`
+    /// is gone), so `@param {Image}` and `@type {Thing}` for an `@enum`
+    /// const are TS2749 natively. r7-calls §43.
+    pub(crate) fn report_jsdoc_meaning_mismatch(&mut self, node: NodeId, text: &str) {
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(parent) else { return };
+        if reference.type_name.and_then(|name| name.node_id()) != Some(node) || text.is_empty() {
+            return;
+        }
+        if let Some(hit) = self.resolve_name_with_export_alias(node, text, SymbolFlags::TYPE)
+            && self.alias_chain_carries(hit, SymbolFlags::TYPE)
+        {
+            return;
+        }
+        self.report_meaning_mismatch_in_type_position(node, text);
     }
 }
