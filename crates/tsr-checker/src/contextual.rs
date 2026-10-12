@@ -2074,9 +2074,34 @@ impl<'a> Checker<'a, '_> {
         let holder = self.nodes.parent(pattern)?;
         let parent_type = if self.nodes.kind(holder) == tsr_ast::SyntaxKind::BindingElement {
             self.contextual_type_for_binding_element(holder)?
-        } else {
-            let annotation = self.type_annotation_of(holder)?;
+        } else if let Some(annotation) = self.type_annotation_of(holder) {
             self.get_type_from_type_node(annotation)
+        } else {
+            // `getContextualTypeForVariableLikeDeclaration(parent) || parent
+            // .initializer && checkDeclarationInitializer(parent)`
+            // (getContextualTypeForBindingElement): an unannotated root projects
+            // its initializer's type. Only an initializer that cannot read
+            // this pattern's implied type back as its own context is checked
+            // here; a literal or a form passing context through keeps the
+            // implied-pattern fallback.
+            let initializer = match self.node_map.get(holder)? {
+                Node::VariableDeclaration(declaration) => declaration.initializer?,
+                _ => return None,
+            };
+            let mut peeled = initializer;
+            while let Expression::ParenthesizedExpression(inner) = peeled {
+                peeled = inner.expression?;
+            }
+            if !matches!(
+                peeled,
+                Expression::Identifier(_)
+                    | Expression::PropertyAccessExpression(_)
+                    | Expression::ElementAccessExpression(_)
+            ) || self.in_js_file(holder)
+            {
+                return None;
+            }
+            self.check_expression(initializer)
         };
         if array {
             let Node::BindingPattern(pattern) = self.node_map.get(pattern)? else { return None };

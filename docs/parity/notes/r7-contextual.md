@@ -1188,7 +1188,11 @@ RecordMap[P]) => void } }[K])` with `{ kind: 'n', f: (v: number) => {} }` infers
 `keyof RecordMap` where native infers `"n"`. The written form `{ kind: K, f:
 (v: RecordMap[K]) => void }` is right, so the substituted template's
 `RecordMap[K]` contributes a contravariant candidate that the written one does
-not. That is the next step for §40's refusal as well.
+not. That is the next step for §40's refusal as well. (Corrected after
+probing: the only candidate is `K ← string`. `{ kind: 'n', f: … }` holds a
+function, so §30's function boundary keeps it on the stateless argument road,
+where `kind` widens. The pr8 divergence is §30's recorded limit, not a
+`RecordMap[K]` candidate.)
 
 The first gate of §41 (against b67) measured types +18 / 0 lost, but
 correlatedUnions' diagnostics went EMPTY_RIGHT → EMPTY_WRONG: a false TS2345
@@ -1216,3 +1220,19 @@ loss across 50,940 related verdict lines (`*nfer*`, `*ontextual*`, `*apped*`,
 implementation is §40's as written there (`live_inference_has_candidates_or_default`
 in inference.rs, the guard in `instantiate_contextual_inference_type`). The
 corpus measurement is this commit's gate.
+
+## 43. An unannotated variable root projects its initializer's type to a nested default
+
+`getContextualTypeForBindingElement` projects the parent's type: the root's
+annotation, else `checkDeclarationInitializer(parent)` for a root that is not
+itself a binding element. `contextual_type_for_binding_element` read only the
+annotation, so `const { skills: { primary: p = "a" } = { primary: "x" } } =
+obj` gave the default the implied pattern `{ primary?: "a"; }` and kept `"x"`.
+Native's context is `obj.skills`, `{ primary: string; }`, which widens it. An
+unannotated variable root now projects its initializer's type when that
+initializer is an identifier, property access or element access, possibly
+parenthesized, outside JS. Such a form cannot read the pattern's own implied
+type back as its context. A literal initializer can, and native breaks that
+cycle by pushing the context explicitly, so it keeps the implied-pattern
+fallback. No corpus line moved (no loss across 42,794 destructuring- and
+contextual-named verdict lines); the probe is §35's case 1.
