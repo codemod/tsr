@@ -1744,3 +1744,15 @@ with `--pretty true` against `target/tsgo-pinned`:
 `interfaceMemberValidation`, `interfacedeclWithIndexerErrors`,
 `propertiesAndIndexers` (TS2411) and `reservedWords3`,
 `MemberFunctionDeclaration5_es6`, `parserEqualsGreaterThanAfterFunction1`.
+
+## §76 A source file's module symbol prints as `"` + its path without its extension + `"`
+
+`symbolToString` of a source file's symbol is its name, which the binder
+makes `"` + `tspath.RemoveFileExtension(fileName)` + `"`. That function strips
+`.d.ts`/`.d.mts`/`.d.cts` whole. This binder names the symbol with the bare
+path minus only the last extension, so §47's TS1192 and §48's
+fully-qualified names printed `"/.src/other.d"` for a declaration file
+(`esmModeDeclarationFileWithExportAssignment`). `module_symbol_name`
+(meaning_mismatch.rs) is the one reader for both. It takes a source file's
+name from the host's file path through `remove_file_extension`, and quotes
+a `declare module "x"`'s name.

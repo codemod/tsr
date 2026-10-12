@@ -877,24 +877,42 @@ impl Checker<'_, '_> {
             && hops < 32
         {
             let record = self.binder.symbols().get(at);
-            let quoted = record.declarations.iter().any(|&declaration| {
-                match self.node_map.get(declaration) {
-                    Some(tsr_ast::Node::SourceFile(_)) => true,
-                    Some(tsr_ast::Node::ModuleDeclaration(module)) => {
-                        matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
-                    }
-                    _ => false,
-                }
-            });
-            parts.push(if quoted && !record.name.starts_with('"') {
-                format!("\"{}\"", record.name)
-            } else {
-                record.name.to_string()
-            });
+            parts.push(self.module_symbol_name(at).unwrap_or_else(|| record.name.to_string()));
             current = record.parent;
             hops += 1;
         }
         parts.reverse();
         parts.join(".")
+    }
+
+    /// `symbolToString` of an external or ambient module symbol, which is
+    /// named with its quotes upstream: a source file's symbol is
+    /// `"` + `RemoveFileExtension(fileName)` + `"` (`binder.go`, `.d.ts`
+    /// stripped whole), a `declare module "x"` its quoted name. This binder
+    /// keeps the bare path, minus the last extension only, so a declaration
+    /// file's symbol reads `other.d` (r7-grammar §76). `None` for any other
+    /// symbol.
+    pub(crate) fn module_symbol_name(&self, symbol: tsr_binder::SymbolId) -> Option<String> {
+        let record = self.binder.symbols().get(symbol);
+        for &declaration in &record.declarations {
+            match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::SourceFile(_)) => {
+                    let path = self.module_host.and_then(|host| host.file_path(declaration));
+                    let name = match path.as_deref() {
+                        Some(path) => tsr_path::extension::remove_file_extension(path).to_string(),
+                        None => record.name.to_string(),
+                    };
+                    return Some(if name.starts_with('"') { name } else { format!("\"{name}\"") });
+                }
+                Some(tsr_ast::Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))) =>
+                {
+                    let name = record.name.to_string();
+                    return Some(if name.starts_with('"') { name } else { format!("\"{name}\"") });
+                }
+                _ => {}
+            }
+        }
+        None
     }
 }
