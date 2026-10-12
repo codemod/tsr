@@ -469,3 +469,35 @@ fn an_open_conditional_reference_defers_and_a_definite_outer_check_decides() {
          }\n";
     assert_eq!(type_of_last_initializer(source), "0");
 }
+
+/// §52: a generic union body that reduces to one type is that type, with no
+/// alias (tsgo: `type T23<T> = T | unknown` reads `unknown`).
+#[test]
+fn a_generic_union_body_reducing_to_unknown_is_unknown() {
+    let source = "type T23<T> = T | unknown;\n\
+         function f<T>(a: T23<T>) {\n\
+             const x = a;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "unknown");
+}
+
+/// §53: `keyof object` is `never`, so a generic key reads `T & object`
+/// through a deferred access (tsgo: `(T & object)[keyof T]`).
+#[test]
+fn a_generic_key_reads_an_intersection_with_object() {
+    let source = "function g<T>(obj: T & object, k: keyof T) {\n\
+             const v = obj[k];\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "(T & object)[keyof T]");
+}
+
+/// §54: a homomorphic mapping over a late-bound symbol member keeps that
+/// member, and the symbol reads it (tsgo: `{ str: 1; [sym]: 1; }`, `1`).
+#[test]
+fn a_homomorphic_mapping_keeps_a_symbol_keyed_member() {
+    let source = "const sym = Symbol();\n\
+         type O = { str: any; [sym]: any };\n\
+         declare const r: { [K in keyof O]: 1 };\n\
+         const x = r[sym];\n";
+    assert_eq!(type_of_last_initializer(source), "1");
+}

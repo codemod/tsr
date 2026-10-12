@@ -382,8 +382,10 @@ impl Checker<'_, '_> {
         // `reportCallResolutionErrors` (`checker.go:9649`): a failed overload
         // set reports against its last argument-error candidate, with that
         // candidate's first argument as the attributes' contextual type, and
-        // with several such candidates the head is TS2769 (the chain and the
-        // related information await `tsr-2zk.22`, as on the call road).
+        // with several such candidates each report is wrapped in TS2769's
+        // `The last overload gave the following error.` chain, with `The last
+        // overload is declared here.` (the call road's
+        // `chain_overload_failure`, r7-reports §70).
         if let Some((last, target, count)) = failure {
             let before = self.diagnostics.len();
             self.with_jsx_candidate_context(node, &last, |checker| {
@@ -906,11 +908,6 @@ impl Checker<'_, '_> {
                 rest.push(part);
             }
         }
-        // `getBestMatchIndexedAccessTypeOrUndefined` over a union of
-        // array-likes needs `getBestMatchingType`; not modelled.
-        if tuple_like.len() > 1 {
-            return None;
-        }
         let iteration = if rest.is_empty() {
             None
         } else {
@@ -930,29 +927,21 @@ impl Checker<'_, '_> {
             }
             let position = index;
             index += 1;
-            let indexed = match tuple_like.first() {
-                Some(&array) => {
-                    let key = self.store.intern_literal(
-                        TypeFlags::NUMBER_LITERAL,
-                        crate::types::TypeData::NumberLiteral(position.to_string()),
-                        false,
-                    );
-                    // getIndexedAccessTypeOrUndefined: an array-like part that
-                    // is no tuple reference (`((user: IUser) => Element) &
-                    // Array<…>`, `checkJsxChildrenProperty4`) answers through
-                    // its applicable number index signature; a tuple's
-                    // out-of-range position has none (r7-reports §30).
-                    self.array_or_tuple_element_access(array, key, false).or_else(|| {
-                        let tuple = self.tuple_element_lists.contains_key(&array)
-                            || self.variadic_tuple_elements.contains_key(&array);
-                        (!tuple)
-                            .then(|| {
-                                self.get_applicable_index_info(array, key).map(|info| info.value)
-                            })
-                            .flatten()
-                    })
+            // `getIndexedAccessTypeOrUndefined` over the array-like parts: a
+            // union indexes each constituent, and is undefined (the
+            // best-match fallback, not modelled) when any has no element.
+            let indexed = if tuple_like.is_empty() {
+                None
+            } else {
+                let mut elements = Vec::with_capacity(tuple_like.len());
+                for &array in &tuple_like {
+                    match self.jsx_children_element_at(array, position) {
+                        Some(element) => elements.push(element),
+                        None if tuple_like.len() > 1 => return None,
+                        None => {}
+                    }
                 }
-                None => None,
+                (!elements.is_empty()).then(|| self.get_union_type(&elements))
             };
             let indexed = indexed
                 .filter(|&ty| !self.store.get(ty).flags.intersects(TypeFlags::INDEXED_ACCESS));
@@ -982,6 +971,44 @@ impl Checker<'_, '_> {
                 self.report_jsx_child_failure(*child, tag, &name, source_member, target_member)?;
         }
         Some(reported)
+    }
+
+    /// One array-like children part's element at `position`.
+    /// `getIndexedAccessTypeOrUndefined`: an array-like part that is no tuple
+    /// reference (`((user: IUser) => Element) & Array<…>`,
+    /// `checkJsxChildrenProperty4`) answers through its applicable number
+    /// index signature; a tuple's out-of-range position has none
+    /// (r7-reports §30). A tuple's position is its property (`"0"`), an
+    /// optional element without its missing type (`removeMissingType` in
+    /// `elaborateIterableOrArrayLikeTargetElementwise`, §70).
+    fn jsx_children_element_at(&mut self, array: TypeId, position: usize) -> Option<TypeId> {
+        let key = self.store.intern_literal(
+            TypeFlags::NUMBER_LITERAL,
+            crate::types::TypeData::NumberLiteral(position.to_string()),
+            false,
+        );
+        if self.tuple_element_lists.contains_key(&array) {
+            let optional = self
+                .tuple_optional_masks
+                .get(&array)
+                .is_some_and(|mask| mask.get(position).copied().unwrap_or(false));
+            if let Some(member) = self.get_type_of_property_of_type(array, &position.to_string()) {
+                // The port's optional element carries a plain `undefined`
+                // for native's missing type.
+                return Some(if optional {
+                    self.get_type_with_facts(member, crate::flow::TypeFacts::NE_UNDEFINED)
+                } else {
+                    member
+                });
+            }
+        }
+        self.array_or_tuple_element_access(array, key, false).or_else(|| {
+            let tuple = self.tuple_element_lists.contains_key(&array)
+                || self.variadic_tuple_elements.contains_key(&array);
+            (!tuple)
+                .then(|| self.get_applicable_index_info(array, key).map(|info| info.value))
+                .flatten()
+        })
     }
 
     /// The tag name and children property for a child's own containing

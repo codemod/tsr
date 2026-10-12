@@ -1927,3 +1927,99 @@ assignreport.rs: `Type '…' is not assignable to type '…'` at depth, TS2741,
 TS2353, TS2559. Natively each prints with `TypeToString` or
 `getTypeNamesForErrorDisplay` (nil enclosing). §45's diff adopts the head
 sites; the chain sites are the reports lane's continuation of it.
+
+## 55. `needsQualification` is the table walk, also where the name resolves to the symbol
+
+**Forcing constraint.** `genericDefaults` 0:1050: `interface i07 { a: A; }`
+beside `interface i07<A = number> { b: A; }` prints natively as
+`a : globalThis.A`. The port printed `A`.
+
+**Cause.** Resolving `A` in the first declaration finds the global interface,
+since the type parameter belongs to the other declaration. That is the type
+both sides compute. The node builder's `needsQualification`
+(`symbolaccessibility.go:688`) does not resolve, though. It walks
+`someSymbolTableInScope`, whose class/interface arm is the merged symbol's
+`members` (`:766`), and that holds the type parameter `A` from the second
+declaration. So `A` is shadowed at the site, and `trySymbolTable`'s globals
+arm names it `globalThis.A`. The port's `chain_needs_qualification` asked
+`resolve_name_at_print_site` first and stopped at "resolves to the symbol",
+and `qualified_name_at`'s §509 same-spelling arm returned the bare name on
+the same answer.
+
+**The port.** When the site resolves the name to the symbol itself,
+`chain_needs_qualification` still asks `shadow_walk` (the transcribed table
+walk) and qualifies when a table holds another symbol first. The same-spelling
+arm keeps the bare name only when `is_shadowed_at` agrees. No cache or table.
+
+## 56. A member of a namespace its module's `export =` names is spelled through the module
+
+**Forcing constraint.** `declarationEmitImportInExportAssignmentModule`:
+`namespace m { export namespace c { export class c {} } … } export = m;` prints
+the namespace `c` natively as `typeof import("./declarationEmitImportInExportAssignmentModule").c`;
+the port printed `typeof m.c`. A native-read probe shows the rule is general:
+beside `export = m`, `new m.c()` prints `import("./a").c` and
+`typeof import("./a").c` even though `m` is in scope.
+
+**Cause.** When the member needs a qualifier, `getContainersOfSymbol` gives
+`[m, file]`: `getWithAlternativeContainers` adds the file module whose
+`export =` is `m` (`getFileSymbolIfFileSymbolExportEqualsContainer`).
+`getSymbolChain` sorts them with `sortByBestName`. Only the module has a
+specifier, so it falls back to `compareSymbols`, which puts the module
+(declared at position 0) first. The chain is therefore `[file, c]`, with the
+leaf found by `getAliasForSymbolInContainer` through the module's resolved
+exports. The port's namespace-parent step qualified by the in-scope `m`.
+
+**The port.** At the namespace-parent step, when the resolver's chain for the
+symbol is `[module, leaf]` (`module_rooted_chain_at`), the leaf keeps the
+symbol's name, and the module's `export =` resolves to the parent namespace,
+the segment is `import(<specifier>).`. Portability is reported as in §28. No
+cache or table. This completes §51's left item.
+
+## 57. An import declaration's own specifier picks the ending mode
+
+**Forcing constraint.** `reactImportDropped` 2:0 (§26's leftover): in
+`NavigationView.js`, `import TabBar from '../../components/TabBar'` prints
+natively as `TabBar : import("../../../react.js").ClassicComponentClass`,
+while the JSX element `<TabBar …/>` in the same file prints
+`import("../../../react")`. The port printed the second spelling at both
+sites.
+
+**Cause.** `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`) takes the
+resolution mode that picks the ending preference from the enclosing
+declaration's own module specifier when it has one: `canHaveModuleSpecifier`
+over an import clause, specifier, namespace import, import/export
+declaration, `import = require` or a `require`-initialized variable, read
+through `TryGetModuleSpecifierFromDeclaration` and then
+`GetModeForUsageLocation`. Only otherwise does it use the file's default
+mode. Here the import's usage mode is ESM, so the ending is `.js`. The port
+used the default mode everywhere.
+
+**The port.** `module_specifier_for_file` takes the print site. Its
+`original_module_specifier` reads the enclosing declaration's specifier as
+`tryGetModuleSpecifierFromDeclarationWorker` does, and the usage mode of that
+literal picks the ending. The override mode still wins, and `OverrideImportMode`
+passed to the specifier search is unchanged. No cache or table.
+
+Not ported: native caches the answer per `(symbol, context file, mode)`
+(`links.specifierCache`). The first print in a file therefore decides for
+later prints with the same mode. The port recomputes each time, which
+differs only if two sites with one mode would compute different specifiers.
+
+## 58. Found, routed: a JSDoc `@template` leaks into the whole JavaScript file
+
+**Forcing constraint.** `jsDeclarationsExportDefinePropertyEmit` (26 lines):
+a top-level `Object.defineProperty` prints natively as
+`<T>(o: T, p: PropertyKey, attributes: PropertyDescriptor & ThisType<any>) => T`.
+The port printed `<T_1>(o: T_1, …) => T_1`. A three-line probe reproduces it:
+`/** @template T … */ function e(a) {}` followed by a top-level
+`Object.defineProperty;` gives `<T_1>`.
+
+**Cause, outside the printer.** `bind_jsdoc_declarations` (tsr-binder) declares
+a function's `@template` type parameters in the file's locals (`root`)
+whenever the comment declares no `@typedef` or `@callback`. Natively the
+reparsed type parameters belong to the documented function. So
+`typeParameterShadowsOtherTypeParameterInScope`'s `resolveName` at the print
+site, which the port answers through `binder.resolve_name`, finds a `T` that
+native's scope does not hold, and the rename allocator takes `T_1`. The
+printer reads the binder's scope as given; the template's locals owner is the
+binder's decision. Routed.

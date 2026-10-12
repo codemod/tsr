@@ -2437,6 +2437,12 @@ impl<'a> Checker<'a, '_> {
         } else {
             None
         };
+        if let Some(alone) =
+            self.suppressed_head_chain(chain.as_ref(), source, display_target, None)
+        {
+            self.report(file, alone);
+            return true;
+        }
         self.report_argument_head(at, file, span, source, display_target, signature_error, chain);
         true
     }
@@ -2799,6 +2805,12 @@ impl<'a> Checker<'a, '_> {
         } else {
             None
         };
+        if let Some(alone) =
+            self.suppressed_head_chain(chain.as_ref(), source, display_target, head)
+        {
+            self.report(file, alone);
+            return true;
+        }
         self.report_relation_head(
             at,
             file,
@@ -2810,6 +2822,40 @@ impl<'a> Checker<'a, '_> {
             chain,
         );
         true
+    }
+
+    /// `reportRelationError`'s missing-property suppression (`relater.go:4816`)
+    /// for a retraced chain: when its outermost message is the pair's own
+    /// TS2741/TS2739/TS2740 (`chainArgsMatch` on the printed source and
+    /// target), the head is never pushed and that message is the report,
+    /// unless the head is a conversion or implementation message (§45).
+    fn suppressed_head_chain(
+        &mut self,
+        chain: Option<&Diagnostic>,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+    ) -> Option<Diagnostic> {
+        let chain = chain?;
+        if head.is_some_and(is_conversion_or_interface_implementation_message) {
+            return None;
+        }
+        let missing = [
+            messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2.code(),
+            messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2.code(),
+            messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2_AND_3_MORE
+                .code(),
+        ];
+        if !missing.contains(&chain.message.code()) {
+            return None;
+        }
+        let (source_index, target_index) =
+            if chain.message.code() == missing[0] { (1, 2) } else { (0, 1) };
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        (chain.args.get(source_index) == Some(&source_text)
+            && chain.args.get(target_index) == Some(&target_text))
+        .then(|| chain.clone())
     }
 
     /// Report `diagnostic` as the relation's head, with the head pair's
@@ -5631,6 +5677,11 @@ struct ChainStack {
     /// The pairs being explained, outermost first, with their intersection
     /// state: the walk's maybe stack when a member relation is asked.
     assumed: Vec<(TypeId, TypeId, bool)>,
+    /// Per `assumed` pair: entered as a constraint descent, which pushes
+    /// its source only (`RecursionFlagsSource`).
+    assumed_source_only: Vec<bool>,
+    /// The next pair `explain_pair` enters is a constraint descent.
+    source_only_next: bool,
 }
 
 impl std::ops::Deref for ChainStack {
@@ -5713,8 +5764,10 @@ impl Checker<'_, '_> {
     ) -> Option<Diagnostic> {
         let mut stack = ChainStack::default();
         stack.assumed.push((source, target, false));
+        stack.assumed_source_only.push(false);
         self.explain_relation(&mut stack, source, target, 0)?;
         stack.assumed.pop();
+        stack.assumed_source_only.pop();
         self.chain_error_results(&mut stack, source, target);
         let related = std::mem::take(&mut stack.related);
         let entries: Vec<ChainEntry> = stack
@@ -5864,9 +5917,12 @@ impl Checker<'_, '_> {
             stack.push(ChainEntry { message, args });
             return Some(());
         }
+        let source_only = std::mem::take(&mut stack.source_only_next);
         stack.assumed.push((source, target, stack.intersection_target));
+        stack.assumed_source_only.push(source_only);
         let explained = self.explain_relation(stack, source, target, depth + 1);
         stack.assumed.pop();
+        stack.assumed_source_only.pop();
         explained?;
         self.chain_error_results(stack, source, target);
         self.chain_report_relation_error(stack, source, target)?;
@@ -5962,9 +6018,27 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        let circular = match &target_type.data {
-            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
-                types.contains(&source)
+        // Except that instantiating `T & P` (P a primitive, `object` or `{}`)
+        // asks `getBaseConstraintOfType` of the clone before its constraint
+        // is set (`getIntersectionType`'s constraint reduction,
+        // `checker.go:26131`), which caches "no constraint": that clone is
+        // not circular (`NonNullable<T>`, `conditionalTypes1`; r7-reports §79).
+        let circular = match target_type.data.clone() {
+            TypeData::Union { types, .. } => types.contains(&source),
+            TypeData::Intersection { types, .. } => {
+                if let [first, second] = types[..]
+                    && (first == source || second == source)
+                {
+                    let other = if first == source { second } else { first };
+                    let flags = self.type_of(other).flags;
+                    if flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING) {
+                        return None;
+                    }
+                    !(flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE)
+                        || self.is_empty_anonymous_object_type(other))
+                } else {
+                    types.contains(&source)
+                }
             }
             _ => false,
         };
@@ -6000,7 +6074,13 @@ impl Checker<'_, '_> {
         target: TypeId,
     ) -> crate::relater::Ternary {
         if !stack.assumed.is_empty() {
-            self.relate_ternary_assuming(source, target, &stack.assumed, stack.intersection_target)
+            self.relate_ternary_assuming(
+                source,
+                target,
+                &stack.assumed,
+                &stack.assumed_source_only,
+                stack.intersection_target,
+            )
         } else if stack.intersection_target {
             self.relate_ternary_in_intersection_target(
                 source,
@@ -6009,6 +6089,36 @@ impl Checker<'_, '_> {
             )
         } else {
             self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+        }
+    }
+
+    /// [`Self::chain_relate`] for a type variable's constraint against the
+    /// pair's target (`isRelatedToEx(constraint, target,
+    /// RecursionFlagsSource)`, `relater.go:3672`), then the explanation of
+    /// that pair when it fails, entered the same way (r7-reports §78).
+    fn explain_constraint_descent(
+        &mut self,
+        stack: &mut ChainStack,
+        constraint: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
+        let mut source_only = stack.assumed_source_only.clone();
+        source_only.push(true);
+        let answer = self.relate_ternary_assuming(
+            constraint,
+            target,
+            &stack.assumed,
+            &source_only,
+            stack.intersection_target,
+        );
+        match answer {
+            Ternary::NotRelated => {
+                stack.source_only_next = true;
+                self.explain_pair(stack, constraint, target, depth)
+            }
+            _ => None,
         }
     }
 
@@ -6051,6 +6161,13 @@ impl Checker<'_, '_> {
         // below the relation error. Against an object,
         // `structuredTypeRelatedToWorker` relates the apparent type with
         // `reportStructuralErrors` off for a primitive source.
+        // `unknown` is not structured and no simple arm relates it to
+        // anything but `unknown`/`any`: nothing reports below (§77).
+        if source_flags.contains(TypeFlags::UNKNOWN)
+            && !target_flags.intersects(TypeFlags::INTERSECTION)
+        {
+            return Some(());
+        }
         if source_flags.intersects(TypeFlags::PRIMITIVE)
             && !source_flags.intersects(TypeFlags::INSTANTIABLE)
             && !target_flags.intersects(TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
@@ -6060,8 +6177,10 @@ impl Checker<'_, '_> {
         // `typeRelatedToSomeType`: only `getBestMatchingType`'s pick is
         // elaborated, with no elaboration when there is none.
         if target_flags.contains(TypeFlags::UNION)
-            && source_flags.intersects(TypeFlags::OBJECT)
-            && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+            && (source_flags.intersects(TypeFlags::OBJECT)
+                && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+                || source_flags.contains(TypeFlags::INTERSECTION)
+                    && !self.intersection_has_instantiable(source))
         {
             let regular = self.get_regular_type_of_object_literal(source);
             return match self.chain_best_matching_type(regular, target)? {
@@ -6076,12 +6195,34 @@ impl Checker<'_, '_> {
         // first constituent that fails. When every one relates, `isRelatedTo`'s
         // extra `propertiesRelatedTo` over the intersection as one object
         // (`relater.go:2770`) is what failed.
+        // An unconstrained type-parameter source fails here too, and its
+        // fallthrough to the type-variable arm relates `unknown` without
+        // reporting (`relater.go:3672`), so this arm's report is the chain.
+        // A type-parameter constituent of the target is related as itself;
+        // other instantiable or union constituents are normalized first, and
+        // decline (r7-reports §79).
+        let unconstrained_type_parameter = source_flags.contains(TypeFlags::TYPE_PARAMETER)
+            && !self.this_types.values().any(|&this| this == source)
+            && !self.this_type_nodes.values().any(|&this| this == source)
+            && self
+                .type_parameter_constraint(source)
+                .is_none_or(|constraint| constraint == self.intrinsics.unknown);
         if let TypeData::Intersection { types, .. } = self.type_of(target).data.clone()
-            && source_flags.intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
-            && !source_flags.intersects(TypeFlags::INSTANTIABLE)
+            && (source_flags.intersects(
+                TypeFlags::OBJECT
+                    | TypeFlags::INTERSECTION
+                    | TypeFlags::PRIMITIVE
+                    | TypeFlags::UNKNOWN,
+            ) && !source_flags.intersects(TypeFlags::INSTANTIABLE)
+                || unconstrained_type_parameter)
             && !(source_flags.contains(TypeFlags::INTERSECTION)
                 && self.intersection_has_instantiable(source))
-            && !self.intersection_has_instantiable(target)
+            && !types.iter().any(|&part| {
+                let flags = self.type_of(part).flags;
+                flags.contains(TypeFlags::UNION)
+                    || flags.intersects(TypeFlags::INSTANTIABLE)
+                        && !flags.contains(TypeFlags::TYPE_PARAMETER)
+            })
         {
             let previous = std::mem::replace(&mut stack.intersection_target, true);
             for part in types {
@@ -6101,21 +6242,66 @@ impl Checker<'_, '_> {
             return self.explain_object_relation(stack, source, target, depth, true);
         }
         // An intersection source failed every constituent silently; the
-        // structural pass over its combined members reports.
+        // structural pass over its combined members reports. A primitive
+        // constituent makes that pass read `getApparentType` of the
+        // intersection (`Number & { __brand: T }`), which this arm does not
+        // build, so it declines (r7-reports §78).
         if source_flags.contains(TypeFlags::INTERSECTION)
             && target_flags.contains(TypeFlags::OBJECT)
             && !target_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::UNION)
             && !self.intersection_has_instantiable(source)
         {
+            if let TypeData::Intersection { types, .. } = &self.type_of(source).data
+                && types
+                    .iter()
+                    .any(|&part| self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE))
+            {
+                return None;
+            }
             return self.explain_object_relation(stack, source, target, depth, false);
+        }
+        // An indexed-access source (the same type-variable case,
+        // `relater.go:3665`) relates `getConstraintOfType`, reporting when
+        // that is not `unknown` (a nil constraint reports nothing). Against
+        // an indexed-access target the object/index arm owns the relation; a
+        // mapped object (`isMappedTypeGenericIndexedAccess` explores a second
+        // constraint) or an undecided constraint declines (r7-reports §78).
+        if let Some(&(object, _, _)) = self.deferred_indexed_access_types.get(&source)
+            && !target_flags.intersects(TypeFlags::INDEXED_ACCESS | TypeFlags::INTERSECTION)
+        {
+            self.ensure_mapped_type_info(object);
+            if self.mapped_types.contains_key(&object)
+                || self.type_reference_targets.contains_key(&object)
+            {
+                return None;
+            }
+            return match self.constraint_of_type(source) {
+                crate::constraints::ConstraintOfType::Nil => Some(()),
+                crate::constraints::ConstraintOfType::Constraint(constraint)
+                    if constraint != source && constraint != self.intrinsics.unknown =>
+                {
+                    let constraint = self.chain_simplified_indexed_access(constraint);
+                    self.explain_constraint_descent(stack, constraint, target, depth)
+                }
+                crate::constraints::ConstraintOfType::Constraint(constraint)
+                    if constraint == self.intrinsics.unknown =>
+                {
+                    Some(())
+                }
+                _ => None,
+            };
         }
         // A type-parameter source (`structuredTypeRelatedToWorker`,
         // `relater.go:3665`) relates its constraint, reporting only when that
         // constraint is not `unknown` and the target is not a type parameter
         // too. A polymorphic `this` relates `getTypeWithThisArgument` of its
         // constraint, which this arm does not build.
+        // A union target first fails `typeRelatedToSomeType`, whose
+        // best-match elaboration has no candidate for a type-parameter source
+        // (every `getBestMatchingType` arm reads an object source), so the
+        // constraint is still what reports (r7-reports §71).
         if source_flags.contains(TypeFlags::TYPE_PARAMETER)
-            && !target_flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            && !target_flags.intersects(TypeFlags::INTERSECTION)
             && !self.this_types.values().any(|&this| this == source)
             && !self.this_type_nodes.values().any(|&this| this == source)
         {
@@ -6128,10 +6314,9 @@ impl Checker<'_, '_> {
                 {
                     Some(())
                 }
-                Some(constraint) => match self.chain_relate(stack, constraint, target) {
-                    Ternary::NotRelated => self.explain_pair(stack, constraint, target, depth),
-                    _ => None,
-                },
+                Some(constraint) => {
+                    self.explain_constraint_descent(stack, constraint, target, depth)
+                }
             };
         }
         // A type-parameter target (`structuredTypeRelatedToWorker`'s target
@@ -6176,6 +6361,24 @@ impl Checker<'_, '_> {
             return match self.chain_relate(stack, source_element, target_element) {
                 Ternary::NotRelated => {
                     self.explain_pair(stack, source_element, target_element, depth)
+                }
+                _ => None,
+            };
+        }
+        // An array target against tuples (`relater.go:3780`): a readonly
+        // array accepts any array or tuple, a mutable one a mutable tuple,
+        // and the number-index types relate with errors.
+        if let Some(target_readonly) = self.array_reference_readonly(target)
+            && let Some((_, source_readonly)) = self.tuple_element_lists.get(&source).cloned()
+            && (target_readonly || !source_readonly)
+            && !self.tuple_optional_masks.contains_key(&source)
+        {
+            let number = self.intrinsics.number;
+            let source_index = self.array_or_tuple_element_access(source, number, false)?;
+            let target_element = self.type_reference_targets.get(&target)?.1.first().copied()?;
+            return match self.chain_relate(stack, source_index, target_element) {
+                Ternary::NotRelated => {
+                    self.explain_pair(stack, source_index, target_element, depth)
                 }
                 _ => None,
             };
@@ -6283,6 +6486,43 @@ impl Checker<'_, '_> {
         None
     }
 
+    /// `getDeclaringClass`: the class whose member declaration `property`
+    /// has as its value declaration.
+    fn chain_declaring_class(&self, property: SymbolId) -> Option<SymbolId> {
+        let declaration = self.binder.symbols().get(property).value_declaration?;
+        let class = self.nodes.parent(declaration)?;
+        if !matches!(
+            self.nodes.kind(class),
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+        ) {
+            return None;
+        }
+        self.binder.symbol_of(class).map(|symbol| self.binder.merged_symbol(symbol))
+    }
+
+    /// `hasBaseType` over class symbols: `class` is `base` or extends it,
+    /// directly or through its bases. `None` where a base list is unreadable.
+    fn chain_class_derives_from(
+        &mut self,
+        class: SymbolId,
+        base: SymbolId,
+        depth: usize,
+    ) -> Option<bool> {
+        if class == base {
+            return Some(true);
+        }
+        if depth > 32 {
+            return None;
+        }
+        for parent in self.base_symbols_of_ex(class, false)? {
+            let parent = self.binder.merged_symbol(parent);
+            if self.chain_class_derives_from(parent, base, depth + 1)? {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
     /// `symbolToString` of `owner`'s property `name`: a name written as a
     /// string literal keeps its quotes as written (`'ry'`, `"e"`); any
     /// other is [`chain_property_display`] (r7-reports §55).
@@ -6388,8 +6628,18 @@ impl Checker<'_, '_> {
     ) -> Option<String> {
         let has_rest = signature.parameters.last().is_some_and(|parameter| parameter.rest);
         let fixed = signature.parameters.len() - usize::from(has_rest);
+        // A binding-pattern parameter's symbol is named `__<index>` by the
+        // binder (its position in the written list, `this` included); the
+        // port's parameter keeps the pattern's printed text.
+        let symbol_name = |position: usize, name: &str| {
+            if name.starts_with('{') || name.starts_with('[') {
+                format!("__{}", position + usize::from(signature.this_parameter.is_some()))
+            } else {
+                name.to_owned()
+            }
+        };
         if index < fixed {
-            return Some(signature.parameters[index].name.clone());
+            return Some(symbol_name(index, &signature.parameters[index].name));
         }
         let rest = signature.parameters.get(fixed)?;
         let rest_type = self.parameter_type(rest);
@@ -6398,7 +6648,7 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        Some(rest.name.clone())
+        Some(symbol_name(fixed, &rest.name))
     }
 
     /// `relateVariances` for two references to one class or interface
@@ -6512,7 +6762,26 @@ impl Checker<'_, '_> {
             if self.get_type_of_property_of_type(source, name).is_none()
                 && !self.chain_property_is_optional(target, name)?
             {
-                let properties = self.unmatched_property_report(source, target)?;
+                let properties = match self.unmatched_property_report(source, target) {
+                    Some(properties) => properties,
+                    // `getUnmatchedProperties` over an intersection source of
+                    // plain objects: the target's required members its
+                    // combined members lack, in target order (§71).
+                    None if self.type_of(source).flags.contains(TypeFlags::INTERSECTION)
+                        && !self.intersection_has_instantiable(source) =>
+                    {
+                        let mut missing = Vec::new();
+                        for candidate in &names {
+                            if self.get_type_of_property_of_type(source, candidate).is_none()
+                                && !self.chain_property_is_optional(target, candidate)?
+                            {
+                                missing.push(candidate.clone());
+                            }
+                        }
+                        missing
+                    }
+                    None => return None,
+                };
                 let diagnostic = self.missing_properties_diagnostic(
                     tsr_core::Span::default(),
                     source,
@@ -7220,8 +7489,14 @@ impl Checker<'_, '_> {
         target: TypeId,
         name: &str,
     ) -> Option<bool> {
-        let source_property = self.get_property_of_type(source, name)?;
-        let target_property = self.get_property_of_type(target, name)?;
+        // A member whose symbol the port cannot name (an inherited member
+        // of an instantiated derived class) has no modifier to read; the
+        // relation that failed did not fail on one either.
+        let (Some(source_property), Some(target_property)) =
+            (self.get_property_of_type(source, name), self.get_property_of_type(target, name))
+        else {
+            return Some(false);
+        };
         let private = |checker: &Self, property| {
             checker.property_has_modifier(property, SyntaxKind::PrivateKeyword)
                 || name.starts_with('#')
@@ -7255,10 +7530,36 @@ impl Checker<'_, '_> {
             }
             return Some(true);
         }
-        // A protected target needs `isValidOverrideOf`'s class derivation,
-        // which this retrace does not make.
+        // A protected target (`relater.go:4285`): `isValidOverrideOf` asks
+        // whether the source member's declaring class derives from the
+        // target member's; when not, TS2446-family `…is protected but type
+        // 'S' is not a class derived from 'T'` (r7-reports §73).
         if protected(self, target_property) {
-            return None;
+            let source_class = self.chain_declaring_class(source_property);
+            let target_class = self.chain_declaring_class(target_property)?;
+            let derived = match source_class {
+                Some(class) => self.chain_class_derives_from(class, target_class, 0)?,
+                None => false,
+            };
+            if derived {
+                return Some(false);
+            }
+            let display = self.chain_property_symbol_display(target, name);
+            let source_text = match source_class {
+                Some(class) => {
+                    let declared = self.get_declared_type_of_symbol(class);
+                    self.type_to_string(declared)
+                }
+                None => self.type_to_string(source),
+            };
+            let target_declared = self.get_declared_type_of_symbol(target_class);
+            let target_text = self.type_to_string(target_declared);
+            stack.push(ChainEntry {
+                message:
+                    &messages::PROPERTY_0_IS_PROTECTED_BUT_TYPE_1_IS_NOT_A_CLASS_DERIVED_FROM_2,
+                args: vec![display, source_text, target_text],
+            });
+            return Some(true);
         }
         // `propertyRelatedTo`'s last modifier arm (`relater.go:4296`).
         if protected(self, source_property) {

@@ -130,3 +130,16 @@ export const o3 = (o:  typeof a['a']) => {};
     );
     assert_has(&lines, &["o2 : (o: (typeof a)['a']) => void", "o3 : (o: typeof a['a']) => void"]);
 }
+
+/// r7-printer §55: a merged interface's type parameter declared by another
+/// declaration shadows at the site (native-read line).
+#[test]
+fn a_merged_declarations_type_parameter_shadows_a_global() {
+    let lines = lines(
+        r"interface A { a: number; }
+interface i07 { a: A; }
+interface i07<A = number> { b: A; }
+",
+    );
+    assert_has(&lines, &["a : globalThis.A", "b : A"]);
+}

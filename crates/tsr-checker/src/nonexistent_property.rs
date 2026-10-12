@@ -632,7 +632,7 @@ impl Checker<'_, '_> {
             if let Some(declaration) =
                 suggested.and_then(|symbol| self.binder.symbols().get(symbol).value_declaration)
             {
-                let related_span = self.error_span(declaration);
+                let related_span = self.declaration_error_range(declaration);
                 diagnostic.add_related_information(Some(self.related_diagnostic_at(
                     declaration,
                     &messages::_0_IS_DECLARED_HERE,
@@ -692,7 +692,7 @@ impl Checker<'_, '_> {
                 &messages::THE_INTERSECTION_0_WAS_REDUCED_TO_NEVER_BECAUSE_PROPERTY_1_HAS_CONFLICTING_TYPES_IN_SOME_CONSTITUENTS
             };
             let unreduced = self.type_to_string(containing);
-            Some(Diagnostic::with_args(message, span, [unreduced, property]))
+            Some(self.related_diagnostic_at(name_id, message, span, vec![unreduced, property]))
         } else {
             union_miss
         };
@@ -730,6 +730,43 @@ impl Checker<'_, '_> {
         match chain {
             Some(child) => Diagnostic::new_chain(Some(child), message, args),
             None => Diagnostic::with_args(message, span, args),
+        }
+    }
+
+    /// `GetErrorRangeForNode` (`scanner.go:2585`) for a declaration a related
+    /// diagnostic points at: the kinds its name list covers report their
+    /// name (`error_span`), and every other kind (a method or property
+    /// signature's sibling kinds such as `MethodSignature`, a property
+    /// assignment, a parameter) its whole node. `error_span` maps every
+    /// named declaration to its name, which is right for the anchors its
+    /// callers pass but not for these (`r7-flow.md` §58).
+    pub(crate) fn declaration_error_range(&self, declaration: NodeId) -> tsr_core::Span {
+        if matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::VariableDeclaration
+                | SyntaxKind::BindingElement
+                | SyntaxKind::ClassDeclaration
+                | SyntaxKind::InterfaceDeclaration
+                | SyntaxKind::ModuleDeclaration
+                | SyntaxKind::EnumDeclaration
+                | SyntaxKind::EnumMember
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::TypeAliasDeclaration
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::PropertySignature
+                | SyntaxKind::NamespaceImport
+                | SyntaxKind::ClassExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::Constructor
+                | SyntaxKind::SourceFile
+        ) {
+            self.error_span(declaration)
+        } else {
+            self.nodes.span(declaration)
         }
     }
 
@@ -772,11 +809,15 @@ impl Checker<'_, '_> {
                 return None;
             }
             if self.apparent_type_lacks(apparent, name)? {
+                // `NewDiagnosticChainForNode(nil, propNode, …)`: the child
+                // carries the file (§56).
                 let printed = self.type_to_string(constituent);
-                return Some(Diagnostic::with_args(
+                let span = self.error_span(name_id);
+                return Some(self.related_diagnostic_at(
+                    name_id,
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
-                    self.error_span(name_id),
-                    [name.to_string(), printed],
+                    span,
+                    vec![name.to_string(), printed],
                 ));
             }
         }

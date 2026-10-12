@@ -1270,3 +1270,17 @@ grammar.rs's per-node hook. A binding element's `{ 0n: f }` is neither
 `target/tsgo-pinned` (object literal, class field, type-literal member).
 `bigintPropertyName`'s nine TS1539 lines are the oracle's measure. The case
 keeps other gaps.
+
+## §68 TS7061, members in a mapped type
+
+`checkMappedType` starts with `checkGrammarMappedType`
+(`grammarchecks.go:120`). A mapped type written with members
+(`{ [P in K]: V; model: string }`) is TS7061 on the first member, a grammar
+error. The node's `members` are already parsed; the check had no emitter.
+It runs from grammar.rs's per-node hook. Checked against `target/tsgo-pinned`
+for a property member (span equal). A method member also gets TS7061, but
+two parser differences remain there, both routed to r7-parser. This parser
+makes the member a method declaration where native has a method signature,
+so its error span is the name rather than the whole member. It also draws
+an extra TS2391 that native's `checkMappedType` (which never checks the
+members) does not report.

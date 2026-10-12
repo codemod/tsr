@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 9029/9538 (94.66%)
-Assertion lines: 476339/478853 (99.47%)  — a gradient, not a pass rate
-Failed         : 509
+Passed         : 9035/9538 (94.73%)
+Assertion lines: 476366/478853 (99.48%)  — a gradient, not a pass rate
+Failed         : 503
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 509 failures:
+First 100 of 503 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -160,7 +160,7 @@ compiler/cyclicGenericTypeInstantiationInference
 compiler/cyclicTypeInstantiation
   cyclicTypeInstantiation.ts: >foo : <T>() => { a: T; b: { a: T; b: typeof x; }; } — expected >foo : <T>() => { a: T; b: any; }
 compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1
-  declarationAssertionNodeNotReusedWhenTypeNotEquivalent1.ts: >unwrapped : { prop1: "hello" extends Record<string, Wrapper<any>> ? { [x: number]: never; toString: never; charAt: never; charCodeAt: never; concat: never; indexOf: never; lastIndexOf: never; localeCompare: Unwrap<{ (that: string): number; (that: string, locales?: string | string[], options?: Intl.CollatorOptions): number; }>; match: Unwrap<{ (regexp: string | RegExp): RegExpMatchArray | null; (matcher: { [Symbol.match](string: string): RegExpMatchArray | null; }): RegExpMatchArray | null; }>; replace: Unwrap<{ (searchValue: string | RegExp, replaceValue: string): string; (searchValue: string | RegExp, replacer: (substring: string, ...args: any[]) => string): string; (searchValue: { [Symbol.replace](string: string, replaceValue: string): string; }, replaceValue: string): string; (searchValue: { [Symbol.replace](string: string, replacer: (substring: string, ...args: any[]) => string): string; }, replacer: (substring: string, ...args: any[]) => string): string; }>; search: Unwrap<{ (regexp: string | RegExp): number; (searcher: { [Symbol.search](string: string): number; }): number; }>; slice: never; split: Unwrap<{ (separator: string | RegExp, limit?: number): string[]; (splitter: { [Symbol.split](string: string, limit?: number): string[]; }, limit?: number): string[]; }>; substring: never; toLowerCase: never; toLocaleLowerCase: never; toUpperCase: never; toLocaleUpperCase: never; trim: never; readonly length: never; substr: never; valueOf: never; codePointAt: never; includes: never; endsWith: never; normalize: Unwrap<{ (form: "NFC" | "NFD" | "NFKC" | "NFKD"): string; (form?: string): string; }>; repeat: never; startsWith: never; anchor: never; big: never; blink: never; bold: never; fixed: never; fontcolor: never; fontsize: Unwrap<{ (size: number): string; (size: string): string; }>; italics: never; link: never; small: never; strike: never; sub: never; sup: never; } : "hello"; } — expected >unwrapped : { prop1: "hello"; }
+  declarationAssertionNodeNotReusedWhenTypeNotEquivalent1.ts: >unwrapped : { prop1: "hello" extends Record<string, Wrapper<any>> ? { [x: number]: never; toString: never; charAt: never; charCodeAt: never; concat: never; indexOf: never; lastIndexOf: never; localeCompare: Unwrap<{ (that: string): number; (that: string, locales?: string | string[], options?: Intl.CollatorOptions): number; }>; match: Unwrap<{ (regexp: string | RegExp): RegExpMatchArray | null; (matcher: { [Symbol.match](string: string): RegExpMatchArray | null; }): RegExpMatchArray | null; }>; replace: Unwrap<{ (searchValue: string | RegExp, replaceValue: string): string; (searchValue: string | RegExp, replacer: (substring: string, ...args: any[]) => string): string; (searchValue: { [Symbol.replace](string: string, replaceValue: string): string; }, replaceValue: string): string; (searchValue: { [Symbol.replace](string: string, replacer: (substring: string, ...args: any[]) => string): string; }, replacer: (substring: string, ...args: any[]) => string): string; }>; search: Unwrap<{ (regexp: string | RegExp): number; (searcher: { [Symbol.search](string: string): number; }): number; }>; slice: never; split: Unwrap<{ (separator: string | RegExp, limit?: number): string[]; (splitter: { [Symbol.split](string: string, limit?: number): string[]; }, limit?: number): string[]; }>; substring: never; toLowerCase: never; toLocaleLowerCase: never; toUpperCase: never; toLocaleUpperCase: never; trim: never; readonly length: never; substr: never; valueOf: never; codePointAt: never; includes: never; endsWith: never; normalize: Unwrap<{ (form: "NFC" | "NFD" | "NFKC" | "NFKD"): string; (form?: string): string; }>; repeat: never; startsWith: never; anchor: never; big: never; blink: never; bold: never; fixed: never; fontcolor: never; fontsize: Unwrap<{ (size: number): string; (size: string): string; }>; italics: never; link: never; small: never; strike: never; sub: never; sup: never; [iterator]: error; } : "hello"; } — expected >unwrapped : { prop1: "hello"; }
 compiler/declarationEmitAliasInlineing
   b.ts: >fn : (v: O['prop'], p: Omit<O, 'prop'>, key: keyof O, p2: Omit<O, keyof I>) => void — expected >fn : (v: string, p: Omit<{ prop: string; prop2: string; }, 'prop'>, key: keyof { prop: string; prop2: string; }, p2: Omit<{ prop: string; prop2: string; }, "prop">) => void
 compiler/declarationEmitClassMixinLocalClassDeclaration

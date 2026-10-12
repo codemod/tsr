@@ -152,6 +152,19 @@ impl Checker<'_, '_> {
             self.check_grammar_big_int_literal(id);
         }
         self.check_big_int_property_names(typed);
+        // `Checker.checkGrammarMappedType` (`grammarchecks.go:120`), from
+        // `checkMappedType`: a mapped type that declares members is TS7061 on
+        // the first one, a grammar error (r7-grammar §68).
+        if let Node::MappedTypeNode(mapped) = typed
+            && !self.file_has_parse_errors
+            && let Some(first) =
+                mapped.members.first().and_then(|member| Node::from(*member).node_id())
+        {
+            self.grammar_error_on_node(
+                first,
+                &messages::A_MAPPED_TYPE_MAY_NOT_DECLARE_PROPERTIES_OR_METHODS,
+            );
+        }
         // `Checker.checkGrammarExpressionWithTypeArguments`
         // (`grammarchecks.go:885`), from `checkExpressionWithTypeArguments`
         // and `checkGrammarHeritageClause`: `import<T>` is TS1326 on the

@@ -2065,3 +2065,302 @@ indexed accesses and falls back to creation order. Measured on
 `indexedAccessConstraints`, then reverted. Reopen when union ordering
 compares indexed accesses by object and then index (`CompareTypes`,
 `utilities.go`); that is not this lane's file.
+
+## 70. JSX overload failures carry TS2769's chain; children over several array-likes
+
+- **TS2769 on a JSX tag** (`reportCallResolutionErrors`,
+  `checker.go:9649`). With several argument-error candidates, each report
+  of the last candidate is wrapped as `No overload matches this call.` →
+  `The last overload gave the following error.` → the report, with `The
+  last overload is declared here.`. The JSX road rewrote the head's
+  message in place and dropped the rest. It now calls the call road's
+  `chain_overload_failure` (made `pub(crate)` in `calls.rs`, a visibility
+  change only). The tuple element there is read as the tuple's property
+  `"0"`. Under an optional element its `undefined` is removed
+  (`removeMissingType`), so `jsxChildrenWrongType` reads `Type 'string' is
+  not assignable to type 'number | boolean'.`.
+- **Children against a union of array-likes.**
+  `getBestMatchIndexedAccessTypeOrUndefined` first tries
+  `getIndexedAccessTypeOrUndefined` on the union itself. That indexes every
+  constituent and answers their union when all have the element; only
+  otherwise does it need `getBestMatchingType`. The elementwise
+  elaboration declined for any second array-like part. It now unions the
+  parts' elements, and declines only when one has none
+  (`jsx_children_element_at`).
+- **Not reached:** `jsxChildrenArrayWrongType` (ES2015) reports nothing,
+  because the JSX overload resolution finds a candidate applicable before
+  any elaboration runs. That is a verdict on `{ children: [unknown,
+  string] }` against `[string, number] | boolean[]`, not a report.
+
+## 71. Type parameters against unions, tuples against arrays, intersection sources
+
+- **A type-parameter source against a union.** `typeRelatedToSomeType`
+  fails first, but its best-match elaboration has no candidate: every
+  `getBestMatchingType` arm reads an object source. The type-variable arm
+  then relates the constraint with errors, as it does against an object.
+  The arm declined every union target. (`typeVariableConstraintedToAliasNotAssignableToUnion`
+  now reads the right levels. Its constraint prints the alias `Table`
+  where native prints `TableClass<any>`, an alias of a reference that
+  carries no alias natively. That is the printer's, not this arm's.)
+- **A tuple against an array** (`relater.go:3780`). A readonly array
+  target accepts any array or tuple, and a mutable one a mutable tuple; the
+  two number-index types are related with errors:
+  `Type 'readonly [1]' is not assignable to type 'readonly boolean[]'.` →
+  `Type 'number' is not assignable to type 'boolean'.`
+  (`readonlyTupleAndArrayElaboration`).
+- **An intersection source's missing members.** `unmatched_property_report`
+  answers only for plain object pairs. For an intersection of plain
+  objects, the retrace lists the target's required members that the
+  combined members lack, in target order, and reports them through
+  `missing_properties_diagnostic` (TS2741 + TS2728, or TS2739/TS2740). An
+  intersection source also enters the union-target best-match arm
+  (`findMostOverlappyType` reads intersections). `intersectionAndUnionTypes`
+  is EXACT.
+
+## 72. A member symbol the port cannot name has no modifiers to read
+
+`chain_property_privacy` declined when `get_property_of_type` had no
+symbol for the member on either side. That happens for an inherited
+member of an instantiated derived class (`B<number>`'s `x` from `A<{…}>`),
+even though `get_type_of_property_of_type` answers its type. Such a member
+carries no `private`/`protected` this port could read, and the relation
+that failed did not fail on one either. The retrace now treats it as
+public and relates the types. `genericDerivedTypeWithSpecializedBase` and
+`…2` are EXACT.
+
+## 73. A protected target member: `isValidOverrideOf`
+
+`propertyRelatedTo`'s protected-target arm (`relater.go:4285`) passes
+when the source member's declaring class is the target member's declaring
+class or derives from it (`isPropertyInClassDerivedFrom`, `hasBaseType`).
+Otherwise it fails with `Property 'x' is protected but type 'S' is not a
+class derived from 'T'.`, naming the two declaring classes. §58 left this
+arm declined. `chain_declaring_class` reads the class off the member's
+value declaration, and `chain_class_derives_from` walks
+`base_symbols_of_ex`; an unreadable base list declines. `protectedMembers`
+(`b1 = a1` / `a1 = b1`) and `derivedClassTransitivity4` now read native's
+levels; the latter still differs on `(x?: string)`'s printed `| undefined`.
+
+## 74. TS7031 under an array literal; TS7006's `(Missing)`
+
+- **An array binding pattern over an array literal.** The pattern's
+  declared type is the literal's type padded by the pattern
+  (`getTypeFromBindingPattern` with the initializer), and
+  `widenTypeForVariableLikeDeclaration` reports each element that widens to
+  `any`. An element past the literal's end, with no initializer of its
+  own, is padded `any`: `function f([x, y] = [1])` reads TS7031 at `y`
+  (`destructuringWithLiteralInitializers2`). Outside `strictNullChecks`, a
+  `null` or `undefined` element widens to `any` too: `var [a, b] =
+  [undefined, null]` (`wideningTuples5`). The parameter arm in
+  `check_implicit_any_parameters` and the variable arm in
+  `check_widening_of_variable_initializer` now walk the pattern; a spread
+  in the literal, an empty literal, a rest element and a nested pattern
+  are left alone.
+- **`declarationNameToString`** prints a missing parameter name as
+  `(Missing)` (`templateStringInFunctionParameterType`).
+
+A quick oracle over `destructuring`, `idening` and `wideningTuples`
+against base20 read 2 gained and 0 lost.
+
+## 75. Regression fix: a duplicated literal member relates its last value
+
+Routed by the integrator as a duplicate-property regression since batch 47.
+§35 made the per-member check read the last occurrence's value, as
+`elaborateObjectLiteral` does. That removed the per-member TS2322 and
+exposed the relation's own verdict: `test({ thunk: (num: number) => {},
+thunk: (str: string) => {} })` became a false TS2345 (with a chain naming
+`(num: number) => void`), and `lastPropertyInLiteralWins` stayed WRONG.
+
+**Cause.** checkObjectLiteral gives each member its own transient symbol,
+and the last one wins `propertiesTable[name]` (`checker.go:13331`). The
+port's literal type records the last member's resolved type, but its
+property list is marked incomplete while a context-sensitive member is
+pending. A read then takes the symbol road through the binder's merged
+symbol, whose `getTypeOfSymbol` answers the *first* declaration
+(contextual.md §17 keeps that answer for `.types`, as native does).
+
+**Fix** (`members.rs`, a grant request; one condition): a property-list
+entry whose binder symbol has more than one declaration, and whose type is
+already resolved from its own initializer, is read from the list even when
+the list is incomplete. `lastPropertyInLiteralWins` is EXACT. A quick
+oracle over every `uplicate` case reads 0 lost against base20.
+
+## 76. Non-strict `void` against an object; a missing-property chain suppresses its head
+
+Routed from r7-calls (TS2684 silenced in non-strict mode).
+
+- **`void` against an object** (`isSimpleTypeRelatedTo`). Outside strict
+  null checks, `undefined` and `null` relate to every object, but `void`
+  has no such arm, so it fails against an object in either mode. The
+  relater's decided-failure rule covered the nullable flags only under
+  `strictNullChecks`, and non-strict `void → C` was `Unknown`, which kept
+  TS2684 (`The 'this' context of type 'void'…`) from reporting
+  (`thisTypeInFunctionsNegative`, strict false). `relater.rs` now decides
+  `void` the same way in both modes.
+- **A primitive source against an intersection target** enters the
+  intersection arm: `typeRelatedToEachType` explains the first failing
+  constituent (`Type 'void' is not assignable to type 'A'.` under TS2684,
+  `unionTypeCallSignatures6`).
+- **The chain's missing-property message suppresses the head.**
+  `reportRelationError` (`relater.go:4816`) pushes no head when the
+  message below it is the pair's own TS2741/TS2739/TS2740 (`chainArgsMatch`),
+  unless the head is a conversion or implementation message. The
+  `missing_property_chain` path did this already. A chain retraced through
+  §71's intersection-source arm did not: TS2684 over `A & C & {…}` → `B`
+  kept its head. Both the TS2322-family and TS2345 sites now report the
+  missing-property message alone in that case. `unionTypeCallSignatures6`
+  is EXACT.
+
+## 77. A binding-pattern parameter whose contextual type is `unknown`
+
+Routed from r7-calls (arrow arguments with binding-pattern parameters).
+Repro: `fallbackToBindingPatternForTypeInference`
+(`trans(({a}) => a)` against `trans<T>(f: (x: T) => string)`).
+
+- **The forcing constraint.** `assignParameterType` (`checker.go:10404–10425`)
+  assigns the contextual type and then, when that type is `unknown`,
+  replaces it with `getTypeFromBindingPattern(name, false, false)`. When
+  inference finds no candidate for `T`, the arrow's parameter therefore
+  has the type `{ a: any; }`, not `unknown`. The relation back against
+  `(x: unknown) => string` fails (`unknown → { a: any; }`), which gives
+  TS2345. The port kept `unknown`, so the arrow related and nothing was
+  reported.
+- **Where it went.** The fallback is the
+  `binding_pattern_fallback_for_unknown` helper (implicit_any.rs). It reuses
+  `binding_pattern_implied_type` (binding_patterns.rs), the port's
+  `getTypeFromBindingPattern`. It has one call at each of the two sites
+  where the port applies a contextual parameter type: symbols.rs
+  (`get_contextually_typed_parameter_type` → `add_optionality_for_declaration`)
+  and signatures.rs (the `Parameter::new` contextual arm). Those are
+  one-line hooks outside this lane's files, in the same shape as the granted
+  useMemo hook. Any other contextual type passes through unchanged, and so
+  does a pattern the port cannot type.
+- **The chain.** `parameter_name_at_position` now prints the binder's
+  symbol name, `__<index>` (with `this` counted), for a binding-pattern
+  parameter instead of the pattern text. The explain walk takes an
+  `unknown` source as a leaf (no simple arm relates it below the pair), so
+  `Type 'unknown' is not assignable to type '{ a: any; }'.` is the last line.
+- **How it would be wrong.** The fallback could fire where tsgo's does not,
+  for example where the port computes `unknown` but tsgo would have produced
+  an inference candidate. That would show up as new TS2345s on
+  `destructuring`/`binding` cases. The quick oracles over those filters are
+  the check.
+
+## 78. Indexed-access sources through their constraint; constraint descents push their source only
+
+From the base22 rank (batch 63): the largest relater-rooted chain bucket is
+TS2322 with no chain (111 rows across 40 files). Its biggest family is a
+generic indexed-access source: `T[K] → object` explains as `T[keyof T]`, then
+`T[string] | T[number] | T[symbol]`, then `T[string]`
+(`keyofAndIndexedAccess`, `indexedAccessConstraints`, `deepComparisons`,
+`mappedTypes6`).
+
+- **The arm.** `structuredTypeRelatedToWorker`'s type-variable case
+  (`relater.go:3665`) relates `getConstraintOfType(source)` and reports when
+  that constraint is not `unknown`. The explain walk now covers an indexed
+  access the same way: a nil constraint reports nothing; a constraint is
+  related and explained. `isRelatedTo` normalizes the pair before it names
+  it, so `T[string | number | symbol]` is printed as its distribution
+  (`chain_simplified_indexed_access` is the relater's
+  `simplified_indexed_access`, reading). The arm declines in three cases:
+  a mapped object or alias reference (`isMappedTypeGenericIndexedAccess`
+  explores a second constraint), an undecided constraint, and an
+  indexed-access or intersection target.
+- **Constraint descents push their source only.** Native relates the
+  constraint with `RecursionFlagsSource`, so the target is not pushed on
+  `targetStack`. The retrace's assumed pairs had always pushed both sides.
+  At the third level `object` sat on the target stack three times,
+  `isDeeplyNestedType` called the target expanding, and `T[string] → object`
+  answered Maybe, which the walk took as related. The chain then stopped
+  after its first line. The assumed pairs now record whether they were
+  entered as a constraint descent (`relate_ternary_assuming`'s
+  `source_only`). The type-parameter arm uses the same
+  `explain_constraint_descent`.
+- **Not yet EXACT: union order.** The port prints `T[number] | T[string] |
+  T[symbol]`; native prints `T[string] | …`. `CompareTypes`
+  (`utilities.go:544`) orders two indexed accesses by object, then by index.
+  `unions.rs`'s `compare_types` has no such arm and falls back to type-id
+  creation order. That file is outside this lane, so the fix is proposed to
+  the integrator, not made here. Until it lands, the indexed-access cases
+  above stay non-exact with the right chain shape.
+- **A §76 loss, fixed.** In the base22 gate, `intersectionAsWeakTypeSource`
+  went RIGHT→WRONG. Its source `Brand<…>` is `number & { __brand: T }`.
+  Native's structural pass reads `getApparentType` of the intersection, so
+  its TS2739 names `Number & { __brand: … }`, and §76's head suppression
+  does not apply. The intersection-source arm named `Brand<…>`, which
+  matched the head, so the head was dropped. That arm now declines for an
+  intersection with a primitive constituent, which restores base22's
+  output.
+- **Refused here: conditional alias variances.** `Stuff<U> → Stuff<T>`
+  (`conditionalTypeVarianceBigArrayConstraintsPerformance`) relates the
+  alias arguments first (`relater.go:3392`). `inference_variances` answers
+  `None` for an alias whose body is a conditional (variances.rs,
+  `measurable_alias_body`), so the walk has nothing to explain from. That
+  file is outside this lane.
+- **Measured.** Quick oracles against base22 (`ntersection`,
+  `ndexedAccess`, `keyof`, `onstrain`, `ypeParameter`, `eakType`) gained
+  `errorMessageOnIntersectionsWithDiscriminants01`, `intersectionAndUnionTypes`
+  and `typeParameterArgumentEquivalence3`, with 0 lost.
+
+## 79. Unconstrained type parameters against intersections; the `T & {}` hint
+
+- **`T → T & U`** (`intersectionTypeInference`). The intersection-target
+  arm took only non-instantiable sources and only targets without
+  instantiable constituents. Native's `unionOrIntersectionRelatedTo` runs
+  `typeRelatedToEachType` (reporting) for an instantiable source too. Its
+  fallthrough to the type-variable arm then relates `getConstraintOfType`,
+  which for an unconstrained parameter is `unknown`, related without
+  reporting (`relater.go:3672`). So the each-type report is the whole chain:
+  `Type 'T' is not assignable to type 'U'.` plus the arbitrary-type line.
+  The arm now admits an unconstrained (or `unknown`-constrained) type
+  parameter source, and type-parameter constituents in the target. A
+  constrained source still declines, because native then also reports the
+  constraint's relation, and the two report sets interleave in an order
+  this walk does not rebuild (`conditionalTypes1`'s line-17 chain ends with
+  the each-type line). Other instantiable or union target constituents
+  still decline, because `isRelatedTo` normalizes them first.
+- **The hint for `T → NonNullable<T>`.** `reportErrorResults` constrains a
+  clone of `T` to the target and asks `hasNonCircularBaseConstraint`. The
+  port called a target with the source as a constituent circular. Native
+  instantiates `T & {}` through `getIntersectionType`, and its two-member
+  constraint reduction (`checker.go:26131`: a type variable with a
+  primitive, `object` or `{}`) asks `getBaseConstraintOfType(clone)` before
+  the clone's constraint is assigned. That caches "no constraint", so the
+  later question answers non-circular, and native prints *This type
+  parameter might need an \`extends NonNullable<T>\` constraint.* That pair
+  shape is therefore not circular now. A generic string-like partner
+  (template literal, string mapping) is undecided and declines. A union
+  with the source as a member is still circular, because `getUnionType`
+  asks no constraint.
+- **Measured.** Quick oracles against base22 (`ntersection`,
+  `ypeParameter`, `onditional`, `eneric`) gained
+  `intersectionTypeInference`, `genericDerivedTypeWithSpecializedBase` and
+  `genericDerivedTypeWithSpecializedBase2`, in addition to §78's three,
+  with 0 lost. In `conditionalTypes1`, the line-12 chain and its two hints
+  match native now; the file is still non-exact on other lines.
+
+## 80. JSX attributes types order their members by declaration
+
+`<OneThing {...obj} {...{yy: true}} />` with `obj = { yy: 10, yy1: "hello" }`
+gives native `{ yy1: string; yy: boolean; }` and gave the port
+`{ yy: boolean; yy1: string; }` (`tsxStatelessFunctionComponentOverload4`,
+TS2769's inner line).
+
+- **The forcing constraint.** `createJsxAttributesTypeFromAttributesProperty`
+  mints every chunk through `newAnonymousType`: the written attributes
+  through `createJsxAttributesType`, and each spread through
+  `getSpreadType`. `getNamedMembers` (`checker.go:22049`) then sorts the
+  members with `compareSymbols`, by first declaration. A spread member
+  keeps its own declaration's place: `yy1` is declared in `obj`, before the
+  later literal's `yy`. The port replaced a spread member in place, which
+  kept the first writer's position.
+- **The change.** `mint_jsx_attributes_chunk` sorts its properties by origin
+  symbol, as `spreads.rs`'s `mint_anonymous_properties` does for object
+  spreads. A property without an origin (the synthesized `children`) sorts
+  last, which is where `compareSymbols` puts a symbol without declarations.
+  Written attributes come out in source order, as before.
+- **Measured.** Quick oracles over `tsx` and `jsx`, against the same tree
+  without the sort: 0 gained and 0 lost as whole cases. The
+  `tsxStatelessFunctionComponentOverload4` line now matches. The file's
+  other differences are the `| undefined` printing of optional members,
+  which belongs to another lane.
