@@ -7450,6 +7450,15 @@ impl Relater<'_, '_, '_> {
             if excluded.contains(name) {
                 continue;
             }
+            // propertiesRelatedTo (native 5b1047d, relater.go:4256) skips
+            // SymbolFlagsPrototype. The class static side's synthetic
+            // prototype has no binder symbol here; its Function.prototype
+            // fallback must not become a structural/readonly requirement.
+            // Construct signatures still compare instance returns, and a
+            // written interface property named prototype is not synthetic.
+            if name == "prototype" && self.checker.class_static_symbol(target).is_some() {
+                continue;
+            }
             // getUnmatchedPropertiesWorker (relater.go:988) skips a static
             // private-identifier target, and the property loop finds no
             // source member under its per-class name, so it never relates

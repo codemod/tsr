@@ -117,6 +117,52 @@ export const invalidSignature = new abstractSignature('a');
 }
 
 #[test]
+fn coalesced_abstract_base_preserves_concrete_and_abstract_construction() {
+    let source = r"// @strict: true
+// @target: esnext
+abstract class Class { constructor(...args:any[]) {} }
+function construct(params?: { Parent?: typeof Class }) {
+  const Parent = params?.Parent ?? Object;
+  class Definition extends Parent {}
+  new Definition();
+  const Alias = Definition;
+  new Alias();
+  const holder = { Definition };
+  new holder.Definition();
+  abstract class AbstractDefinition extends Parent {}
+  new AbstractDefinition();
+}
+new Class();
+abstract class Abstract { constructor(public value:number) {} }
+class Concrete { constructor(public value:number) {} }
+class Derived extends Abstract {}
+new Derived(17);
+new Derived('wrong');
+new Derived();
+declare const Union: typeof Abstract | typeof Concrete;
+class CompositeDerived extends Union {}
+new CompositeDerived(17);
+interface WrittenPrototype { prototype:{required:number}; new():{} }
+const written: WrittenPrototype = Class;
+";
+    let case = TestCase::parse("probe/coalesced-abstract-base", "abstract.ts", source);
+    let mut diagnostics: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    diagnostics.sort_unstable();
+    // Native 5b1047d: concrete class aliases/property accesses are valid;
+    // own abstract modifiers and unreduced composite abstract signatures are
+    // still rejected. Inherited argument types/arity and written prototype
+    // requirements must survive the synthetic-prototype exclusion. Positions
+    // exclude the two harness directives, which TestCase removes.
+    assert_eq!(
+        diagnostics,
+        [(11, 3, 2511), (13, 1, 2511), (18, 13, 2345), (19, 1, 2554), (22, 1, 2511), (24, 7, 2322)]
+    );
+}
+
+#[test]
 fn array_member_fallback_and_intersected_callback_context() {
     let lines = assertions(
         r"// @strict: true
