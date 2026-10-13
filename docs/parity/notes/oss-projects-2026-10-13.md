@@ -62,6 +62,43 @@ Matching serialized options also does not prove all option semantics match.
 The reused original config/package/lockfile inventory is explicitly partial,
 not a fresh complete resolver-query capture.
 
+## First parity integration preserves the corpus but is not project parity
+
+At [`f2a4949`](https://github.com/codemod/tsr/commit/f2a49491b), the integrated
+receiver-slot, unused-module, callback-context and synthetic-prototype fixes
+plus the spread/iteration safety regression preserve every previously RIGHT
+legacy answer. The full 557,344 type assertions gain seven WRONG-to-RIGHT
+answers (554,685 RIGHT, 374 GAP, 2,285 WRONG), with no losses or missing rows.
+All 12,238 diagnostic verdicts remain unchanged. These are correctness changes;
+the timing tables above still refer to the earlier measured source.
+
+The parent checker run passes 1,989 tests (three ignored). Full conformance
+`--no-fail-fast` reports 722 passed, one failed and 11 ignored: the unchanged
+JSDoc nested-typedef mapper failure is tracked as `tsr-fr2`. The former
+`tsr-11s` receiver-slot panic is fixed. Formatting and workspace/all-target
+Clippy pass; the full test gate is not green while `tsr-fr2` remains open.
+
+Complete checks of the same prepared frozen projects, with the same
+`--noEmit --incremental false --composite false --pretty false` flags, remove
+exactly five diagnostics and add none:
+
+| Project | Before / integrated / native diagnostics | Removed false positives |
+|---|---:|---|
+| Zod | 1,083 / 1,081 / 46 | Two TS2511 reports for the derived constructor, including the installed source copy |
+| Effect core | 1,311 / 1,309 / 0 | Two own-source-module TS6133 reports |
+| Excalidraw | 1,977 / 1,976 / 0 | Vite configuration callback's TS7031 for `mode` |
+
+The comparison preserves multiline diagnostic blocks and duplicate occurrences.
+Receiver-slot absence, leading-`this` ordinary/default/rest context, structurally
+identical callback inputs, binding-default context, valid constructor aliases,
+written `prototype` requirements and genuine spread/iteration negatives are
+covered by native-supported controls. Other delegated parity fixes are still
+under validation; a reduced positive or lower diagnostic count does not close
+their full-project contracts. The JSX candidate is not accepted while it loses
+the real React runtime's invalid-component diagnostic. Generic indexed-literal
+lazy member support remains explicitly unsupported, tracked in
+`tsr-2zk.1268.5.1`, rather than published as a completed semantic image.
+
 ## Allocation failures are removed without changing legacy answers
 
 The first lexical-key correction let Zod finish, but Excalidraw still exceeded
