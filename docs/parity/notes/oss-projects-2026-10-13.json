@@ -1,0 +1,2615 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-10-13",
+  "purpose": "Three real OSS project parity/performance probes; no verified throughput result",
+  "source_sha": "66fcf1f5a51f6dabbea02f861f2644b98af394e5",
+  "oracle_sha": "5b1047d10d32e7d5b446be4de56b126ff42f82bb",
+  "cpu_model": "Intel Xeon Processor @ 2.60GHz",
+  "vcpus": 4,
+  "memory_gib": 7.8,
+  "worker_environment": {
+    "GOMAXPROCS": null,
+    "GOMEMLIMIT": null,
+    "GOGC": null,
+    "RAYON_NUM_THREADS": null
+  },
+  "build_commands": [
+    "cargo build --profile dist -p tsr --features work-trace",
+    "cargo build --release -p tsr --features work-trace",
+    "go -C vendor/typescript-go build -o /home/user/workspace/repo/target/oss-bench/tsgo ./cmd/tsgo"
+  ],
+  "toolchains": {
+    "rust": "1.96.0",
+    "go": "1.26.8",
+    "node": "26.10.0",
+    "yarn": "1.22.19"
+  },
+  "samples_per_tool_project_profile": 5,
+  "warmups_per_tool_project_profile": 1,
+  "cache_state": "fresh processes, warm filesystem, noEmit, incremental/composite disabled",
+  "work_comparable": false,
+  "verified_wall_ratio": null,
+  "target_verified": false,
+  "limits": [
+    "All TSR full checks exit on parser errors and check zero files.",
+    "Loaded scope matches, but actual checked work and serialized options do not.",
+    "Metadata inventory plus loaded bytes is partial input coverage, not full resolver-query capture.",
+    "Zod root config includes benchmarks, tests and resolution fixtures with 46 native diagnostics.",
+    "Effect scope is the core package production tsconfig, not its entire monorepo.",
+    "Physical line counts include comments, blanks, tests and declarations; no dependency/generated lines.",
+    "Configuration migrations are recorded explicitly; these are not untouched upstream configurations."
+  ],
+  "followups": [
+    "tsr-2zk.2.13.1",
+    "tsr-6wu"
+  ],
+  "projects": {
+    "zod": {
+      "repository": "https://github.com/colinhacks/zod.git",
+      "revision": "3b946107b6c94b2ac8ff9fb451160c34dc4dd794",
+      "config": "tsconfig.json",
+      "tracked_ts_files": 366,
+      "tracked_ts_lines": 64024,
+      "line_count_method": "git ls-files, extensions .ts/.tsx/.mts/.cts, physical lines via bytes.splitlines(); includes tests/comments/blanks/declarations, excludes dependencies/untracked generated files",
+      "setup_patch_sha256": "c89d1ee6f26e34dc0417bb3d8532ccb11afa618a58204ba2055232d2fccb5c7e",
+      "root_package_manager": "pnpm@10.12.1",
+      "setup_patch": "diff --git a/.configs/tsconfig.base.json b/.configs/tsconfig.base.json\nindex a9a3726..b67131b 100644\n--- a/.configs/tsconfig.base.json\n+++ b/.configs/tsconfig.base.json\n@@ -28,7 +28,6 @@\n     \"esModuleInterop\": true,\n     \"emitDecoratorMetadata\": true,\n     \"experimentalDecorators\": true,\n-    \"downlevelIteration\": true,\n     \"isolatedModules\": true,\n \n     \"pretty\": true\n",
+      "profiles": {
+        "dist": {
+          "flags": [
+            "--project",
+            "/tmp/tsr-oss-projects/zod/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "machine": {
+            "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+            "cpu_count": 4,
+            "load_average_at_start": [
+              0.16796875,
+              1.5869140625,
+              1.447265625
+            ]
+          },
+          "scope_match": true,
+          "options_match": false,
+          "option_differences": {
+            "emitDecoratorMetadata": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "exactOptionalPropertyTypes": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "experimentalDecorators": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "forceConsistentCasingInFileNames": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noFallthroughCasesInSwitch": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitOverride": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitReturns": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitThis": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "removeComments": {
+              "tsr": null,
+              "tsgo": false
+            }
+          },
+          "inputs_unchanged": true,
+          "actual_checked_work_verified": false,
+          "diagnostics_match": false,
+          "diagnostic_comparison": {
+            "exact_shared": 0,
+            "tsr_only": 4,
+            "tsgo_only": 46,
+            "tsr_only_examples": [
+              "packages/zod/src/v3/types.ts(5038,47): error TS1005: '?' expected.",
+              "packages/zod/src/v3/types.ts(5040,6): error TS1005: ')' expected.",
+              "packages/zod/src/v3/types.ts(5044,1): error TS1128: Declaration or statement expected.",
+              "packages/zod/src/v3/types.ts(5044,3): error TS1128: Declaration or statement expected."
+            ],
+            "tsgo_only_examples": [
+              "packages/bench/_temp.ts(4,7): error TS6133: 'result' is declared but its value is never read.",
+              "packages/bench/discriminated-union.ts(138,7): error TS6133: 'args' is declared but its value is never read.",
+              "packages/bench/key-iteration.ts(26,5): error TS6133: 'temp' is declared but its value is never read.",
+              "packages/bench/object-moltar.ts(97,7): error TS6133: 'inPlace' is declared but its value is never read.",
+              "packages/bench/safeparse.ts(29,15): error TS6133: 'result' is declared but its value is never read.",
+              "packages/resolution/src/index.cts(8,16): error TS2307: Cannot find module 'zod/v4/locales/fr.cjs' or its corresponding type declarations.",
+              "packages/zod/src/v3/tests/all-errors.test.ts(22,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+              "packages/zod/src/v3/tests/all-errors.test.ts(36,108): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+              "packages/zod/src/v3/tests/all-errors.test.ts(46,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+              "packages/zod/src/v3/tests/intersection.test.ts(38,8): error TS6196: '_Cat' is declared but never used."
+            ]
+          },
+          "probe_sha256": "1e88801d1986f1c8e6a13c98d9fae89855ed90b15372f014400363eab93e0ed8",
+          "harness_sha256": {
+            "whole_project_perf.py": "e272504c6937367cd5d68d0fd3c66826be3328d0c022f5ec5ce1c95c141b5670",
+            "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+          },
+          "raw_report_sha256": "93e0c8fad670c8dc800b832ee9a4a29306f0dcf355f9207ca1cc634c7498dcc3",
+          "input_path_count": 878,
+          "input_fingerprint": "db617ff793d59a850ecd5e477235c18e33ea771aaa4d2346df65f52d5a81a822",
+          "tools": {
+            "tsr": {
+              "binary_sha256": "108b01c7dffa5c69aaf3b4334211ea10aecb620f177be564f0191d42913c524d",
+              "loaded_file_count": 943,
+              "summary": {
+                "wall_seconds": {
+                  "median": 0.24583128599999782,
+                  "p95": 0.28162141699999665,
+                  "min": 0.21597553300000527,
+                  "max": 0.28162141699999665
+                },
+                "user_seconds": {
+                  "median": 0.25851799999999997,
+                  "p95": 0.274532,
+                  "min": 0.255637,
+                  "max": 0.274532
+                },
+                "system_seconds": {
+                  "median": 0.10323199999999999,
+                  "p95": 0.106996,
+                  "min": 0.044923,
+                  "max": 0.106996
+                },
+                "peak_rss_bytes": {
+                  "median": 247013376,
+                  "p95": 253272064,
+                  "min": 234430464,
+                  "max": 253272064
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 0,
+              "checked_work_complete": true,
+              "checked_work_sha256": "aeed173fa7d530c9582ec0785a3707a2f09bcf4dc8a6d31de10ff7a02f5e82dc",
+              "diagnostics": {
+                "count": 4,
+                "fingerprint": "072f5e4b6a35c531018c4eaacc53584e6f5abda8bf4da6c27a159c1490159e9e",
+                "entries": [
+                  "packages/zod/src/v3/types.ts(5038,47): error TS1005: '?' expected.",
+                  "packages/zod/src/v3/types.ts(5040,6): error TS1005: ')' expected.",
+                  "packages/zod/src/v3/types.ts(5044,1): error TS1128: Declaration or statement expected.",
+                  "packages/zod/src/v3/types.ts(5044,3): error TS1128: Declaration or statement expected."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 16837,
+                  "started_at_unix_ns": 1791875773259781796,
+                  "wall_seconds": 0.24583128599999782,
+                  "user_seconds": 0.257452,
+                  "system_seconds": 0.10574299999999999,
+                  "peak_rss_bytes": 253272064,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 16855,
+                  "started_at_unix_ns": 1791875773733426126,
+                  "wall_seconds": 0.21597553300000527,
+                  "user_seconds": 0.273742,
+                  "system_seconds": 0.044923,
+                  "peak_rss_bytes": 247013376,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17045,
+                  "started_at_unix_ns": 1791875780319711121,
+                  "wall_seconds": 0.2476246659999788,
+                  "user_seconds": 0.255637,
+                  "system_seconds": 0.106996,
+                  "peak_rss_bytes": 249176064,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17065,
+                  "started_at_unix_ns": 1791875780799566489,
+                  "wall_seconds": 0.2179473380000445,
+                  "user_seconds": 0.274532,
+                  "system_seconds": 0.053276,
+                  "peak_rss_bytes": 242888704,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17104,
+                  "started_at_unix_ns": 1791875786899659725,
+                  "wall_seconds": 0.28162141699999665,
+                  "user_seconds": 0.25851799999999997,
+                  "system_seconds": 0.10323199999999999,
+                  "peak_rss_bytes": 234430464,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            },
+            "tsgo": {
+              "binary_sha256": "c5c38e2d6619240546cec03b4de69f3d9e6468e70d3995cb4da0ea4b467d230e",
+              "loaded_file_count": 943,
+              "summary": {
+                "wall_seconds": {
+                  "median": 2.6400854859999754,
+                  "p95": 3.0380802310000945,
+                  "min": 2.5490388970000595,
+                  "max": 3.0380802310000945
+                },
+                "user_seconds": {
+                  "median": 7.371002,
+                  "p95": 7.523003,
+                  "min": 6.7207159999999995,
+                  "max": 7.523003
+                },
+                "system_seconds": {
+                  "median": 2.284634,
+                  "p95": 2.387542,
+                  "min": 2.229771,
+                  "max": 2.387542
+                },
+                "peak_rss_bytes": {
+                  "median": 899403776,
+                  "p95": 911888384,
+                  "min": 874991616,
+                  "max": 911888384
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 400,
+              "checked_work_complete": true,
+              "checked_work_sha256": "936e8ae573f93b42d2bbb63f64d2f463aab98ee6e35ca38cd5a48b001f4b3fe2",
+              "diagnostics": {
+                "count": 46,
+                "fingerprint": "1534cb3d6e771411e093336af600c0fd5db8a20a6ebde4024b0be4f8ded05f33",
+                "entries": [
+                  "packages/bench/_temp.ts(4,7): error TS6133: 'result' is declared but its value is never read.",
+                  "packages/bench/discriminated-union.ts(138,7): error TS6133: 'args' is declared but its value is never read.",
+                  "packages/bench/key-iteration.ts(26,5): error TS6133: 'temp' is declared but its value is never read.",
+                  "packages/bench/object-moltar.ts(97,7): error TS6133: 'inPlace' is declared but its value is never read.",
+                  "packages/bench/safeparse.ts(29,15): error TS6133: 'result' is declared but its value is never read.",
+                  "packages/resolution/src/index.cts(8,16): error TS2307: Cannot find module 'zod/v4/locales/fr.cjs' or its corresponding type declarations.",
+                  "packages/zod/src/v3/tests/all-errors.test.ts(22,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/all-errors.test.ts(36,108): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/all-errors.test.ts(46,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/intersection.test.ts(38,8): error TS6196: '_Cat' is declared but never used.",
+                  "packages/zod/src/v3/tests/nativeEnum.test.ts(59,8): error TS6196: '_FruitEnum' is declared but never used.",
+                  "packages/zod/src/v3/tests/nativeEnum.test.ts(78,8): error TS6196: '_GreekEnum' is declared but never used.",
+                  "packages/zod/src/v3/tests/object.test.ts(215,55): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(226,84): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(248,57): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(254,44): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(431,9): error TS6133: '_Outer' is declared but its value is never read.",
+                  "packages/zod/src/v3/tests/partials.test.ts(26,38): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/partials.test.ts(50,35): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/partials.test.ts(123,41): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(160,9): error TS6133: '_a' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(161,9): error TS6133: '_b' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(162,9): error TS6133: '_c' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(163,9): error TS6133: '_d' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(185,8): error TS6196: '_RefinedSchema' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/enum.test.ts(183,8): error TS6196: '_a' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/enum.test.ts(184,8): error TS6196: '_b' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/index.test.ts(250,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/index.test.ts(268,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/lazy.test.ts(206,8): error TS6196: '_Category' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(235,40): error TS2344: Type '{ a?: string; b: string; }' does not satisfy the constraint '{ a: string | undefined; b: string; }'.\n  Property 'a' is optional in type '{ a?: string; b: string; }' but required in type '{ a: string | undefined; b: string; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(236,40): error TS2344: Type '{ a?: string; b: string; }' does not satisfy the constraint '{ a: string | undefined; b: string; }'.\n  Property 'a' is optional in type '{ a?: string; b: string; }' but required in type '{ a: string | undefined; b: string; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(245,41): error TS2344: Type '{ a: string; b?: string; } | { a?: string; b: string; }' does not satisfy the constraint '{ a: string | undefined; b: string | undefined; }'.\n  Type '{ a: string; b?: string; }' is not assignable to type '{ a: string | undefined; b: string | undefined; }'.\n    Property 'b' is optional in type '{ a: string; b?: string; }' but required in type '{ a: string | undefined; b: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(282,41): error TS2344: Type '{ a?: string; b?: string; }' does not satisfy the constraint '{ a: string | undefined; b: string | undefined; }'.\n  Property 'a' is optional in type '{ a?: string; b?: string; }' but required in type '{ a: string | undefined; b: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(288,40): error TS2344: Type '{ b?: string; }' does not satisfy the constraint '{ b: string | undefined; }'.\n  Property 'b' is optional in type '{ b?: string; }' but required in type '{ b: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/tuple.test.ts(108,56): error TS2344: Type '[string, number?, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number | undefined; 2: string | undefined; }'.\n  Property '1' is optional in type '[string, number?, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number | undefined; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/assignability.test.ts(120,8): error TS6196: '_RefinedSchema' is declared but never used.",
+                  "packages/zod/src/v4/mini/tests/index.test.ts(250,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/index.test.ts(268,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(17,35): error TS2344: Type '{ name: string; age: number; points?: number; \"test?\": boolean; }' does not satisfy the constraint '{ age: number; name: string; points: number | undefined; \"test?\": boolean; }'.\n  Property 'points' is optional in type '{ name: string; age: number; points?: number; \"test?\": boolean; }' but required in type '{ age: number; name: string; points: number | undefined; \"test?\": boolean; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(109,46): error TS2344: Type '{ name: string; age: number; email?: string; isAdmin: boolean; }' does not satisfy the constraint '{ age: number; email: string | undefined; isAdmin: boolean; name: string; }'.\n  Property 'email' is optional in type '{ name: string; age: number; email?: string; isAdmin: boolean; }' but required in type '{ age: number; email: string | undefined; isAdmin: boolean; name: string; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(123,42): error TS2344: Type '{ name: string; age: number; email?: string; }' does not satisfy the constraint '{ age: number; email: string | undefined; name: string; }'.\n  Property 'email' is optional in type '{ name: string; age: number; email?: string; }' but required in type '{ age: number; email: string | undefined; name: string; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(131,44): error TS2344: Type '{ name: string; email?: string; }' does not satisfy the constraint '{ email: string | undefined; name: string; }'.\n  Property 'email' is optional in type '{ name: string; email?: string; }' but required in type '{ email: string | undefined; name: string; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(151,45): error TS2344: Type '{ name?: string; age?: number; email?: string; }' does not satisfy the constraint '{ age: number | undefined; email: string | undefined; name: string | undefined; }'.\n  Property 'age' is optional in type '{ name?: string; age?: number; email?: string; }' but required in type '{ age: number | undefined; email: string | undefined; name: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(162,53): error TS2344: Type '{ name?: string; age: number; email?: string; }' does not satisfy the constraint '{ age: number; email: string | undefined; name: string | undefined; }'.\n  Property 'email' is optional in type '{ name?: string; age: number; email?: string; }' but required in type '{ age: number; email: string | undefined; name: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/recursive-types.test.ts(38,42): error TS2344: Type '_Category' does not satisfy the constraint '{ name: string; subcategories: \"Expected: ..., Actual: ...\" | \"Expected: undefined, Actual: ...\"; }'.\n  Types of property 'subcategories' are incompatible.\n    Type '_Category[]' is not assignable to type '\"Expected: ..., Actual: ...\" | \"Expected: undefined, Actual: ...\"'."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 16827,
+                  "started_at_unix_ns": 1791875770344585251,
+                  "wall_seconds": 2.6859220540000024,
+                  "user_seconds": 7.523003,
+                  "system_seconds": 2.244799,
+                  "peak_rss_bytes": 874991616,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 16873,
+                  "started_at_unix_ns": 1791875774179762374,
+                  "wall_seconds": 2.637490261000039,
+                  "user_seconds": 7.494069,
+                  "system_seconds": 2.229771,
+                  "peak_rss_bytes": 906006528,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 16883,
+                  "started_at_unix_ns": 1791875777052108379,
+                  "wall_seconds": 3.0380802310000945,
+                  "user_seconds": 7.371002,
+                  "system_seconds": 2.284634,
+                  "peak_rss_bytes": 911888384,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17083,
+                  "started_at_unix_ns": 1791875781246134165,
+                  "wall_seconds": 2.5490388970000595,
+                  "user_seconds": 6.7207159999999995,
+                  "system_seconds": 2.354647,
+                  "peak_rss_bytes": 899403776,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17094,
+                  "started_at_unix_ns": 1791875784029709441,
+                  "wall_seconds": 2.6400854859999754,
+                  "user_seconds": 7.366336,
+                  "system_seconds": 2.387542,
+                  "peak_rss_bytes": 892710912,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            }
+          }
+        },
+        "release": {
+          "flags": [
+            "--project",
+            "/tmp/tsr-oss-projects/zod/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "machine": {
+            "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+            "cpu_count": 4,
+            "load_average_at_start": [
+              2.16845703125,
+              1.9072265625,
+              1.5830078125
+            ]
+          },
+          "scope_match": true,
+          "options_match": false,
+          "option_differences": {
+            "emitDecoratorMetadata": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "exactOptionalPropertyTypes": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "experimentalDecorators": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "forceConsistentCasingInFileNames": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noFallthroughCasesInSwitch": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitOverride": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitReturns": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitThis": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "removeComments": {
+              "tsr": null,
+              "tsgo": false
+            }
+          },
+          "inputs_unchanged": true,
+          "actual_checked_work_verified": false,
+          "diagnostics_match": false,
+          "diagnostic_comparison": {
+            "exact_shared": 0,
+            "tsr_only": 4,
+            "tsgo_only": 46,
+            "tsr_only_examples": [
+              "packages/zod/src/v3/types.ts(5038,47): error TS1005: '?' expected.",
+              "packages/zod/src/v3/types.ts(5040,6): error TS1005: ')' expected.",
+              "packages/zod/src/v3/types.ts(5044,1): error TS1128: Declaration or statement expected.",
+              "packages/zod/src/v3/types.ts(5044,3): error TS1128: Declaration or statement expected."
+            ],
+            "tsgo_only_examples": [
+              "packages/bench/_temp.ts(4,7): error TS6133: 'result' is declared but its value is never read.",
+              "packages/bench/discriminated-union.ts(138,7): error TS6133: 'args' is declared but its value is never read.",
+              "packages/bench/key-iteration.ts(26,5): error TS6133: 'temp' is declared but its value is never read.",
+              "packages/bench/object-moltar.ts(97,7): error TS6133: 'inPlace' is declared but its value is never read.",
+              "packages/bench/safeparse.ts(29,15): error TS6133: 'result' is declared but its value is never read.",
+              "packages/resolution/src/index.cts(8,16): error TS2307: Cannot find module 'zod/v4/locales/fr.cjs' or its corresponding type declarations.",
+              "packages/zod/src/v3/tests/all-errors.test.ts(22,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+              "packages/zod/src/v3/tests/all-errors.test.ts(36,108): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+              "packages/zod/src/v3/tests/all-errors.test.ts(46,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+              "packages/zod/src/v3/tests/intersection.test.ts(38,8): error TS6196: '_Cat' is declared but never used."
+            ]
+          },
+          "probe_sha256": "1e88801d1986f1c8e6a13c98d9fae89855ed90b15372f014400363eab93e0ed8",
+          "harness_sha256": {
+            "whole_project_perf.py": "e272504c6937367cd5d68d0fd3c66826be3328d0c022f5ec5ce1c95c141b5670",
+            "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+          },
+          "raw_report_sha256": "6bdfee7718601b1c93e8a41090cf6fa5f36bbe452abb2f50578b9999ba8d5c6b",
+          "input_path_count": 878,
+          "input_fingerprint": "a7cf2379f30d661e0cedbdfbf3f59dfad5dcbee165ab4963b251f9847fb9fe7d",
+          "tools": {
+            "tsr": {
+              "binary_sha256": "b8aa5ba67bcb01e78cc429a14a35baa434154b4f090bc17ed40f63aed4645a96",
+              "loaded_file_count": 943,
+              "summary": {
+                "wall_seconds": {
+                  "median": 0.23413750699990032,
+                  "p95": 0.27556631200002357,
+                  "min": 0.22348743700001705,
+                  "max": 0.27556631200002357
+                },
+                "user_seconds": {
+                  "median": 0.273043,
+                  "p95": 0.277984,
+                  "min": 0.24783899999999998,
+                  "max": 0.277984
+                },
+                "system_seconds": {
+                  "median": 0.084005,
+                  "p95": 0.09348999999999999,
+                  "min": 0.05934,
+                  "max": 0.09348999999999999
+                },
+                "peak_rss_bytes": {
+                  "median": 248274944,
+                  "p95": 252346368,
+                  "min": 246247424,
+                  "max": 252346368
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 0,
+              "checked_work_complete": true,
+              "checked_work_sha256": "aeed173fa7d530c9582ec0785a3707a2f09bcf4dc8a6d31de10ff7a02f5e82dc",
+              "diagnostics": {
+                "count": 4,
+                "fingerprint": "072f5e4b6a35c531018c4eaacc53584e6f5abda8bf4da6c27a159c1490159e9e",
+                "entries": [
+                  "packages/zod/src/v3/types.ts(5038,47): error TS1005: '?' expected.",
+                  "packages/zod/src/v3/types.ts(5040,6): error TS1005: ')' expected.",
+                  "packages/zod/src/v3/types.ts(5044,1): error TS1128: Declaration or statement expected.",
+                  "packages/zod/src/v3/types.ts(5044,3): error TS1128: Declaration or statement expected."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 19731,
+                  "started_at_unix_ns": 1791875890204332924,
+                  "wall_seconds": 0.23413750699990032,
+                  "user_seconds": 0.25299499999999997,
+                  "system_seconds": 0.09348999999999999,
+                  "peak_rss_bytes": 246280192,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19749,
+                  "started_at_unix_ns": 1791875890661394350,
+                  "wall_seconds": 0.23107947100004367,
+                  "user_seconds": 0.24783899999999998,
+                  "system_seconds": 0.084005,
+                  "peak_rss_bytes": 250359808,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19786,
+                  "started_at_unix_ns": 1791875896790349387,
+                  "wall_seconds": 0.27556631200002357,
+                  "user_seconds": 0.27450399999999997,
+                  "system_seconds": 0.091278,
+                  "peak_rss_bytes": 252346368,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19858,
+                  "started_at_unix_ns": 1791875897293401210,
+                  "wall_seconds": 0.22348743700001705,
+                  "user_seconds": 0.273043,
+                  "system_seconds": 0.05934,
+                  "peak_rss_bytes": 246247424,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19951,
+                  "started_at_unix_ns": 1791875903626395037,
+                  "wall_seconds": 0.2460261270000501,
+                  "user_seconds": 0.277984,
+                  "system_seconds": 0.076267,
+                  "peak_rss_bytes": 248274944,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            },
+            "tsgo": {
+              "binary_sha256": "c5c38e2d6619240546cec03b4de69f3d9e6468e70d3995cb4da0ea4b467d230e",
+              "loaded_file_count": 943,
+              "summary": {
+                "wall_seconds": {
+                  "median": 2.660452396999972,
+                  "p95": 2.791932693000035,
+                  "min": 2.5517367129999684,
+                  "max": 2.791932693000035
+                },
+                "user_seconds": {
+                  "median": 7.377921,
+                  "p95": 7.476148,
+                  "min": 6.829959,
+                  "max": 7.476148
+                },
+                "system_seconds": {
+                  "median": 2.397777,
+                  "p95": 2.484872,
+                  "min": 2.175224,
+                  "max": 2.484872
+                },
+                "peak_rss_bytes": {
+                  "median": 881741824,
+                  "p95": 897212416,
+                  "min": 869228544,
+                  "max": 897212416
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 400,
+              "checked_work_complete": true,
+              "checked_work_sha256": "936e8ae573f93b42d2bbb63f64d2f463aab98ee6e35ca38cd5a48b001f4b3fe2",
+              "diagnostics": {
+                "count": 46,
+                "fingerprint": "1534cb3d6e771411e093336af600c0fd5db8a20a6ebde4024b0be4f8ded05f33",
+                "entries": [
+                  "packages/bench/_temp.ts(4,7): error TS6133: 'result' is declared but its value is never read.",
+                  "packages/bench/discriminated-union.ts(138,7): error TS6133: 'args' is declared but its value is never read.",
+                  "packages/bench/key-iteration.ts(26,5): error TS6133: 'temp' is declared but its value is never read.",
+                  "packages/bench/object-moltar.ts(97,7): error TS6133: 'inPlace' is declared but its value is never read.",
+                  "packages/bench/safeparse.ts(29,15): error TS6133: 'result' is declared but its value is never read.",
+                  "packages/resolution/src/index.cts(8,16): error TS2307: Cannot find module 'zod/v4/locales/fr.cjs' or its corresponding type declarations.",
+                  "packages/zod/src/v3/tests/all-errors.test.ts(22,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/all-errors.test.ts(36,108): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/all-errors.test.ts(46,73): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/intersection.test.ts(38,8): error TS6196: '_Cat' is declared but never used.",
+                  "packages/zod/src/v3/tests/nativeEnum.test.ts(59,8): error TS6196: '_FruitEnum' is declared but never used.",
+                  "packages/zod/src/v3/tests/nativeEnum.test.ts(78,8): error TS6196: '_GreekEnum' is declared but never used.",
+                  "packages/zod/src/v3/tests/object.test.ts(215,55): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(226,84): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(248,57): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(254,44): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/object.test.ts(431,9): error TS6133: '_Outer' is declared but its value is never read.",
+                  "packages/zod/src/v3/tests/partials.test.ts(26,38): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/partials.test.ts(50,35): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v3/tests/partials.test.ts(123,41): error TS2345: Argument of type 'true' is not assignable to parameter of type 'false'.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(160,9): error TS6133: '_a' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(161,9): error TS6133: '_b' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(162,9): error TS6133: '_c' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(163,9): error TS6133: '_d' is declared but its value is never read.",
+                  "packages/zod/src/v4/classic/tests/assignability.test.ts(185,8): error TS6196: '_RefinedSchema' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/enum.test.ts(183,8): error TS6196: '_a' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/enum.test.ts(184,8): error TS6196: '_b' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/index.test.ts(250,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/index.test.ts(268,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/lazy.test.ts(206,8): error TS6196: '_Category' is declared but never used.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(235,40): error TS2344: Type '{ a?: string; b: string; }' does not satisfy the constraint '{ a: string | undefined; b: string; }'.\n  Property 'a' is optional in type '{ a?: string; b: string; }' but required in type '{ a: string | undefined; b: string; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(236,40): error TS2344: Type '{ a?: string; b: string; }' does not satisfy the constraint '{ a: string | undefined; b: string; }'.\n  Property 'a' is optional in type '{ a?: string; b: string; }' but required in type '{ a: string | undefined; b: string; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(245,41): error TS2344: Type '{ a: string; b?: string; } | { a?: string; b: string; }' does not satisfy the constraint '{ a: string | undefined; b: string | undefined; }'.\n  Type '{ a: string; b?: string; }' is not assignable to type '{ a: string | undefined; b: string | undefined; }'.\n    Property 'b' is optional in type '{ a: string; b?: string; }' but required in type '{ a: string | undefined; b: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(282,41): error TS2344: Type '{ a?: string; b?: string; }' does not satisfy the constraint '{ a: string | undefined; b: string | undefined; }'.\n  Property 'a' is optional in type '{ a?: string; b?: string; }' but required in type '{ a: string | undefined; b: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/object.test.ts(288,40): error TS2344: Type '{ b?: string; }' does not satisfy the constraint '{ b: string | undefined; }'.\n  Property 'b' is optional in type '{ b?: string; }' but required in type '{ b: string | undefined; }'.",
+                  "packages/zod/src/v4/classic/tests/tuple.test.ts(108,56): error TS2344: Type '[string, number?, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number | undefined; 2: string | undefined; }'.\n  Property '1' is optional in type '[string, number?, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number | undefined; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/assignability.test.ts(120,8): error TS6196: '_RefinedSchema' is declared but never used.",
+                  "packages/zod/src/v4/mini/tests/index.test.ts(250,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/index.test.ts(268,35): error TS2344: Type '[string, number, string?, ...boolean[]]' does not satisfy the constraint '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.\n  Property '2' is optional in type '[string, number, string?, ...boolean[]]' but required in type '{ [x: number]: string | number | boolean | undefined; 0: string; 1: number; 2: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(17,35): error TS2344: Type '{ name: string; age: number; points?: number; \"test?\": boolean; }' does not satisfy the constraint '{ age: number; name: string; points: number | undefined; \"test?\": boolean; }'.\n  Property 'points' is optional in type '{ name: string; age: number; points?: number; \"test?\": boolean; }' but required in type '{ age: number; name: string; points: number | undefined; \"test?\": boolean; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(109,46): error TS2344: Type '{ name: string; age: number; email?: string; isAdmin: boolean; }' does not satisfy the constraint '{ age: number; email: string | undefined; isAdmin: boolean; name: string; }'.\n  Property 'email' is optional in type '{ name: string; age: number; email?: string; isAdmin: boolean; }' but required in type '{ age: number; email: string | undefined; isAdmin: boolean; name: string; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(123,42): error TS2344: Type '{ name: string; age: number; email?: string; }' does not satisfy the constraint '{ age: number; email: string | undefined; name: string; }'.\n  Property 'email' is optional in type '{ name: string; age: number; email?: string; }' but required in type '{ age: number; email: string | undefined; name: string; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(131,44): error TS2344: Type '{ name: string; email?: string; }' does not satisfy the constraint '{ email: string | undefined; name: string; }'.\n  Property 'email' is optional in type '{ name: string; email?: string; }' but required in type '{ email: string | undefined; name: string; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(151,45): error TS2344: Type '{ name?: string; age?: number; email?: string; }' does not satisfy the constraint '{ age: number | undefined; email: string | undefined; name: string | undefined; }'.\n  Property 'age' is optional in type '{ name?: string; age?: number; email?: string; }' but required in type '{ age: number | undefined; email: string | undefined; name: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/object.test.ts(162,53): error TS2344: Type '{ name?: string; age: number; email?: string; }' does not satisfy the constraint '{ age: number; email: string | undefined; name: string | undefined; }'.\n  Property 'email' is optional in type '{ name?: string; age: number; email?: string; }' but required in type '{ age: number; email: string | undefined; name: string | undefined; }'.",
+                  "packages/zod/src/v4/mini/tests/recursive-types.test.ts(38,42): error TS2344: Type '_Category' does not satisfy the constraint '{ name: string; subcategories: \"Expected: ..., Actual: ...\" | \"Expected: undefined, Actual: ...\"; }'.\n  Types of property 'subcategories' are incompatible.\n    Type '_Category[]' is not assignable to type '\"Expected: ..., Actual: ...\" | \"Expected: undefined, Actual: ...\"'."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 19721,
+                  "started_at_unix_ns": 1791875887288121234,
+                  "wall_seconds": 2.6855456910000157,
+                  "user_seconds": 7.476148,
+                  "system_seconds": 2.397777,
+                  "peak_rss_bytes": 878923776,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19767,
+                  "started_at_unix_ns": 1791875891115963623,
+                  "wall_seconds": 2.5517367129999684,
+                  "user_seconds": 6.829959,
+                  "system_seconds": 2.175224,
+                  "peak_rss_bytes": 894369792,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19776,
+                  "started_at_unix_ns": 1791875893898970547,
+                  "wall_seconds": 2.660452396999972,
+                  "user_seconds": 7.377921,
+                  "system_seconds": 2.484872,
+                  "peak_rss_bytes": 881741824,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19878,
+                  "started_at_unix_ns": 1791875897746449115,
+                  "wall_seconds": 2.791932693000035,
+                  "user_seconds": 7.404454,
+                  "system_seconds": 2.405946,
+                  "peak_rss_bytes": 869228544,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 19941,
+                  "started_at_unix_ns": 1791875900772321448,
+                  "wall_seconds": 2.625049560999969,
+                  "user_seconds": 6.992947,
+                  "system_seconds": 2.2923489999999997,
+                  "peak_rss_bytes": 897212416,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            }
+          }
+        }
+      },
+      "scoped_tracked_ts_files": 331,
+      "scoped_tracked_ts_lines": 61826
+    },
+    "effect": {
+      "repository": "https://github.com/Effect-TS/effect.git",
+      "revision": "753d120544f2e21d130311e9b007b299c54c02f6",
+      "config": "packages/effect/tsconfig.src.json",
+      "tracked_ts_files": 1631,
+      "tracked_ts_lines": 362695,
+      "line_count_method": "git ls-files, extensions .ts/.tsx/.mts/.cts, physical lines via bytes.splitlines(); includes tests/comments/blanks/declarations, excludes dependencies/untracked generated files",
+      "setup_patch_sha256": "241c6162486417cbc94e06dc66f647f44bf35d929cae4b8cf8efdb8278c751b8",
+      "root_package_manager": "pnpm@9.10.0+sha512.73a29afa36a0d092ece5271de5177ecbf8318d454ecd701343131b8ebc0c1a91c487da46ab77c8e596d6acf1461e3594ced4becedf8921b074fbd8653ed7051c",
+      "setup_patch": "diff --git a/tsconfig.base.json b/tsconfig.base.json\nindex 707972a..390ca45 100644\n--- a/tsconfig.base.json\n+++ b/tsconfig.base.json\n@@ -4,9 +4,7 @@\n     \"exactOptionalPropertyTypes\": true,\n     \"moduleDetection\": \"force\",\n     \"composite\": true,\n-    \"downlevelIteration\": true,\n     \"resolveJsonModule\": true,\n-    \"esModuleInterop\": false,\n     \"declaration\": true,\n     \"skipLibCheck\": true,\n     \"emitDecoratorMetadata\": true,\n@@ -30,13 +28,13 @@\n     \"noImplicitThis\": true,\n     \"noUncheckedIndexedAccess\": false,\n     \"strictNullChecks\": true,\n-    \"baseUrl\": \".\",\n     \"target\": \"ES2022\",\n     \"module\": \"NodeNext\",\n     \"incremental\": true,\n     \"removeComments\": false,\n     \"plugins\": [{ \"name\": \"@effect/language-service\" }],\n     \"paths\": {\n+      \"*\": [\"./*\"],\n       \"effect\": [\"./packages/effect/src/index.js\"],\n       \"effect/*\": [\"./packages/effect/src/*.js\"],\n       \"effect/test/*\": [\"./packages/effect/test/*.js\"],\n",
+      "profiles": {
+        "dist": {
+          "flags": [
+            "--project",
+            "/tmp/tsr-oss-projects/effect/packages/effect/tsconfig.src.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "machine": {
+            "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+            "cpu_count": 4,
+            "load_average_at_start": [
+              1.36376953125,
+              1.8857421875,
+              1.63232421875
+            ]
+          },
+          "scope_match": true,
+          "options_match": false,
+          "option_differences": {
+            "declarationMap": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "emitDecoratorMetadata": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "exactOptionalPropertyTypes": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "experimentalDecorators": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "forceConsistentCasingInFileNames": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noErrorTruncation": {
+              "tsr": false,
+              "tsgo": null
+            },
+            "noFallthroughCasesInSwitch": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitReturns": {
+              "tsr": null,
+              "tsgo": false
+            },
+            "noImplicitThis": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "paths": {
+              "tsr": null,
+              "tsgo": {
+                "*": [
+                  "./*"
+                ],
+                "effect": [
+                  "./packages/effect/src/index.js"
+                ],
+                "effect/*": [
+                  "./packages/effect/src/*.js"
+                ],
+                "effect/test/*": [
+                  "./packages/effect/test/*.js"
+                ],
+                "@effect/ai": [
+                  "./packages/ai/ai/src/index.js"
+                ],
+                "@effect/ai/*": [
+                  "./packages/ai/ai/src/*.js"
+                ],
+                "@effect/ai/test/*": [
+                  "./packages/ai/ai/test/*.js"
+                ],
+                "@effect/ai-openai": [
+                  "./packages/ai/openai/src/index.js"
+                ],
+                "@effect/ai-openai/*": [
+                  "./packages/ai/openai/src/*.js"
+                ],
+                "@effect/ai-openai/test/*": [
+                  "./packages/ai/openai/test/*.js"
+                ],
+                "@effect/cli": [
+                  "./packages/cli/src/index.js"
+                ],
+                "@effect/cli/*": [
+                  "./packages/cli/src/*.js"
+                ],
+                "@effect/cli/test/*": [
+                  "./packages/cli/test/*.js"
+                ],
+                "@effect/cluster": [
+                  "./packages/cluster/src/index.js"
+                ],
+                "@effect/cluster/*": [
+                  "./packages/cluster/src/*.js"
+                ],
+                "@effect/cluster/test/*": [
+                  "./packages/cluster/test/*.js"
+                ],
+                "@effect/cluster-browser": [
+                  "./packages/cluster-browser/src/index.js"
+                ],
+                "@effect/cluster-browser/*": [
+                  "./packages/cluster-browser/src/*.js"
+                ],
+                "@effect/cluster-browser/test/*": [
+                  "./packages/cluster-browser/test/*.js"
+                ],
+                "@effect/cluster-node": [
+                  "./packages/cluster-node/src/index.js"
+                ],
+                "@effect/cluster-node/*": [
+                  "./packages/cluster-node/src/*.js"
+                ],
+                "@effect/cluster-node/test/*": [
+                  "./packages/cluster-node/test/*.js"
+                ],
+                "@effect/cluster-workflow": [
+                  "./packages/cluster-workflow/src/index.js"
+                ],
+                "@effect/cluster-workflow/*": [
+                  "./packages/cluster-workflow/src/*.js"
+                ],
+                "@effect/cluster-workflow/test/*": [
+                  "./packages/cluster-workflow/test/*.js"
+                ],
+                "@effect/experimental": [
+                  "./packages/experimental/src/index.js"
+                ],
+                "@effect/experimental/*": [
+                  "./packages/experimental/src/*.js"
+                ],
+                "@effect/experimental/test/*": [
+                  "./packages/experimental/test/*.js"
+                ],
+                "@effect/opentelemetry": [
+                  "./packages/opentelemetry/src/index.js"
+                ],
+                "@effect/opentelemetry/*": [
+                  "./packages/opentelemetry/src/*.js"
+                ],
+                "@effect/opentelemetry/test/*": [
+                  "./packages/opentelemetry/test/*.js"
+                ],
+                "@effect/platform": [
+                  "./packages/platform/src/index.js"
+                ],
+                "@effect/platform/*": [
+                  "./packages/platform/src/*.js"
+                ],
+                "@effect/platform/test/*": [
+                  "./packages/platform/test/*.js"
+                ],
+                "@effect/platform-browser": [
+                  "./packages/platform-browser/src/index.js"
+                ],
+                "@effect/platform-browser/*": [
+                  "./packages/platform-browser/src/*.js"
+                ],
+                "@effect/platform-browser/test/*": [
+                  "./packages/platform-browser/test/*.js"
+                ],
+                "@effect/platform-bun": [
+                  "./packages/platform-bun/src/index.js"
+                ],
+                "@effect/platform-bun/*": [
+                  "./packages/platform-bun/src/*.js"
+                ],
+                "@effect/platform-bun/test/*": [
+                  "./packages/platform-bun/test/*.js"
+                ],
+                "@effect/platform-node": [
+                  "./packages/platform-node/src/index.js"
+                ],
+                "@effect/platform-node/*": [
+                  "./packages/platform-node/src/*.js"
+                ],
+                "@effect/platform-node/test/*": [
+                  "./packages/platform-node/test/*.js"
+                ],
+                "@effect/platform-node-shared": [
+                  "./packages/platform-node-shared/src/index.js"
+                ],
+                "@effect/platform-node-shared/*": [
+                  "./packages/platform-node-shared/src/*.js"
+                ],
+                "@effect/platform-node-shared/test/*": [
+                  "./packages/platform-node-shared/test/*.js"
+                ],
+                "@effect/printer": [
+                  "./packages/printer/src/index.js"
+                ],
+                "@effect/printer/*": [
+                  "./packages/printer/src/*.js"
+                ],
+                "@effect/printer/test/*": [
+                  "./packages/printer/test/*.js"
+                ],
+                "@effect/printer-ansi": [
+                  "./packages/printer-ansi/src/index.js"
+                ],
+                "@effect/printer-ansi/*": [
+                  "./packages/printer-ansi/src/*.js"
+                ],
+                "@effect/printer-ansi/test/*": [
+                  "./packages/printer-ansi/test/*.js"
+                ],
+                "@effect/rpc": [
+                  "./packages/rpc/src/index.js"
+                ],
+                "@effect/rpc/*": [
+                  "./packages/rpc/src/*.js"
+                ],
+                "@effect/rpc/test/*": [
+                  "./packages/rpc/test/*.js"
+                ],
+                "@effect/rpc-http": [
+                  "./packages/rpc-http/src/index.js"
+                ],
+                "@effect/rpc-http/*": [
+                  "./packages/rpc-http/src/*.js"
+                ],
+                "@effect/rpc-http/test/*": [
+                  "./packages/rpc-http/test/*.js"
+                ],
+                "@effect/sql": [
+                  "./packages/sql/src/index.js"
+                ],
+                "@effect/sql/*": [
+                  "./packages/sql/src/*.js"
+                ],
+                "@effect/sql/test/*": [
+                  "./packages/sql/test/*.js"
+                ],
+                "@effect/sql-clickhouse": [
+                  "./packages/sql-clickhouse/src/index.js"
+                ],
+                "@effect/sql-clickhouse/*": [
+                  "./packages/sql-clickhouse/src/*.js"
+                ],
+                "@effect/sql-clickhouse/test/*": [
+                  "./packages/sql-clickhouse/test/*.js"
+                ],
+                "@effect/sql-d1": [
+                  "./packages/sql-d1/src/index.js"
+                ],
+                "@effect/sql-d1/*": [
+                  "./packages/sql-d1/src/*.js"
+                ],
+                "@effect/sql-d1/test/*": [
+                  "./packages/sql-d1/test/*.js"
+                ],
+                "@effect/sql-drizzle": [
+                  "./packages/sql-drizzle/src/index.js"
+                ],
+                "@effect/sql-drizzle/*": [
+                  "./packages/sql-drizzle/src/*.js"
+                ],
+                "@effect/sql-drizzle/test/*": [
+                  "./packages/sql-drizzle/test/*.js"
+                ],
+                "@effect/sql-kysely": [
+                  "./packages/sql-kysely/src/index.js"
+                ],
+                "@effect/sql-kysely/*": [
+                  "./packages/sql-kysely/src/*.js"
+                ],
+                "@effect/sql-kysely/test/*": [
+                  "./packages/sql-kysely/test/*.js"
+                ],
+                "@effect/sql-libsql": [
+                  "./packages/sql-libsql/src/index.js"
+                ],
+                "@effect/sql-libsql/*": [
+                  "./packages/sql-libsql/src/*.js"
+                ],
+                "@effect/sql-libsql/test/*": [
+                  "./packages/sql-libsql/test/*.js"
+                ],
+                "@effect/sql-mssql": [
+                  "./packages/sql-mssql/src/index.js"
+                ],
+                "@effect/sql-mssql/*": [
+                  "./packages/sql-mssql/src/*.js"
+                ],
+                "@effect/sql-mssql/test/*": [
+                  "./packages/sql-mssql/test/*.js"
+                ],
+                "@effect/sql-mysql2": [
+                  "./packages/sql-mysql2/src/index.js"
+                ],
+                "@effect/sql-mysql2/*": [
+                  "./packages/sql-mysql2/src/*.js"
+                ],
+                "@effect/sql-mysql2/test/*": [
+                  "./packages/sql-mysql2/test/*.js"
+                ],
+                "@effect/sql-pg": [
+                  "./packages/sql-pg/src/index.js"
+                ],
+                "@effect/sql-pg/*": [
+                  "./packages/sql-pg/src/*.js"
+                ],
+                "@effect/sql-pg/test/*": [
+                  "./packages/sql-pg/test/*.js"
+                ],
+                "@effect/sql-sqlite-bun": [
+                  "./packages/sql-sqlite-bun/src/index.js"
+                ],
+                "@effect/sql-sqlite-bun/*": [
+                  "./packages/sql-sqlite-bun/src/*.js"
+                ],
+                "@effect/sql-sqlite-bun/test/*": [
+                  "./packages/sql-sqlite-bun/test/*.js"
+                ],
+                "@effect/sql-sqlite-node": [
+                  "./packages/sql-sqlite-node/src/index.js"
+                ],
+                "@effect/sql-sqlite-node/*": [
+                  "./packages/sql-sqlite-node/src/*.js"
+                ],
+                "@effect/sql-sqlite-node/test/*": [
+                  "./packages/sql-sqlite-node/test/*.js"
+                ],
+                "@effect/sql-sqlite-react-native": [
+                  "./packages/sql-sqlite-react-native/src/index.js"
+                ],
+                "@effect/sql-sqlite-react-native/*": [
+                  "./packages/sql-sqlite-react-native/src/*.js"
+                ],
+                "@effect/sql-sqlite-react-native/test/*": [
+                  "./packages/sql-sqlite-react-native/test/*.js"
+                ],
+                "@effect/sql-sqlite-wasm": [
+                  "./packages/sql-sqlite-wasm/src/index.js"
+                ],
+                "@effect/sql-sqlite-wasm/*": [
+                  "./packages/sql-sqlite-wasm/src/*.js"
+                ],
+                "@effect/sql-sqlite-wasm/test/*": [
+                  "./packages/sql-sqlite-wasm/test/*.js"
+                ],
+                "@effect/typeclass": [
+                  "./packages/typeclass/src/index.js"
+                ],
+                "@effect/typeclass/*": [
+                  "./packages/typeclass/src/*.js"
+                ],
+                "@effect/typeclass/test/*": [
+                  "./packages/typeclass/test/*.js"
+                ],
+                "@effect/vitest": [
+                  "./packages/vitest/src/index.js"
+                ]
+              }
+            },
+            "removeComments": {
+              "tsr": null,
+              "tsgo": false
+            },
+            "sourceMap": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "tsBuildInfoFile": {
+              "tsr": null,
+              "tsgo": "./.tsbuildinfo/src.tsbuildinfo"
+            }
+          },
+          "inputs_unchanged": true,
+          "actual_checked_work_verified": false,
+          "diagnostics_match": false,
+          "diagnostic_comparison": {
+            "exact_shared": 0,
+            "tsr_only": 13,
+            "tsgo_only": 0,
+            "tsr_only_examples": [
+              "src/internal/matcher.ts(353,3): error TS1005: '>' expected.",
+              "src/internal/matcher.ts(353,7): error TS1005: ',' expected.",
+              "src/internal/matcher.ts(353,30): error TS1005: ',' expected.",
+              "src/internal/matcher.ts(353,41): error TS1005: ',' expected.",
+              "src/internal/matcher.ts(354,10): error TS1005: ')' expected.",
+              "src/internal/matcher.ts(355,4): error TS1005: ';' expected.",
+              "src/internal/matcher.ts(356,1): error TS1128: Declaration or statement expected.",
+              "src/internal/matcher.ts(356,3): error TS1128: Declaration or statement expected.",
+              "src/internal/matcher.ts(359,12): error TS1005: '>' expected.",
+              "src/internal/matcher.ts(360,9): error TS1005: ')' expected."
+            ],
+            "tsgo_only_examples": []
+          },
+          "probe_sha256": "1e88801d1986f1c8e6a13c98d9fae89855ed90b15372f014400363eab93e0ed8",
+          "harness_sha256": {
+            "whole_project_perf.py": "e272504c6937367cd5d68d0fd3c66826be3328d0c022f5ec5ce1c95c141b5670",
+            "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+          },
+          "raw_report_sha256": "16effd7f61fbb09242867f61b3d58509ba4f08fbf4606e993f6acc942e554598",
+          "input_path_count": 809,
+          "input_fingerprint": "74da19e9146908d1b2cc955f6c654ffc74c6e9fa253c6f7c73389f63dfe640e3",
+          "tools": {
+            "tsr": {
+              "binary_sha256": "108b01c7dffa5c69aaf3b4334211ea10aecb620f177be564f0191d42913c524d",
+              "loaded_file_count": 661,
+              "summary": {
+                "wall_seconds": {
+                  "median": 0.24071375399989847,
+                  "p95": 0.27059282799996254,
+                  "min": 0.20913959099993917,
+                  "max": 0.27059282799996254
+                },
+                "user_seconds": {
+                  "median": 0.351883,
+                  "p95": 0.36949699999999996,
+                  "min": 0.320457,
+                  "max": 0.36949699999999996
+                },
+                "system_seconds": {
+                  "median": 0.114524,
+                  "p95": 0.149717,
+                  "min": 0.07721499999999999,
+                  "max": 0.149717
+                },
+                "peak_rss_bytes": {
+                  "median": 328581120,
+                  "p95": 332800000,
+                  "min": 324448256,
+                  "max": 332800000
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 0,
+              "checked_work_complete": true,
+              "checked_work_sha256": "aeed173fa7d530c9582ec0785a3707a2f09bcf4dc8a6d31de10ff7a02f5e82dc",
+              "diagnostics": {
+                "count": 13,
+                "fingerprint": "b9c69150ff6549d89d618f089c3c3dca325888ff305a37ada8759a01ba99ecae",
+                "entries": [
+                  "src/internal/matcher.ts(353,3): error TS1005: '>' expected.",
+                  "src/internal/matcher.ts(353,7): error TS1005: ',' expected.",
+                  "src/internal/matcher.ts(353,30): error TS1005: ',' expected.",
+                  "src/internal/matcher.ts(353,41): error TS1005: ',' expected.",
+                  "src/internal/matcher.ts(354,10): error TS1005: ')' expected.",
+                  "src/internal/matcher.ts(355,4): error TS1005: ';' expected.",
+                  "src/internal/matcher.ts(356,1): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(356,3): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(359,12): error TS1005: '>' expected.",
+                  "src/internal/matcher.ts(360,9): error TS1005: ')' expected.",
+                  "src/internal/matcher.ts(361,3): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(361,4): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(371,5): error TS1005: ';' expected."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 21358,
+                  "started_at_unix_ns": 1791876025917326684,
+                  "wall_seconds": 0.2616761880001377,
+                  "user_seconds": 0.32536,
+                  "system_seconds": 0.149717,
+                  "peak_rss_bytes": 326537216,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21376,
+                  "started_at_unix_ns": 1791876026393819867,
+                  "wall_seconds": 0.22145572799990987,
+                  "user_seconds": 0.35333699999999996,
+                  "system_seconds": 0.078066,
+                  "peak_rss_bytes": 330760192,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21414,
+                  "started_at_unix_ns": 1791876034442182533,
+                  "wall_seconds": 0.24071375399989847,
+                  "user_seconds": 0.36949699999999996,
+                  "system_seconds": 0.114524,
+                  "peak_rss_bytes": 332800000,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21432,
+                  "started_at_unix_ns": 1791876034896784783,
+                  "wall_seconds": 0.20913959099993917,
+                  "user_seconds": 0.320457,
+                  "system_seconds": 0.07721499999999999,
+                  "peak_rss_bytes": 328581120,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21527,
+                  "started_at_unix_ns": 1791876043337959470,
+                  "wall_seconds": 0.27059282799996254,
+                  "user_seconds": 0.351883,
+                  "system_seconds": 0.130387,
+                  "peak_rss_bytes": 324448256,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            },
+            "tsgo": {
+              "binary_sha256": "c5c38e2d6619240546cec03b4de69f3d9e6468e70d3995cb4da0ea4b467d230e",
+              "loaded_file_count": 661,
+              "summary": {
+                "wall_seconds": {
+                  "median": 3.740945801999942,
+                  "p95": 3.9215268420000484,
+                  "min": 3.44349434500009,
+                  "max": 3.9215268420000484
+                },
+                "user_seconds": {
+                  "median": 10.220357,
+                  "p95": 10.477539,
+                  "min": 9.358373,
+                  "max": 10.477539
+                },
+                "system_seconds": {
+                  "median": 2.533536,
+                  "p95": 2.643105,
+                  "min": 2.257669,
+                  "max": 2.643105
+                },
+                "peak_rss_bytes": {
+                  "median": 1265262592,
+                  "p95": 1311629312,
+                  "min": 1249386496,
+                  "max": 1311629312
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 360,
+              "checked_work_complete": true,
+              "checked_work_sha256": "4f3bcbee3dbe000aa246a6b8d5605044f5d019356865425e1cfb0e960363f7a0",
+              "diagnostics": {
+                "count": 0,
+                "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "entries": []
+              },
+              "trace_exit_code": 0,
+              "samples": [
+                {
+                  "pid": 21348,
+                  "started_at_unix_ns": 1791876021792679742,
+                  "wall_seconds": 3.9102066650000324,
+                  "user_seconds": 10.220357,
+                  "system_seconds": 2.601215,
+                  "peak_rss_bytes": 1249386496,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21394,
+                  "started_at_unix_ns": 1791876026829801276,
+                  "wall_seconds": 3.740945801999942,
+                  "user_seconds": 10.296652,
+                  "system_seconds": 2.486908,
+                  "peak_rss_bytes": 1311629312,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21404,
+                  "started_at_unix_ns": 1791876030787253042,
+                  "wall_seconds": 3.44349434500009,
+                  "user_seconds": 9.358373,
+                  "system_seconds": 2.257669,
+                  "peak_rss_bytes": 1266638848,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21450,
+                  "started_at_unix_ns": 1791876035325301179,
+                  "wall_seconds": 3.9215268420000484,
+                  "user_seconds": 10.477539,
+                  "system_seconds": 2.533536,
+                  "peak_rss_bytes": 1258049536,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21464,
+                  "started_at_unix_ns": 1791876039470648443,
+                  "wall_seconds": 3.6107957669998996,
+                  "user_seconds": 9.439326,
+                  "system_seconds": 2.643105,
+                  "peak_rss_bytes": 1265262592,
+                  "exit_code": 0,
+                  "timed_out": false
+                }
+              ]
+            }
+          }
+        },
+        "release": {
+          "flags": [
+            "--project",
+            "/tmp/tsr-oss-projects/effect/packages/effect/tsconfig.src.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "machine": {
+            "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+            "cpu_count": 4,
+            "load_average_at_start": [
+              2.27978515625,
+              2.0703125,
+              1.70703125
+            ]
+          },
+          "scope_match": true,
+          "options_match": false,
+          "option_differences": {
+            "declarationMap": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "emitDecoratorMetadata": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "exactOptionalPropertyTypes": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "experimentalDecorators": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "forceConsistentCasingInFileNames": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noErrorTruncation": {
+              "tsr": false,
+              "tsgo": null
+            },
+            "noFallthroughCasesInSwitch": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noImplicitReturns": {
+              "tsr": null,
+              "tsgo": false
+            },
+            "noImplicitThis": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "paths": {
+              "tsr": null,
+              "tsgo": {
+                "*": [
+                  "./*"
+                ],
+                "effect": [
+                  "./packages/effect/src/index.js"
+                ],
+                "effect/*": [
+                  "./packages/effect/src/*.js"
+                ],
+                "effect/test/*": [
+                  "./packages/effect/test/*.js"
+                ],
+                "@effect/ai": [
+                  "./packages/ai/ai/src/index.js"
+                ],
+                "@effect/ai/*": [
+                  "./packages/ai/ai/src/*.js"
+                ],
+                "@effect/ai/test/*": [
+                  "./packages/ai/ai/test/*.js"
+                ],
+                "@effect/ai-openai": [
+                  "./packages/ai/openai/src/index.js"
+                ],
+                "@effect/ai-openai/*": [
+                  "./packages/ai/openai/src/*.js"
+                ],
+                "@effect/ai-openai/test/*": [
+                  "./packages/ai/openai/test/*.js"
+                ],
+                "@effect/cli": [
+                  "./packages/cli/src/index.js"
+                ],
+                "@effect/cli/*": [
+                  "./packages/cli/src/*.js"
+                ],
+                "@effect/cli/test/*": [
+                  "./packages/cli/test/*.js"
+                ],
+                "@effect/cluster": [
+                  "./packages/cluster/src/index.js"
+                ],
+                "@effect/cluster/*": [
+                  "./packages/cluster/src/*.js"
+                ],
+                "@effect/cluster/test/*": [
+                  "./packages/cluster/test/*.js"
+                ],
+                "@effect/cluster-browser": [
+                  "./packages/cluster-browser/src/index.js"
+                ],
+                "@effect/cluster-browser/*": [
+                  "./packages/cluster-browser/src/*.js"
+                ],
+                "@effect/cluster-browser/test/*": [
+                  "./packages/cluster-browser/test/*.js"
+                ],
+                "@effect/cluster-node": [
+                  "./packages/cluster-node/src/index.js"
+                ],
+                "@effect/cluster-node/*": [
+                  "./packages/cluster-node/src/*.js"
+                ],
+                "@effect/cluster-node/test/*": [
+                  "./packages/cluster-node/test/*.js"
+                ],
+                "@effect/cluster-workflow": [
+                  "./packages/cluster-workflow/src/index.js"
+                ],
+                "@effect/cluster-workflow/*": [
+                  "./packages/cluster-workflow/src/*.js"
+                ],
+                "@effect/cluster-workflow/test/*": [
+                  "./packages/cluster-workflow/test/*.js"
+                ],
+                "@effect/experimental": [
+                  "./packages/experimental/src/index.js"
+                ],
+                "@effect/experimental/*": [
+                  "./packages/experimental/src/*.js"
+                ],
+                "@effect/experimental/test/*": [
+                  "./packages/experimental/test/*.js"
+                ],
+                "@effect/opentelemetry": [
+                  "./packages/opentelemetry/src/index.js"
+                ],
+                "@effect/opentelemetry/*": [
+                  "./packages/opentelemetry/src/*.js"
+                ],
+                "@effect/opentelemetry/test/*": [
+                  "./packages/opentelemetry/test/*.js"
+                ],
+                "@effect/platform": [
+                  "./packages/platform/src/index.js"
+                ],
+                "@effect/platform/*": [
+                  "./packages/platform/src/*.js"
+                ],
+                "@effect/platform/test/*": [
+                  "./packages/platform/test/*.js"
+                ],
+                "@effect/platform-browser": [
+                  "./packages/platform-browser/src/index.js"
+                ],
+                "@effect/platform-browser/*": [
+                  "./packages/platform-browser/src/*.js"
+                ],
+                "@effect/platform-browser/test/*": [
+                  "./packages/platform-browser/test/*.js"
+                ],
+                "@effect/platform-bun": [
+                  "./packages/platform-bun/src/index.js"
+                ],
+                "@effect/platform-bun/*": [
+                  "./packages/platform-bun/src/*.js"
+                ],
+                "@effect/platform-bun/test/*": [
+                  "./packages/platform-bun/test/*.js"
+                ],
+                "@effect/platform-node": [
+                  "./packages/platform-node/src/index.js"
+                ],
+                "@effect/platform-node/*": [
+                  "./packages/platform-node/src/*.js"
+                ],
+                "@effect/platform-node/test/*": [
+                  "./packages/platform-node/test/*.js"
+                ],
+                "@effect/platform-node-shared": [
+                  "./packages/platform-node-shared/src/index.js"
+                ],
+                "@effect/platform-node-shared/*": [
+                  "./packages/platform-node-shared/src/*.js"
+                ],
+                "@effect/platform-node-shared/test/*": [
+                  "./packages/platform-node-shared/test/*.js"
+                ],
+                "@effect/printer": [
+                  "./packages/printer/src/index.js"
+                ],
+                "@effect/printer/*": [
+                  "./packages/printer/src/*.js"
+                ],
+                "@effect/printer/test/*": [
+                  "./packages/printer/test/*.js"
+                ],
+                "@effect/printer-ansi": [
+                  "./packages/printer-ansi/src/index.js"
+                ],
+                "@effect/printer-ansi/*": [
+                  "./packages/printer-ansi/src/*.js"
+                ],
+                "@effect/printer-ansi/test/*": [
+                  "./packages/printer-ansi/test/*.js"
+                ],
+                "@effect/rpc": [
+                  "./packages/rpc/src/index.js"
+                ],
+                "@effect/rpc/*": [
+                  "./packages/rpc/src/*.js"
+                ],
+                "@effect/rpc/test/*": [
+                  "./packages/rpc/test/*.js"
+                ],
+                "@effect/rpc-http": [
+                  "./packages/rpc-http/src/index.js"
+                ],
+                "@effect/rpc-http/*": [
+                  "./packages/rpc-http/src/*.js"
+                ],
+                "@effect/rpc-http/test/*": [
+                  "./packages/rpc-http/test/*.js"
+                ],
+                "@effect/sql": [
+                  "./packages/sql/src/index.js"
+                ],
+                "@effect/sql/*": [
+                  "./packages/sql/src/*.js"
+                ],
+                "@effect/sql/test/*": [
+                  "./packages/sql/test/*.js"
+                ],
+                "@effect/sql-clickhouse": [
+                  "./packages/sql-clickhouse/src/index.js"
+                ],
+                "@effect/sql-clickhouse/*": [
+                  "./packages/sql-clickhouse/src/*.js"
+                ],
+                "@effect/sql-clickhouse/test/*": [
+                  "./packages/sql-clickhouse/test/*.js"
+                ],
+                "@effect/sql-d1": [
+                  "./packages/sql-d1/src/index.js"
+                ],
+                "@effect/sql-d1/*": [
+                  "./packages/sql-d1/src/*.js"
+                ],
+                "@effect/sql-d1/test/*": [
+                  "./packages/sql-d1/test/*.js"
+                ],
+                "@effect/sql-drizzle": [
+                  "./packages/sql-drizzle/src/index.js"
+                ],
+                "@effect/sql-drizzle/*": [
+                  "./packages/sql-drizzle/src/*.js"
+                ],
+                "@effect/sql-drizzle/test/*": [
+                  "./packages/sql-drizzle/test/*.js"
+                ],
+                "@effect/sql-kysely": [
+                  "./packages/sql-kysely/src/index.js"
+                ],
+                "@effect/sql-kysely/*": [
+                  "./packages/sql-kysely/src/*.js"
+                ],
+                "@effect/sql-kysely/test/*": [
+                  "./packages/sql-kysely/test/*.js"
+                ],
+                "@effect/sql-libsql": [
+                  "./packages/sql-libsql/src/index.js"
+                ],
+                "@effect/sql-libsql/*": [
+                  "./packages/sql-libsql/src/*.js"
+                ],
+                "@effect/sql-libsql/test/*": [
+                  "./packages/sql-libsql/test/*.js"
+                ],
+                "@effect/sql-mssql": [
+                  "./packages/sql-mssql/src/index.js"
+                ],
+                "@effect/sql-mssql/*": [
+                  "./packages/sql-mssql/src/*.js"
+                ],
+                "@effect/sql-mssql/test/*": [
+                  "./packages/sql-mssql/test/*.js"
+                ],
+                "@effect/sql-mysql2": [
+                  "./packages/sql-mysql2/src/index.js"
+                ],
+                "@effect/sql-mysql2/*": [
+                  "./packages/sql-mysql2/src/*.js"
+                ],
+                "@effect/sql-mysql2/test/*": [
+                  "./packages/sql-mysql2/test/*.js"
+                ],
+                "@effect/sql-pg": [
+                  "./packages/sql-pg/src/index.js"
+                ],
+                "@effect/sql-pg/*": [
+                  "./packages/sql-pg/src/*.js"
+                ],
+                "@effect/sql-pg/test/*": [
+                  "./packages/sql-pg/test/*.js"
+                ],
+                "@effect/sql-sqlite-bun": [
+                  "./packages/sql-sqlite-bun/src/index.js"
+                ],
+                "@effect/sql-sqlite-bun/*": [
+                  "./packages/sql-sqlite-bun/src/*.js"
+                ],
+                "@effect/sql-sqlite-bun/test/*": [
+                  "./packages/sql-sqlite-bun/test/*.js"
+                ],
+                "@effect/sql-sqlite-node": [
+                  "./packages/sql-sqlite-node/src/index.js"
+                ],
+                "@effect/sql-sqlite-node/*": [
+                  "./packages/sql-sqlite-node/src/*.js"
+                ],
+                "@effect/sql-sqlite-node/test/*": [
+                  "./packages/sql-sqlite-node/test/*.js"
+                ],
+                "@effect/sql-sqlite-react-native": [
+                  "./packages/sql-sqlite-react-native/src/index.js"
+                ],
+                "@effect/sql-sqlite-react-native/*": [
+                  "./packages/sql-sqlite-react-native/src/*.js"
+                ],
+                "@effect/sql-sqlite-react-native/test/*": [
+                  "./packages/sql-sqlite-react-native/test/*.js"
+                ],
+                "@effect/sql-sqlite-wasm": [
+                  "./packages/sql-sqlite-wasm/src/index.js"
+                ],
+                "@effect/sql-sqlite-wasm/*": [
+                  "./packages/sql-sqlite-wasm/src/*.js"
+                ],
+                "@effect/sql-sqlite-wasm/test/*": [
+                  "./packages/sql-sqlite-wasm/test/*.js"
+                ],
+                "@effect/typeclass": [
+                  "./packages/typeclass/src/index.js"
+                ],
+                "@effect/typeclass/*": [
+                  "./packages/typeclass/src/*.js"
+                ],
+                "@effect/typeclass/test/*": [
+                  "./packages/typeclass/test/*.js"
+                ],
+                "@effect/vitest": [
+                  "./packages/vitest/src/index.js"
+                ]
+              }
+            },
+            "removeComments": {
+              "tsr": null,
+              "tsgo": false
+            },
+            "sourceMap": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "tsBuildInfoFile": {
+              "tsr": null,
+              "tsgo": "./.tsbuildinfo/src.tsbuildinfo"
+            }
+          },
+          "inputs_unchanged": true,
+          "actual_checked_work_verified": false,
+          "diagnostics_match": false,
+          "diagnostic_comparison": {
+            "exact_shared": 0,
+            "tsr_only": 13,
+            "tsgo_only": 0,
+            "tsr_only_examples": [
+              "src/internal/matcher.ts(353,3): error TS1005: '>' expected.",
+              "src/internal/matcher.ts(353,7): error TS1005: ',' expected.",
+              "src/internal/matcher.ts(353,30): error TS1005: ',' expected.",
+              "src/internal/matcher.ts(353,41): error TS1005: ',' expected.",
+              "src/internal/matcher.ts(354,10): error TS1005: ')' expected.",
+              "src/internal/matcher.ts(355,4): error TS1005: ';' expected.",
+              "src/internal/matcher.ts(356,1): error TS1128: Declaration or statement expected.",
+              "src/internal/matcher.ts(356,3): error TS1128: Declaration or statement expected.",
+              "src/internal/matcher.ts(359,12): error TS1005: '>' expected.",
+              "src/internal/matcher.ts(360,9): error TS1005: ')' expected."
+            ],
+            "tsgo_only_examples": []
+          },
+          "probe_sha256": "1e88801d1986f1c8e6a13c98d9fae89855ed90b15372f014400363eab93e0ed8",
+          "harness_sha256": {
+            "whole_project_perf.py": "e272504c6937367cd5d68d0fd3c66826be3328d0c022f5ec5ce1c95c141b5670",
+            "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+          },
+          "raw_report_sha256": "e429255c7e75c4f811cd415d7295d120e55b97bc57efcf6ffb0b320d924f0e5c",
+          "input_path_count": 809,
+          "input_fingerprint": "6f371ece1976ac6ad5bd7b229bfc6fb9b0a647f93629151e43bb70552e8cb8c4",
+          "tools": {
+            "tsr": {
+              "binary_sha256": "b8aa5ba67bcb01e78cc429a14a35baa434154b4f090bc17ed40f63aed4645a96",
+              "loaded_file_count": 661,
+              "summary": {
+                "wall_seconds": {
+                  "median": 0.2445473719999427,
+                  "p95": 0.2620749850000266,
+                  "min": 0.22106832999998005,
+                  "max": 0.2620749850000266
+                },
+                "user_seconds": {
+                  "median": 0.36877,
+                  "p95": 0.373952,
+                  "min": 0.326912,
+                  "max": 0.373952
+                },
+                "system_seconds": {
+                  "median": 0.121554,
+                  "p95": 0.136049,
+                  "min": 0.061245999999999995,
+                  "max": 0.136049
+                },
+                "peak_rss_bytes": {
+                  "median": 336248832,
+                  "p95": 344739840,
+                  "min": 332132352,
+                  "max": 344739840
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 0,
+              "checked_work_complete": true,
+              "checked_work_sha256": "aeed173fa7d530c9582ec0785a3707a2f09bcf4dc8a6d31de10ff7a02f5e82dc",
+              "diagnostics": {
+                "count": 13,
+                "fingerprint": "b9c69150ff6549d89d618f089c3c3dca325888ff305a37ada8759a01ba99ecae",
+                "entries": [
+                  "src/internal/matcher.ts(353,3): error TS1005: '>' expected.",
+                  "src/internal/matcher.ts(353,7): error TS1005: ',' expected.",
+                  "src/internal/matcher.ts(353,30): error TS1005: ',' expected.",
+                  "src/internal/matcher.ts(353,41): error TS1005: ',' expected.",
+                  "src/internal/matcher.ts(354,10): error TS1005: ')' expected.",
+                  "src/internal/matcher.ts(355,4): error TS1005: ';' expected.",
+                  "src/internal/matcher.ts(356,1): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(356,3): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(359,12): error TS1005: '>' expected.",
+                  "src/internal/matcher.ts(360,9): error TS1005: ')' expected.",
+                  "src/internal/matcher.ts(361,3): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(361,4): error TS1128: Declaration or statement expected.",
+                  "src/internal/matcher.ts(371,5): error TS1005: ';' expected."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 21709,
+                  "started_at_unix_ns": 1791876068010475590,
+                  "wall_seconds": 0.2620749850000266,
+                  "user_seconds": 0.36877,
+                  "system_seconds": 0.130273,
+                  "peak_rss_bytes": 332132352,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21727,
+                  "started_at_unix_ns": 1791876068525192385,
+                  "wall_seconds": 0.22180952799999432,
+                  "user_seconds": 0.371809,
+                  "system_seconds": 0.061245999999999995,
+                  "peak_rss_bytes": 336248832,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21766,
+                  "started_at_unix_ns": 1791876076965035718,
+                  "wall_seconds": 0.2445473719999427,
+                  "user_seconds": 0.326912,
+                  "system_seconds": 0.136049,
+                  "peak_rss_bytes": 332185600,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21785,
+                  "started_at_unix_ns": 1791876077420237148,
+                  "wall_seconds": 0.22106832999998005,
+                  "user_seconds": 0.338125,
+                  "system_seconds": 0.096025,
+                  "peak_rss_bytes": 344739840,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21823,
+                  "started_at_unix_ns": 1791876085365188748,
+                  "wall_seconds": 0.26004633299999114,
+                  "user_seconds": 0.373952,
+                  "system_seconds": 0.121554,
+                  "peak_rss_bytes": 340578304,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            },
+            "tsgo": {
+              "binary_sha256": "c5c38e2d6619240546cec03b4de69f3d9e6468e70d3995cb4da0ea4b467d230e",
+              "loaded_file_count": 661,
+              "summary": {
+                "wall_seconds": {
+                  "median": 3.7230887509999775,
+                  "p95": 3.8334987499999897,
+                  "min": 3.5068238690000726,
+                  "max": 3.8334987499999897
+                },
+                "user_seconds": {
+                  "median": 9.826415,
+                  "p95": 9.970737,
+                  "min": 9.445557,
+                  "max": 9.970737
+                },
+                "system_seconds": {
+                  "median": 2.419691,
+                  "p95": 2.770028,
+                  "min": 2.418239,
+                  "max": 2.770028
+                },
+                "peak_rss_bytes": {
+                  "median": 1272508416,
+                  "p95": 1297367040,
+                  "min": 1265479680,
+                  "max": 1297367040
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 360,
+              "checked_work_complete": true,
+              "checked_work_sha256": "4f3bcbee3dbe000aa246a6b8d5605044f5d019356865425e1cfb0e960363f7a0",
+              "diagnostics": {
+                "count": 0,
+                "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "entries": []
+              },
+              "trace_exit_code": 0,
+              "samples": [
+                {
+                  "pid": 21696,
+                  "started_at_unix_ns": 1791876064076343242,
+                  "wall_seconds": 3.7230887509999775,
+                  "user_seconds": 9.888901,
+                  "system_seconds": 2.4193949999999997,
+                  "peak_rss_bytes": 1269575680,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21746,
+                  "started_at_unix_ns": 1791876068957244732,
+                  "wall_seconds": 3.8334987499999897,
+                  "user_seconds": 9.970737,
+                  "system_seconds": 2.770028,
+                  "peak_rss_bytes": 1273815040,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21756,
+                  "started_at_unix_ns": 1791876073013892139,
+                  "wall_seconds": 3.740470774000187,
+                  "user_seconds": 9.826415,
+                  "system_seconds": 2.419691,
+                  "peak_rss_bytes": 1272508416,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21803,
+                  "started_at_unix_ns": 1791876077853332133,
+                  "wall_seconds": 3.567206423000016,
+                  "user_seconds": 9.445557,
+                  "system_seconds": 2.558515,
+                  "peak_rss_bytes": 1265479680,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 21813,
+                  "started_at_unix_ns": 1791876081645619624,
+                  "wall_seconds": 3.5068238690000726,
+                  "user_seconds": 9.524075,
+                  "system_seconds": 2.418239,
+                  "peak_rss_bytes": 1297367040,
+                  "exit_code": 0,
+                  "timed_out": false
+                }
+              ]
+            }
+          }
+        }
+      },
+      "scoped_tracked_ts_files": 360,
+      "scoped_tracked_ts_lines": 164428
+    },
+    "excalidraw": {
+      "repository": "https://github.com/excalidraw/excalidraw.git",
+      "revision": "541653c7c9d587d463a47daacff9fb30e45a52e7",
+      "config": "tsconfig.json",
+      "tracked_ts_files": 684,
+      "tracked_ts_lines": 217821,
+      "line_count_method": "git ls-files, extensions .ts/.tsx/.mts/.cts, physical lines via bytes.splitlines(); includes tests/comments/blanks/declarations, excludes dependencies/untracked generated files",
+      "setup_patch_sha256": "ce3547b8a6be04bf4b58fd9f25c7ec6513c628d99e99ee11e93d0ef33979bd6f",
+      "root_package_manager": "yarn@1.22.22",
+      "setup_patch": "diff --git a/tsconfig.json b/tsconfig.json\nindex da8329d..a2746c8 100644\n--- a/tsconfig.json\n+++ b/tsconfig.json\n@@ -17,8 +17,8 @@\n     \"isolatedModules\": true,\n     \"noEmit\": true,\n     \"jsx\": \"react-jsx\",\n-    \"baseUrl\": \".\",\n     \"paths\": {\n+      \"*\": [\"./*\"],\n       \"@excalidraw/common\": [\"./packages/common/src/index.ts\"],\n       \"@excalidraw/common/*\": [\"./packages/common/src/*\"],\n       \"@excalidraw/excalidraw\": [\"./packages/excalidraw/index.tsx\"],\n",
+      "profiles": {
+        "dist": {
+          "flags": [
+            "--project",
+            "/tmp/tsr-oss-projects/excalidraw/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "machine": {
+            "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+            "cpu_count": 4,
+            "load_average_at_start": [
+              1.18896484375,
+              1.68896484375,
+              1.49365234375
+            ]
+          },
+          "scope_match": true,
+          "options_match": false,
+          "option_differences": {
+            "forceConsistentCasingInFileNames": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noFallthroughCasesInSwitch": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "paths": {
+              "tsr": null,
+              "tsgo": {
+                "*": [
+                  "./*"
+                ],
+                "@excalidraw/common": [
+                  "./packages/common/src/index.ts"
+                ],
+                "@excalidraw/common/*": [
+                  "./packages/common/src/*"
+                ],
+                "@excalidraw/excalidraw": [
+                  "./packages/excalidraw/index.tsx"
+                ],
+                "@excalidraw/excalidraw/*": [
+                  "./packages/excalidraw/*"
+                ],
+                "@excalidraw/element": [
+                  "./packages/element/src/index.ts"
+                ],
+                "@excalidraw/element/*": [
+                  "./packages/element/src/*"
+                ],
+                "@excalidraw/fractional-indexing": [
+                  "./packages/fractional-indexing/src/index.ts"
+                ],
+                "@excalidraw/fractional-indexing/*": [
+                  "./packages/fractional-indexing/src/*"
+                ],
+                "@excalidraw/laser-pointer": [
+                  "./packages/laser-pointer/src/index.ts"
+                ],
+                "@excalidraw/laser-pointer/*": [
+                  "./packages/laser-pointer/src/*"
+                ],
+                "@excalidraw/math": [
+                  "./packages/math/src/index.ts"
+                ],
+                "@excalidraw/math/*": [
+                  "./packages/math/src/*"
+                ],
+                "@excalidraw/utils": [
+                  "./packages/utils/src/index.ts"
+                ],
+                "@excalidraw/utils/*": [
+                  "./packages/utils/src/*"
+                ]
+              }
+            }
+          },
+          "inputs_unchanged": true,
+          "actual_checked_work_verified": false,
+          "diagnostics_match": false,
+          "diagnostic_comparison": {
+            "exact_shared": 0,
+            "tsr_only": 10,
+            "tsgo_only": 0,
+            "tsr_only_examples": [
+              "packages/excalidraw/tests/data/reconcile.test.ts(69,49): error TS1005: '?' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(70,8): error TS1005: ')' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(70,10): error TS1134: Variable declaration expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(70,29): error TS1011: An element access expression should take an argument.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(71,9): error TS1005: ';' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(71,30): error TS1011: An element access expression should take an argument.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(72,9): error TS1005: ';' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(72,13): error TS1011: An element access expression should take an argument.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(73,1): error TS1109: Expression expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(73,3): error TS1128: Declaration or statement expected."
+            ],
+            "tsgo_only_examples": []
+          },
+          "probe_sha256": "1e88801d1986f1c8e6a13c98d9fae89855ed90b15372f014400363eab93e0ed8",
+          "harness_sha256": {
+            "whole_project_perf.py": "e272504c6937367cd5d68d0fd3c66826be3328d0c022f5ec5ce1c95c141b5670",
+            "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+          },
+          "raw_report_sha256": "eefafa3f4ce50c98559d86aa71f0aaa7c051b97936c26b8b3df495ce810458fe",
+          "input_path_count": 1441,
+          "input_fingerprint": "6aaa534ef16afd77aa249f6ca8a2c74a3ed70ae99caf6257a8469be93400687b",
+          "tools": {
+            "tsr": {
+              "binary_sha256": "108b01c7dffa5c69aaf3b4334211ea10aecb620f177be564f0191d42913c524d",
+              "loaded_file_count": 1502,
+              "summary": {
+                "wall_seconds": {
+                  "median": 0.4211479389999795,
+                  "p95": 0.4319785719999345,
+                  "min": 0.3675967529999298,
+                  "max": 0.4319785719999345
+                },
+                "user_seconds": {
+                  "median": 0.467738,
+                  "p95": 0.507602,
+                  "min": 0.447679,
+                  "max": 0.507602
+                },
+                "system_seconds": {
+                  "median": 0.144126,
+                  "p95": 0.17823699999999998,
+                  "min": 0.12005199999999999,
+                  "max": 0.17823699999999998
+                },
+                "peak_rss_bytes": {
+                  "median": 448499712,
+                  "p95": 452767744,
+                  "min": 446255104,
+                  "max": 452767744
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 0,
+              "checked_work_complete": true,
+              "checked_work_sha256": "aeed173fa7d530c9582ec0785a3707a2f09bcf4dc8a6d31de10ff7a02f5e82dc",
+              "diagnostics": {
+                "count": 10,
+                "fingerprint": "8a3c26d58d378e3bd3e00c646190e165d2708e722010eec07be368c264cb7bc3",
+                "entries": [
+                  "packages/excalidraw/tests/data/reconcile.test.ts(69,49): error TS1005: '?' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(70,8): error TS1005: ')' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(70,10): error TS1134: Variable declaration expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(70,29): error TS1011: An element access expression should take an argument.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(71,9): error TS1005: ';' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(71,30): error TS1011: An element access expression should take an argument.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(72,9): error TS1005: ';' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(72,13): error TS1011: An element access expression should take an argument.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(73,1): error TS1109: Expression expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(73,3): error TS1128: Declaration or statement expected."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 17844,
+                  "started_at_unix_ns": 1791875831164819625,
+                  "wall_seconds": 0.4319785719999345,
+                  "user_seconds": 0.507602,
+                  "system_seconds": 0.144126,
+                  "peak_rss_bytes": 448499712,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17862,
+                  "started_at_unix_ns": 1791875831887890538,
+                  "wall_seconds": 0.3675967529999298,
+                  "user_seconds": 0.46009799999999995,
+                  "system_seconds": 0.12005199999999999,
+                  "peak_rss_bytes": 452767744,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17901,
+                  "started_at_unix_ns": 1791875839946869280,
+                  "wall_seconds": 0.4211479389999795,
+                  "user_seconds": 0.467738,
+                  "system_seconds": 0.17823699999999998,
+                  "peak_rss_bytes": 448442368,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17919,
+                  "started_at_unix_ns": 1791875840672644973,
+                  "wall_seconds": 0.3818407379999371,
+                  "user_seconds": 0.447679,
+                  "system_seconds": 0.143779,
+                  "peak_rss_bytes": 452698112,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 18587,
+                  "started_at_unix_ns": 1791875849363232334,
+                  "wall_seconds": 0.4230851240000675,
+                  "user_seconds": 0.494367,
+                  "system_seconds": 0.15378699999999998,
+                  "peak_rss_bytes": 446255104,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            },
+            "tsgo": {
+              "binary_sha256": "c5c38e2d6619240546cec03b4de69f3d9e6468e70d3995cb4da0ea4b467d230e",
+              "loaded_file_count": 1502,
+              "summary": {
+                "wall_seconds": {
+                  "median": 3.429979628000069,
+                  "p95": 3.82407940600001,
+                  "min": 3.3916692699999658,
+                  "max": 3.82407940600001
+                },
+                "user_seconds": {
+                  "median": 10.360657,
+                  "p95": 10.619239,
+                  "min": 9.492626,
+                  "max": 10.619239
+                },
+                "system_seconds": {
+                  "median": 2.627545,
+                  "p95": 2.841431,
+                  "min": 2.342894,
+                  "max": 2.841431
+                },
+                "peak_rss_bytes": {
+                  "median": 1141993472,
+                  "p95": 1148989440,
+                  "min": 1063292928,
+                  "max": 1148989440
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 655,
+              "checked_work_complete": true,
+              "checked_work_sha256": "fc5dcc297168fe779da99cc184e3c6fbda11dd36f1ee1b3c26522ad2aa06369b",
+              "diagnostics": {
+                "count": 0,
+                "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "entries": []
+              },
+              "trace_exit_code": 0,
+              "samples": [
+                {
+                  "pid": 17834,
+                  "started_at_unix_ns": 1791875827441353404,
+                  "wall_seconds": 3.429979628000069,
+                  "user_seconds": 10.619239,
+                  "system_seconds": 2.599076,
+                  "peak_rss_bytes": 1143209984,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17880,
+                  "started_at_unix_ns": 1791875832546145758,
+                  "wall_seconds": 3.3916692699999658,
+                  "user_seconds": 10.465554,
+                  "system_seconds": 2.627545,
+                  "peak_rss_bytes": 1148989440,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17891,
+                  "started_at_unix_ns": 1791875836242429144,
+                  "wall_seconds": 3.402043455000012,
+                  "user_seconds": 10.360657,
+                  "system_seconds": 2.841431,
+                  "peak_rss_bytes": 1141993472,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 17937,
+                  "started_at_unix_ns": 1791875841350324308,
+                  "wall_seconds": 3.82407940600001,
+                  "user_seconds": 9.888046,
+                  "system_seconds": 2.707986,
+                  "peak_rss_bytes": 1136246784,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 18405,
+                  "started_at_unix_ns": 1791875845630262792,
+                  "wall_seconds": 3.438013512999987,
+                  "user_seconds": 9.492626,
+                  "system_seconds": 2.342894,
+                  "peak_rss_bytes": 1063292928,
+                  "exit_code": 0,
+                  "timed_out": false
+                }
+              ]
+            }
+          }
+        },
+        "release": {
+          "flags": [
+            "--project",
+            "/tmp/tsr-oss-projects/excalidraw/tsconfig.json",
+            "--noEmit",
+            "--incremental",
+            "false",
+            "--composite",
+            "false",
+            "--pretty",
+            "false"
+          ],
+          "machine": {
+            "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+            "cpu_count": 4,
+            "load_average_at_start": [
+              2.314453125,
+              1.99169921875,
+              1.62548828125
+            ]
+          },
+          "scope_match": true,
+          "options_match": false,
+          "option_differences": {
+            "forceConsistentCasingInFileNames": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "noFallthroughCasesInSwitch": {
+              "tsr": null,
+              "tsgo": true
+            },
+            "paths": {
+              "tsr": null,
+              "tsgo": {
+                "*": [
+                  "./*"
+                ],
+                "@excalidraw/common": [
+                  "./packages/common/src/index.ts"
+                ],
+                "@excalidraw/common/*": [
+                  "./packages/common/src/*"
+                ],
+                "@excalidraw/excalidraw": [
+                  "./packages/excalidraw/index.tsx"
+                ],
+                "@excalidraw/excalidraw/*": [
+                  "./packages/excalidraw/*"
+                ],
+                "@excalidraw/element": [
+                  "./packages/element/src/index.ts"
+                ],
+                "@excalidraw/element/*": [
+                  "./packages/element/src/*"
+                ],
+                "@excalidraw/fractional-indexing": [
+                  "./packages/fractional-indexing/src/index.ts"
+                ],
+                "@excalidraw/fractional-indexing/*": [
+                  "./packages/fractional-indexing/src/*"
+                ],
+                "@excalidraw/laser-pointer": [
+                  "./packages/laser-pointer/src/index.ts"
+                ],
+                "@excalidraw/laser-pointer/*": [
+                  "./packages/laser-pointer/src/*"
+                ],
+                "@excalidraw/math": [
+                  "./packages/math/src/index.ts"
+                ],
+                "@excalidraw/math/*": [
+                  "./packages/math/src/*"
+                ],
+                "@excalidraw/utils": [
+                  "./packages/utils/src/index.ts"
+                ],
+                "@excalidraw/utils/*": [
+                  "./packages/utils/src/*"
+                ]
+              }
+            }
+          },
+          "inputs_unchanged": true,
+          "actual_checked_work_verified": false,
+          "diagnostics_match": false,
+          "diagnostic_comparison": {
+            "exact_shared": 0,
+            "tsr_only": 10,
+            "tsgo_only": 0,
+            "tsr_only_examples": [
+              "packages/excalidraw/tests/data/reconcile.test.ts(69,49): error TS1005: '?' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(70,8): error TS1005: ')' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(70,10): error TS1134: Variable declaration expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(70,29): error TS1011: An element access expression should take an argument.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(71,9): error TS1005: ';' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(71,30): error TS1011: An element access expression should take an argument.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(72,9): error TS1005: ';' expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(72,13): error TS1011: An element access expression should take an argument.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(73,1): error TS1109: Expression expected.",
+              "packages/excalidraw/tests/data/reconcile.test.ts(73,3): error TS1128: Declaration or statement expected."
+            ],
+            "tsgo_only_examples": []
+          },
+          "probe_sha256": "1e88801d1986f1c8e6a13c98d9fae89855ed90b15372f014400363eab93e0ed8",
+          "harness_sha256": {
+            "whole_project_perf.py": "e272504c6937367cd5d68d0fd3c66826be3328d0c022f5ec5ce1c95c141b5670",
+            "benchmark_inputs.py": "e7f00da2f543c052acae782619c685acb559eba7005f4de52483ca4244596aa2"
+          },
+          "raw_report_sha256": "0b20b0e6ef920ad423a68476878744d152e0578332405e3a1a574e567fa956f8",
+          "input_path_count": 1441,
+          "input_fingerprint": "dd0742b18123697c705f5d21f38897d40ed50aeaa1cf28c76ed07c6ca89ae699",
+          "tools": {
+            "tsr": {
+              "binary_sha256": "b8aa5ba67bcb01e78cc429a14a35baa434154b4f090bc17ed40f63aed4645a96",
+              "loaded_file_count": 1502,
+              "summary": {
+                "wall_seconds": {
+                  "median": 0.44303745499996694,
+                  "p95": 0.6777244160000464,
+                  "min": 0.3960359840000365,
+                  "max": 0.6777244160000464
+                },
+                "user_seconds": {
+                  "median": 0.539117,
+                  "p95": 0.7958259999999999,
+                  "min": 0.494909,
+                  "max": 0.7958259999999999
+                },
+                "system_seconds": {
+                  "median": 0.14205099999999998,
+                  "p95": 0.227801,
+                  "min": 0.100574,
+                  "max": 0.227801
+                },
+                "peak_rss_bytes": {
+                  "median": 447823872,
+                  "p95": 451944448,
+                  "min": 443588608,
+                  "max": 451944448
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 0,
+              "checked_work_complete": true,
+              "checked_work_sha256": "aeed173fa7d530c9582ec0785a3707a2f09bcf4dc8a6d31de10ff7a02f5e82dc",
+              "diagnostics": {
+                "count": 10,
+                "fingerprint": "8a3c26d58d378e3bd3e00c646190e165d2708e722010eec07be368c264cb7bc3",
+                "entries": [
+                  "packages/excalidraw/tests/data/reconcile.test.ts(69,49): error TS1005: '?' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(70,8): error TS1005: ')' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(70,10): error TS1134: Variable declaration expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(70,29): error TS1011: An element access expression should take an argument.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(71,9): error TS1005: ';' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(71,30): error TS1011: An element access expression should take an argument.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(72,9): error TS1005: ';' expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(72,13): error TS1011: An element access expression should take an argument.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(73,1): error TS1109: Expression expected.",
+                  "packages/excalidraw/tests/data/reconcile.test.ts(73,3): error TS1128: Declaration or statement expected."
+                ]
+              },
+              "trace_exit_code": 1,
+              "samples": [
+                {
+                  "pid": 20191,
+                  "started_at_unix_ns": 1791875926384894788,
+                  "wall_seconds": 0.4553614359999756,
+                  "user_seconds": 0.539117,
+                  "system_seconds": 0.16736299999999998,
+                  "peak_rss_bytes": 449908736,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20209,
+                  "started_at_unix_ns": 1791875927131676933,
+                  "wall_seconds": 0.41188731399984135,
+                  "user_seconds": 0.531198,
+                  "system_seconds": 0.100574,
+                  "peak_rss_bytes": 447823872,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20354,
+                  "started_at_unix_ns": 1791875935102062761,
+                  "wall_seconds": 0.44303745499996694,
+                  "user_seconds": 0.545897,
+                  "system_seconds": 0.14205099999999998,
+                  "peak_rss_bytes": 451944448,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20372,
+                  "started_at_unix_ns": 1791875935841560962,
+                  "wall_seconds": 0.3960359840000365,
+                  "user_seconds": 0.494909,
+                  "system_seconds": 0.110853,
+                  "peak_rss_bytes": 447795200,
+                  "exit_code": 1,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20412,
+                  "started_at_unix_ns": 1791875943839872524,
+                  "wall_seconds": 0.6777244160000464,
+                  "user_seconds": 0.7958259999999999,
+                  "system_seconds": 0.227801,
+                  "peak_rss_bytes": 443588608,
+                  "exit_code": 1,
+                  "timed_out": false
+                }
+              ]
+            },
+            "tsgo": {
+              "binary_sha256": "c5c38e2d6619240546cec03b4de69f3d9e6468e70d3995cb4da0ea4b467d230e",
+              "loaded_file_count": 1502,
+              "summary": {
+                "wall_seconds": {
+                  "median": 3.4037904249998974,
+                  "p95": 3.5341597679998813,
+                  "min": 3.1407708110000385,
+                  "max": 3.5341597679998813
+                },
+                "user_seconds": {
+                  "median": 9.793527,
+                  "p95": 10.695977,
+                  "min": 9.2476,
+                  "max": 10.695977
+                },
+                "system_seconds": {
+                  "median": 2.541525,
+                  "p95": 2.933528,
+                  "min": 2.5012119999999998,
+                  "max": 2.933528
+                },
+                "peak_rss_bytes": {
+                  "median": 1130811392,
+                  "p95": 1142804480,
+                  "min": 1065590784,
+                  "max": 1142804480
+                }
+              },
+              "diagnostics_stable": true,
+              "trace_matches_samples": true,
+              "checked_file_count": 655,
+              "checked_work_complete": true,
+              "checked_work_sha256": "fc5dcc297168fe779da99cc184e3c6fbda11dd36f1ee1b3c26522ad2aa06369b",
+              "diagnostics": {
+                "count": 0,
+                "fingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+                "entries": []
+              },
+              "trace_exit_code": 0,
+              "samples": [
+                {
+                  "pid": 20181,
+                  "started_at_unix_ns": 1791875922684395031,
+                  "wall_seconds": 3.4037904249998974,
+                  "user_seconds": 10.492439,
+                  "system_seconds": 2.675151,
+                  "peak_rss_bytes": 1142218752,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20227,
+                  "started_at_unix_ns": 1791875927833320548,
+                  "wall_seconds": 3.405062928999996,
+                  "user_seconds": 9.793527,
+                  "system_seconds": 2.5012119999999998,
+                  "peak_rss_bytes": 1065590784,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20344,
+                  "started_at_unix_ns": 1791875931597661993,
+                  "wall_seconds": 3.20771168400006,
+                  "user_seconds": 9.485899,
+                  "system_seconds": 2.541525,
+                  "peak_rss_bytes": 1099124736,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20390,
+                  "started_at_unix_ns": 1791875936530502660,
+                  "wall_seconds": 3.1407708110000385,
+                  "user_seconds": 9.2476,
+                  "system_seconds": 2.516302,
+                  "peak_rss_bytes": 1130811392,
+                  "exit_code": 0,
+                  "timed_out": false
+                },
+                {
+                  "pid": 20401,
+                  "started_at_unix_ns": 1791875939977539406,
+                  "wall_seconds": 3.5341597679998813,
+                  "user_seconds": 10.695977,
+                  "system_seconds": 2.933528,
+                  "peak_rss_bytes": 1142804480,
+                  "exit_code": 0,
+                  "timed_out": false
+                }
+              ]
+            }
+          }
+        }
+      },
+      "scoped_tracked_ts_files": 668,
+      "scoped_tracked_ts_lines": 215080
+    }
+  }
+}
