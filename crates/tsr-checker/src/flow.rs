@@ -2127,7 +2127,13 @@ impl Checker<'_, '_> {
         if flags.intersects(SymbolFlags::GET_ACCESSOR)
             && !flags.intersects(SymbolFlags::SET_ACCESSOR)
         {
-            return true;
+            // Computed accessors have separate binder symbols; late binding
+            // pairs setters by semantic key, including differently spelled aliases.
+            return self.late_bound_symbol_declarations(symbol).is_none_or(|declarations| {
+                !declarations.iter().any(|&declaration| {
+                    matches!(self.node_map.get(declaration), Some(Node::SetAccessorDeclaration(_)))
+                })
+            });
         }
         if flags.intersects(SymbolFlags::VARIABLE) && self.is_constant_variable(symbol) {
             return true;

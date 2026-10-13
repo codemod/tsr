@@ -18,14 +18,9 @@
 //!   (`nodebuilderimpl.go:1061`): the accessible chain at the site, else the
 //!   symbol itself (`endOfChain`).
 //!
-//! # What this port has, and what it does not
-//!
-//! The port names a *written* symbol-keyed member by its bracketed expression
-//! text (`[s]`, `objects.rs`' `late_bound_symbol_member_name`), not by
-//! `__@name@id`. A mapped member has no written expression, so here it takes
-//! native's identity. The two conventions do not meet on the corpus lines this
-//! answers (`docs/parity/notes/r6-accessible.md` §4), and reconciling them is
-//! that note's open question, not a decision taken here.
+//! Written, mapped and composite unique-symbol members share `__@name@id`
+//! semantic keys. Bracketed expression text is presentation only; aliases of
+//! one declaration share its key, while same-spelled declarations do not.
 //!
 //! The spelling at a site uses the chain API the printer already has
 //! ([`Checker::needs_qualification`], [`Checker::best_name`],
@@ -39,6 +34,13 @@
 //! No cache, side table or traversal of its own. The unique-symbol type's
 //! declaration symbol is read back from `unique_es_symbol_types`
 //! (`crate::unique_symbols`' cache), keyed by merged `SymbolId`.
+//! Late-binding keeps its existing `(owner, static)` publication boundary:
+//! absent, active empty provisional list, completed names/declarations. Active
+//! reads cannot publish structured/composite completion. Anonymous images keep
+//! semantic `name` separate from `printed_name` and declaration provenance;
+//! concrete receiver `this` and alias/mapper substitution remain the consumers'
+//! responsibility. The existing expression/type workers perform key forcing;
+//! this change adds no cache, member image or reusable graph traversal.
 
 use tsr_ast::{Node, NodeId};
 use tsr_binder::{SymbolFlags, SymbolId};
@@ -52,6 +54,19 @@ use crate::types::TypeId;
 const UNIQUE_PREFIX: &str = "__@";
 
 impl Checker<'_, '_> {
+    /// Pinned 5b1047d `getPropertyNameForKnownSymbolName` (flow.go:2107):
+    /// protocol consumers ask the global Symbol value's member, never a
+    /// source site's alias or shadowed Symbol.
+    /// Without a usable lib declaration, retain the legacy unsupported spelling.
+    pub(crate) fn well_known_symbol_property_name(&mut self, name: &str) -> String {
+        let key = self.binder.global("Symbol").and_then(|symbol| {
+            let ty = self.get_type_of_symbol(symbol);
+            let key = self.get_type_of_property_of_type(ty, name)?;
+            self.property_name_from_index(key)
+        });
+        key.unwrap_or_else(|| format!("[Symbol.{name}]"))
+    }
+
     /// The declaration symbol of a `unique symbol` type
     /// (`t.AsUniqueESSymbolType().symbol`).
     #[must_use]

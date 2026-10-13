@@ -2921,9 +2921,8 @@ impl<'a> Checker<'a, '_> {
         Some(reserved)
     }
 
-    /// getPropertyNameFromType (checker.go): semantic lookup keys omit the
-    /// display quotes used for literal names; symbol chains retain their
-    /// existing bracketed lookup representation in this port.
+    /// getPropertyNameFromType (checker.go): semantic lookup keys omit display
+    /// quotes and identify unique symbols by their declaration, not spelling.
     pub(crate) fn type_literal_member_key(
         &mut self,
         name: tsr_ast::PropertyName<'_>,
@@ -2932,19 +2931,8 @@ impl<'a> Checker<'a, '_> {
     ) -> String {
         if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
             let key = computed.expression.map(|expression| self.check_expression(expression));
-            match key.map(|id| &self.store.get(id).data) {
-                Some(
-                    crate::types::TypeData::StringLiteral(value)
-                    | crate::types::TypeData::NumberLiteral(value)
-                    | crate::types::TypeData::EnumLiteral {
-                        value:
-                            crate::types::EnumLiteralValue::String(value)
-                            | crate::types::EnumLiteralValue::Number(value),
-                        ..
-                    },
-                ) => value.clone(),
-                _ => printed.to_string(),
-            }
+            key.and_then(|key| self.property_name_from_index(key))
+                .unwrap_or_else(|| printed.to_string())
         } else {
             self.binder.symbols().get(symbol).name.to_string()
         }

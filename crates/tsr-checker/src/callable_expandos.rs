@@ -79,8 +79,11 @@ impl Checker<'_, '_> {
     /// decides (`getPropertyNameNodeForSymbol` reads the late symbol's
     /// `nameType`), so `foo[k] = 1` with `const k = "10"` prints `"10"`
     /// where a numeric `k` prints `10`. A unique symbol prints its bracketed
-    /// entity name, which is already the member's name here.
+    /// declaration name rather than its escaped semantic key.
     fn late_bound_assignment_printed_name(&mut self, member: SymbolId, name: &str) -> String {
+        if let Some(symbol) = self.symbol_of_unique_property_name(name) {
+            return self.unique_symbol_property_name_at(symbol, None);
+        }
         if name.starts_with('[') || crate::objects::is_identifier_text(name) {
             return name.to_owned();
         }

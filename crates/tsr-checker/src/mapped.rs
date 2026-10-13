@@ -1141,7 +1141,9 @@ impl<'a> Checker<'a, '_> {
                 let mut names = self.property_names_of(source);
                 if let Some(all) = self.get_property_names_of_type(source) {
                     for name in all {
-                        if name.starts_with('[') && !names.contains(&name) {
+                        if (name.starts_with('[') || name.starts_with("__@"))
+                            && !names.contains(&name)
+                        {
                             names.push(name);
                         }
                     }
@@ -1387,7 +1389,9 @@ impl<'a> Checker<'a, '_> {
             let mut part_names = self.property_names_of(part);
             if let Some(all) = self.get_property_names_of_type(part) {
                 for name in all {
-                    if name.starts_with('[') && !part_names.contains(&name) {
+                    if (name.starts_with('[') || name.starts_with("__@"))
+                        && !part_names.contains(&name)
+                    {
                         part_names.push(name);
                     }
                 }

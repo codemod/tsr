@@ -463,6 +463,11 @@ impl Checker<'_, '_> {
         {
             return t;
         }
+        // A unique-symbol key names a declaration, not the entity's spelling.
+        // Try its semantic key before the legacy plain-symbol entity road.
+        if let Some(member) = self.unique_symbol_property_type(object_type, index_type) {
+            return member;
+        }
         // §381: a symbol-typed ENTITY index names a late-bound member — the
         // same chain-and-flags test as `late_bound_symbol_member_name`, so
         // the lookup key and the member's printed spelling cannot drift.
@@ -478,9 +483,6 @@ impl Checker<'_, '_> {
                     // like a known string property, does not use index fallback.
                     return member;
                 }
-            }
-            if let Some(member) = self.unique_symbol_property_type(object_type, index_type) {
-                return member;
             }
         }
         let writing = node.node_id.is_some_and(|id| {
@@ -915,23 +917,17 @@ impl Checker<'_, '_> {
     /// symbol, whatever expression spells the index (`o[N["s"]]` reads the
     /// member declared `[N.s]`, `uniqueSymbols`).
     ///
-    /// Upstream keys the member by the symbol's escaped name
-    /// (`__@s@<id>`), so the lookup is one table read. This port names a
-    /// late-bound symbol member by its declaration's entity text
-    /// ([`Checker::late_bound_symbol_member_name`]), and the arm above reads
-    /// that spelling off the index's syntax. An index whose syntax is no
-    /// entity name reaches here, and the key identity is recovered the other
-    /// way round: the receiver's bracketed members are scanned for the one
-    /// whose computed name checks to `index_type`.
+    /// Written and mapped members both use the symbol's escaped declaration
+    /// key (`__@s@<id>`). The bracketed scan remains only for legacy members
+    /// whose unsupported producer retained a written name.
     ///
     /// Checker port boundary (`docs/conventions.md`): no cache and no side
     /// table. Native operation `getPropertyOfType(objectType,
     /// getPropertyNameFromType(indexType))`; key identity is the unique
     /// symbol type `index_type`, owned by `unique_es_symbol_types`; the
     /// receiver is `getApparentType(objectType)`, the same one the named
-    /// road reads; the expensive work is one name enumeration and one
-    /// `check_expression` per bracketed member, paid only by a unique-symbol
-    /// index the entity-name read missed.
+    /// road reads. Ordinary hits use the existing member lookup; only legacy
+    /// misses pay one enumeration and expression check per bracketed member.
     /// `docs/parity/notes/r6-errorsplit.md` §2.
     fn unique_symbol_property_type(
         &mut self,
@@ -943,9 +939,7 @@ impl Checker<'_, '_> {
             return None;
         }
         let apparent = self.apparent_type(object_type);
-        // A mapped member keyed by the symbol takes native's escaped name
-        // (`crate::unique_symbol_keys`): one table read, as upstream's
-        // (r7-declared §54).
+        // Written, mapped and composite members share this semantic key.
         if let Some(escaped) = self.unique_symbol_property_name(index_type)
             && let Some(member) = self.get_type_of_property_of_type(apparent, &escaped)
         {
@@ -1498,7 +1492,7 @@ impl Checker<'_, '_> {
     /// The property name an index type names, if it names one.
     ///
     /// Ported from `getPropertyNameFromIndex` into `getPropertyNameFromType`
-    /// (`checker.go:21786`), restricted to the two literal arms. Upstream's
+    /// (`checker.go:21786`), including declaration-owned unique symbols. Upstream's
     /// fallback — reading the name off the *node* when the type is unusable — is
     /// for index signatures in type position and is not reachable from an element
     /// access expression.
@@ -1517,7 +1511,7 @@ impl Checker<'_, '_> {
                     | crate::types::EnumLiteralValue::Number(value),
                 ..
             } => Some(value.clone()),
-            _ => None,
+            _ => self.unique_symbol_property_name(index),
         }
     }
 }

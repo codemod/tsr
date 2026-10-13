@@ -742,6 +742,10 @@ impl Checker<'_, '_> {
         if bases.len() < 2 {
             return Some(true);
         }
+        // Native getMembersOfSymbol includes late-bound own declarations.
+        // A redeclared computed member overrides the sibling comparison just
+        // as a written member does; each base is still checked against source.
+        let own_computed = self.late_bound_members_of(symbol, false);
         // `seen`: the base that first contributed each inherited name.
         let mut seen: Vec<(String, SymbolId, TypeId)> = Vec::new();
         let mut identical = true;
@@ -749,7 +753,9 @@ impl Checker<'_, '_> {
         for &base in bases {
             let names = self.get_property_names_of_type(base)?;
             for property_name in names {
-                if self.binder.symbols().get(symbol).members.get(property_name.as_str()).is_some() {
+                if self.binder.symbols().get(symbol).members.get(property_name.as_str()).is_some()
+                    || own_computed.iter().any(|(own, _)| *own == property_name)
+                {
                     continue;
                 }
                 let Some(property) = self.get_property_of_type(base, &property_name) else {
@@ -781,6 +787,11 @@ impl Checker<'_, '_> {
                 let interface_text = self.type_to_string(source);
                 let first_text = self.type_to_string(existing_base);
                 let second_text = self.type_to_string(base);
+                let displayed = if self.symbol_of_unique_property_name(&property_name).is_some() {
+                    self.chain_property_symbol_display(existing_base, &property_name)
+                } else {
+                    property_name.clone()
+                };
                 // `NewDiagnosticChain(Named_property_0_of_types_1_and_2_are_not_identical
                 // at typeNode, Interface_0_cannot_simultaneously_extend_types_1_and_2)`
                 // (`checker.go:5059`), r7-grammar §40.
@@ -788,7 +799,7 @@ impl Checker<'_, '_> {
                     name,
                     &messages::NAMED_PROPERTY_0_OF_TYPES_1_AND_2_ARE_NOT_IDENTICAL,
                     span,
-                    vec![property_name.clone(), first_text.clone(), second_text.clone()],
+                    vec![displayed, first_text.clone(), second_text.clone()],
                 );
                 self.report(
                     file,

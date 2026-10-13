@@ -200,8 +200,11 @@ impl Checker<'_, '_> {
                     // its checked (regular) type, indexed like any other name
                     // through `getIndexedAccessTypeEx` (`checker.go:17741`).
                     // A literal key names a property exactly as `{ a: x }`
-                    // does.
-                    if let Some(name) = self.property_name_from_index(key) {
+                    // does. Keep a unique-symbol key's type on the member/index
+                    // road below: its escaped name is not a string index key.
+                    if let Some(name) = self.property_name_from_index(key).filter(|_| {
+                        !self.store.get(key).flags.contains(TypeFlags::UNIQUE_ES_SYMBOL)
+                    }) {
                         let numeric =
                             self.store.get(key).flags.intersects(TypeFlags::NUMBER_LITERAL);
                         self.destructuring_property_lookup(
@@ -312,6 +315,7 @@ impl Checker<'_, '_> {
                 // property (checker.go:17768).
                 match self.binding_parent_is_array_like(parent_type) {
                     Some(false) => {
+                        let iterator_key = self.well_known_symbol_property_name("iterator");
                         if let Some(element_type) = self.for_of_element_type(parent_type) {
                             if self.no_unchecked_indexed_access {
                                 self.get_union_type(&[element_type, self.intrinsics.undefined])
@@ -320,9 +324,7 @@ impl Checker<'_, '_> {
                             }
                         } else if self.iteration_decidably_fails(parent_type)
                             || (self.declared_members_are_complete(parent_type)
-                                && self
-                                    .get_property_of_type(parent_type, "[Symbol.iterator]")
-                                    .is_none())
+                                && self.get_property_of_type(parent_type, &iterator_key).is_none())
                         {
                             self.intrinsics.any
                         } else {
@@ -1303,7 +1305,9 @@ impl Checker<'_, '_> {
         let Some(PropertyName::ComputedPropertyName(computed)) = property_name else {
             return None;
         };
-        let name = late_bound_entity_name(computed.expression.as_ref()?)?;
+        let name = self
+            .property_name_from_index(key)
+            .or_else(|| late_bound_entity_name(computed.expression.as_ref()?))?;
         // A non-generic key does not defer under a computed name
         // (`getIndexedAccessTypeOrUndefined`'s access-node arm): the property
         // is read on the apparent type, `getPropertyTypeForIndexType`'s

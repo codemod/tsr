@@ -130,8 +130,8 @@ enum Resolver {
 impl Resolver {
     fn iterator_symbol_name(self) -> &'static str {
         match self {
-            Self::Sync => "[Symbol.iterator]",
-            Self::Async => "[Symbol.asyncIterator]",
+            Self::Sync => "iterator",
+            Self::Async => "asyncIterator",
         }
     }
 
@@ -750,7 +750,8 @@ impl Checker<'_, '_> {
         resolver: Resolver,
         reports: Option<&mut ProtocolReports>,
     ) -> Result<IterationTypes, Unsupported> {
-        let name = resolver.iterator_symbol_name();
+        let key = self.well_known_symbol_property_name(resolver.iterator_symbol_name());
+        let name = key.as_str();
         // getPropertyOfType reads the apparent type: `string` iterates through
         // the global `String` interface's `[Symbol.iterator]`.
         let ty = if self.store.get(ty).flags.intersects(TypeFlags::PRIMITIVE) {

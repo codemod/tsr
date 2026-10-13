@@ -18,13 +18,18 @@ struct Host {
 
 impl ModuleHost for Host {
     fn resolved_module(&self, _: NodeId, specifier: &str) -> Option<NodeId> {
-        (specifier == "./a").then(|| self.roots[0])
+        match specifier {
+            "./a" => Some(self.roots[0]),
+            "./b" => self.roots.get(1).copied(),
+            _ => None,
+        }
     }
     fn module_resolution_found(&self, _: NodeId, specifier: &str) -> bool {
-        specifier == "./a"
+        matches!(specifier, "./a" | "./b")
     }
     fn file_path(&self, file: NodeId) -> Option<String> {
-        Some(if file == self.roots[0] { "/a.ts" } else { "/b.ts" }.into())
+        let position = self.roots.iter().position(|&root| root == file)?;
+        ["/a.ts", "/b.ts", "/c.ts"].get(position).map(|name| (*name).to_owned())
     }
 }
 
@@ -103,4 +108,81 @@ fn an_unnamed_module_container_is_not_written() {
 fn a_named_import_is_the_bare_name() {
     let (_, _, spelled) = spell("import { timestampSymbol } from \"./a\"; export const site = 1;");
     assert_eq!(spelled, "[timestampSymbol]");
+}
+
+/// Distinct same-spelled exports are separate keys; namespace and renamed
+/// imports of one export are the same key on inheritance and composites.
+#[test]
+fn computed_member_identity_survives_aliases_and_rejects_real_conflicts() {
+    let files = [
+        (
+            "/a.ts",
+            "export declare const symbol: unique symbol;\nexport interface Hash { [symbol](): number }",
+        ),
+        (
+            "/b.ts",
+            "export declare const symbol: unique symbol;\nexport interface Stream<T> { [symbol]: T }",
+        ),
+        (
+            "/c.ts",
+            "import * as A from './a';\n\
+                   import * as B from './b';\n\
+                   import { symbol as key } from './b';\n\
+                   export declare const symbol: unique symbol;\n\
+                   interface Equal extends A.Hash { [symbol](that: Equal): boolean }\n\
+                   class Good implements B.Stream<number> { [key] = 1 }\n\
+                   declare const good: Good; const read: number = good[B.symbol];\n\
+                   declare const composite: { [key]: number } | { [B.symbol]: number };\n\
+                   const combined: number = composite[key];\n\
+                   interface Left { [key]?: { a?: true } }\n\
+                   interface Right { [B.symbol]?: { b?: true } }\n\
+                   interface Own extends Left, Right { [key]?: { a?: true, b?: true } }\n\
+                   interface Wrong extends A.Hash { [A.symbol](that: Wrong): boolean }\n\
+                   class Missing implements B.Stream<number> { [A.symbol] = 1 }\n\
+                   class Bad implements B.Stream<number> { [key] = 'bad' }\n\
+                   interface Unresolved extends Left, Right {}",
+        ),
+    ];
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut map = NodeMap::new();
+    let mut bound = tsr_binder::BindResult::empty();
+    let mut roots = Vec::new();
+    for (name, text) in files {
+        let parsed = tsr_parser::parse_into(
+            &arena,
+            text,
+            tsr_parser::ParseOptions::for_file(name),
+            &mut nodes,
+            &mut map,
+        );
+        assert!(parsed.diagnostics.is_empty());
+        roots.push(parsed.source_file.node_id.unwrap());
+        bound = tsr_binder::bind_into(
+            bound,
+            &arena,
+            parsed.source_file,
+            &nodes,
+            tsr_binder::FileInfo { name, text },
+        );
+    }
+    let host = Host { roots: roots.clone() };
+    let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
+    for &root in &roots {
+        checker.check_source_file(
+            root,
+            tsr_checker::check::FileContext { ambient: false, has_parse_errors: false },
+        );
+    }
+    let mut errors: Vec<_> = checker
+        .diagnostics()
+        .iter()
+        .map(|(file, diagnostic)| {
+            assert_eq!(*file, roots[2]);
+            let line = files[2].1[..diagnostic.span.start as usize].matches('\n').count() + 1;
+            (line, diagnostic.message.code())
+        })
+        .collect();
+    errors.sort_unstable();
+    assert_eq!(errors, [(13, 2430), (14, 2420), (15, 2416), (16, 2320)]);
 }

@@ -312,8 +312,9 @@ impl<'a> Checker<'a, '_> {
     /// property keeps the read type and this arm cannot widen anything it does
     /// not own.
     pub(crate) fn write_type_of_accessors(&mut self, symbol: SymbolId) -> Option<TypeId> {
-        let declarations =
-            self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
+        let declarations = self.late_bound_symbol_declarations(symbol).unwrap_or_else(|| {
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>()
+        });
         let setter = declarations.into_iter().find(|&declaration| {
             matches!(self.node_map.get(declaration), Some(Node::SetAccessorDeclaration(_)))
         })?;
@@ -6635,7 +6636,12 @@ impl<'a> Checker<'a, '_> {
                 .ok_or(())?;
             return Ok(Some(types.into_iter().flatten().collect()));
         }
-        let name = if is_async { "[Symbol.asyncIterator]" } else { "[Symbol.iterator]" };
+        let key = self.well_known_symbol_property_name(if is_async {
+            "asyncIterator"
+        } else {
+            "iterator"
+        });
+        let name = key.as_str();
         let Some(iterator) = self.iteration_property_type(source, name) else {
             if self.get_property_of_type(source, name).is_some() {
                 return Err(());

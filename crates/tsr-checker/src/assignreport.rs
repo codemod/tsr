@@ -2085,10 +2085,20 @@ impl<'a> Checker<'a, '_> {
                 (source_text, target_text)
             }
         };
+        let displayed: Vec<_> = properties
+            .iter()
+            .map(|name| {
+                if self.symbol_of_unique_property_name(name).is_some() {
+                    self.chain_property_symbol_display(target, name)
+                } else {
+                    name.clone()
+                }
+            })
+            .collect();
         let (message, args) = if properties.len() == 1 {
             (
                 &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
-                vec![properties[0].clone(), source_text, target_text],
+                vec![displayed[0].clone(), source_text, target_text],
             )
         } else if properties.len() > 5 {
             (
@@ -2096,14 +2106,14 @@ impl<'a> Checker<'a, '_> {
                 vec![
                     source_text,
                     target_text,
-                    properties[..4].join(", "),
+                    displayed[..4].join(", "),
                     (properties.len() - 4).to_string(),
                 ],
             )
         } else {
             (
                 &messages::TYPE_0_IS_MISSING_THE_FOLLOWING_PROPERTIES_FROM_TYPE_1_COLON_2,
-                vec![source_text, target_text, properties.join(", ")],
+                vec![source_text, target_text, displayed.join(", ")],
             )
         };
         let mut diagnostic = Diagnostic::with_args(message, span, args);
@@ -2120,7 +2130,7 @@ impl<'a> Checker<'a, '_> {
                 declaration,
                 &messages::_0_IS_DECLARED_HERE,
                 declared_span,
-                vec![name.clone()],
+                vec![displayed[0].clone()],
             );
             if related.file().is_some() {
                 diagnostic.set_related_information(std::sync::Arc::new(vec![related]));
@@ -4719,7 +4729,8 @@ impl<'a> Checker<'a, '_> {
         // `late_bound_member_names` (`crate::members`) spells a computed
         // member of a declared type the same two ways.
         if let Some(text) = self.property_name_from_index(name_type) {
-            return Ok(Some((text, None)));
+            let unique = self.type_of(name_type).flags.contains(TypeFlags::UNIQUE_ES_SYMBOL);
+            return Ok(Some((text, unique.then_some(name_type))));
         }
         let (spelled, _) = self.late_bound_symbol_member_name(computed).ok_or(())?;
         Ok(Some((spelled, Some(name_type))))
@@ -7461,7 +7472,7 @@ impl Checker<'_, '_> {
     /// `symbolToString` of `owner`'s property `name`: a name written as a
     /// string literal keeps its quotes as written (`'ry'`, `"e"`); any
     /// other is [`chain_property_display`] (r7-reports §55).
-    fn chain_property_symbol_display(&mut self, owner: TypeId, name: &str) -> String {
+    pub(crate) fn chain_property_symbol_display(&mut self, owner: TypeId, name: &str) -> String {
         let written = self.get_property_of_type(owner, name).and_then(|symbol| {
             let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
             let written = match self.node_map.get(declaration)? {
@@ -7493,7 +7504,13 @@ impl Checker<'_, '_> {
                 _ => None,
             }
         });
-        written.unwrap_or_else(|| chain_property_display(name))
+        written.unwrap_or_else(|| {
+            if let Some(symbol) = self.symbol_of_unique_property_name(name) {
+                self.unique_symbol_property_name_at(symbol, None)
+            } else {
+                chain_property_display(name)
+            }
+        })
     }
 
     /// `compareTypePredicateRelatedTo` (`relater.go:1662`): kinds (this or

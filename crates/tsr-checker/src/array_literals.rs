@@ -1360,14 +1360,15 @@ impl Checker<'_, '_> {
                 .collect::<Option<Vec<_>>>()?;
             return Some(self.get_union_type(&elements));
         }
-        if let Some(symbol) = self.get_property_of_type(operand, "[Symbol.iterator]") {
+        let iterator_key = self.well_known_symbol_property_name("iterator");
+        if let Some(symbol) = self.get_property_of_type(operand, &iterator_key) {
             if self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type) {
                 return None;
             }
             if self.property_is_optional(symbol) {
                 return Some(self.intrinsics.any);
             }
-            if let Some(method) = self.get_type_of_property_of_type(operand, "[Symbol.iterator]")
+            if let Some(method) = self.get_type_of_property_of_type(operand, &iterator_key)
                 && !self.is_gap(method)
             {
                 // `getIterationTypesOfIterableSlow` (`checker.go:6463`):
@@ -1418,12 +1419,10 @@ impl Checker<'_, '_> {
         // computed names, aliases and heritage keep the gap.
         let missing_iterator =
             self.anonymous_properties.get(&operand).filter(|(_, complete)| *complete).is_some_and(
-                |(properties, _)| {
-                    properties.iter().all(|property| property.name != "[Symbol.iterator]")
-                },
-            ) || self.declared_property_table(operand).is_some_and(|properties| {
-                properties.iter().all(|(name, _)| name != "[Symbol.iterator]")
-            });
+                |(properties, _)| properties.iter().all(|property| property.name != iterator_key),
+            ) || self
+                .declared_property_table(operand)
+                .is_some_and(|properties| properties.iter().all(|(name, _)| *name != iterator_key));
         if missing_iterator
             || self
                 .store

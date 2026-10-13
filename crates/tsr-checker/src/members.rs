@@ -1691,6 +1691,7 @@ impl Checker<'_, '_> {
                     // contributed by the tuple and an index from the array.
                     // A purely indexed union still has no named property.
                     if name.starts_with('[')
+                        || name.starts_with("__@")
                         || self.tuple_element_lists.contains_key(&apparent)
                         || self.variadic_tuple_elements.contains_key(&apparent)
                     {
@@ -2657,7 +2658,7 @@ impl Checker<'_, '_> {
                 partial = true;
                 // isLateBoundName: a `[Symbol.x]` key is asked of the symbol
                 // index, which no identifier text reaches.
-                let index = if name.starts_with('[') {
+                let index = if name.starts_with('[') || name.starts_with("__@") {
                     None
                 } else {
                     let key = self.store.intern_literal(
@@ -3419,7 +3420,7 @@ impl Checker<'_, '_> {
 
     /// `lateBindMember` / `getPropertyNameFromType` (checker.go, utilities.go):
     /// resolve computed declarations to semantic names. Literal keys use their
-    /// values; symbol keys retain this port's existing bracketed identity.
+    /// values; unique symbols use the declaration-owned escaped identity.
     /// Printing reads the declaration separately. The cache sentinel makes a
     /// recursive key fall back to the early-bound members, as upstream does.
     pub(crate) fn late_bound_members_of(
@@ -3532,7 +3533,7 @@ impl Checker<'_, '_> {
     /// `foo[k] = v` (5b1047d checker.go:19948, :16005): the argument must be
     /// an entity name expression (`isLateBindableAST`) whose type is usable
     /// as a property name. Literal keys name the member by value; a unique
-    /// symbol keeps this port's bracketed entity spelling, as
+    /// symbol keeps its declaration-owned escaped identity, as
     /// [`Self::late_bound_members_of`]'s computed members do.
     fn late_bound_assignment_name(&mut self, assignment: tsr_ast::NodeId) -> Option<String> {
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(assignment) else {
