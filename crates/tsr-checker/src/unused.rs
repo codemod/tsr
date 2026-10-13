@@ -801,7 +801,11 @@ impl Checker<'_, '_> {
                             }
                         }
                     }
-                    SyntaxKind::TypeParameter => {}
+                    // Native 5b1047d's `checkUnusedLocalsAndParameters` reads
+                    // local.Declarations, not the merged module's declarations.
+                    // Our merged augmentation can include its target SourceFile;
+                    // that module owner is not a local declaration to report.
+                    SyntaxKind::TypeParameter | SyntaxKind::SourceFile => {}
                     _ => {
                         if !self.is_ambient_module_declaration(declaration) {
                             plain.push((declaration, name.clone()));
