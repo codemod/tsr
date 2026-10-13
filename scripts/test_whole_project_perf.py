@@ -247,7 +247,8 @@ class InputEvidenceTests(unittest.TestCase):
             self.assertTrue(by_path[str(root / "broken")]["symlinks"])
 
     def run_harness(self, root, mutation="", warmups=0, require_comparable=False,
-                    listed_path="main.ts", config_fifo=False, traced_checker=None):
+                    listed_path="main.ts", config_fifo=False, traced_checker=None,
+                    trace_noise=0, limited_reader=False):
         project = root / "project"
         project.mkdir()
         (project / "tsconfig.json").write_text('{"extends":"./extended.json"}')
@@ -286,8 +287,14 @@ class InputEvidenceTests(unittest.TestCase):
             "           'checker_id': checker, 'file_ids': [0]},\n"
             "          {'event': 'work_end', 'span_id': 0, 'outcome': 'returned'},\n"
             "          {'event': 'invocation_end', 'state': 'complete'}]\n"
-            "  pathlib.Path(__import__('os').environ['TSR_WORK_TRACE']).write_text(\n"
-            "   ''.join(json.dumps(row) + '\\n' for row in rows))\n"
+            "  with open(__import__('os').environ['TSR_WORK_TRACE'], 'w') as stream:\n"
+            "   for row in rows[:2]: stream.write(json.dumps(row) + '\\n')\n"
+            f"   for span_id in range(1, {trace_noise + 1}):\n"
+            "    stream.write(json.dumps({'event': 'work_begin', 'span_id': span_id,\n"
+            "                             'operation': 'declared_type'}) + '\\n')\n"
+            "    stream.write(json.dumps({'event': 'work_end', 'span_id': span_id,\n"
+            "                             'outcome': 'returned'}) + '\\n')\n"
+            "   for row in rows[2:]: stream.write(json.dumps(row) + '\\n')\n"
             f" {mutation or 'pass'}\n"
             " print('main.ts(1,1): error TS2322: intentional control')\n"
             " sys.exit(1)\n"
@@ -306,6 +313,12 @@ class InputEvidenceTests(unittest.TestCase):
                    "--samples", "1", "--warmups", str(warmups), "--output", str(output)]
         if require_comparable:
             command.append("--require-comparable")
+        if limited_reader:
+            command = [sys.executable, "-c",
+                       "import resource, runpy, sys; "
+                       "resource.setrlimit(resource.RLIMIT_AS, (128 * 2**20, 128 * 2**20)); "
+                       "sys.argv = sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')",
+                       *command[1:]]
         result = subprocess.run(command, capture_output=True, text=True, timeout=15,
                                 env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
         self.assertTrue(output.exists(), result.stderr)
@@ -376,6 +389,19 @@ class InputEvidenceTests(unittest.TestCase):
                                               traced_checker=0)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(report["loaded_inputs_match"])
+            self.assertTrue(report["actual_checked_work_verified"])
+            self.assertTrue(report["work_comparable"])
+            self.assertEqual(report["verified_wall_ratio"], report["observed_wall_ratio"])
+
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux address-space limits")
+    def test_large_unrelated_trace_preserves_checked_scope_under_memory_limit(self):
+        # Excalidraw's unrelated declared-type spans exhausted the reader, not
+        # the compiler. The evidence retained for one checked file stays small.
+        with tempfile.TemporaryDirectory() as directory:
+            result, report = self.run_harness(Path(directory), require_comparable=True,
+                                              traced_checker=0, trace_noise=150000,
+                                              limited_reader=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(report["actual_checked_work_verified"])
             self.assertTrue(report["work_comparable"])
             self.assertEqual(report["verified_wall_ratio"], report["observed_wall_ratio"])

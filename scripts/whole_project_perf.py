@@ -154,15 +154,24 @@ def native_checked_files(trace_dir: Path, cwd: Path) -> dict:
 
 def tsr_checked_files(trace: Path, cwd: Path) -> dict:
     """`source_file_check` spans of a `work-trace` build (`crates/tsr-execute/src/work_trace.rs`)."""
-    records = [json.loads(line) for line in trace.read_text().splitlines() if line.strip()]
-    paths = {r["file_id"]: r["path"] for r in records if r["event"] == "program_file"}
-    spans = {r["span_id"]: r for r in records
-             if r["event"] == "work_begin" and r["operation"] == "source_file_check"}
-    returned = {r["span_id"] for r in records
-                if r["event"] == "work_end" and r["outcome"] == "returned"}
+    # Declared-type spans can make the trace gigabytes long. Retain only the
+    # file-check evidence; the producer writes each begin before its end.
+    paths, spans, returned, ended = {}, {}, set(), []
+    with trace.open() as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            if r["event"] == "program_file":
+                paths[r["file_id"]] = r["path"]
+            elif r["event"] == "work_begin" and r["operation"] == "source_file_check":
+                spans[r["span_id"]] = r
+            elif r["event"] == "work_end" and r["span_id"] in spans and r["outcome"] == "returned":
+                returned.add(r["span_id"])
+            elif r["event"] == "invocation_end":
+                ended.append(r)
     files = [[file_identity(paths[file_id], cwd), span["checker_id"]]
              for span in spans.values() for file_id in span["file_ids"]]
-    ended = [r for r in records if r["event"] == "invocation_end"]
     complete = (set(spans) <= returned and len(ended) == 1 and ended[0]["state"] == "complete"
                 and all(len(span["file_ids"]) == 1 for span in spans.values()))
     return {"files": sorted(files), "complete": complete}
