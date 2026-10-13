@@ -105,7 +105,8 @@ fn a_two_level_chain_rebases_at_each_hop() {
         &[
             (
                 "configs/base/tsconfig.base.json",
-                r#"{ "compilerOptions": { "declarationDir": "../../types" },
+                r#"{ "compilerOptions": { "declarationDir": "../../types",
+                                          "tsBuildInfoFile": "../../base.tsbuildinfo" },
                      "files": ["../../src/main.ts"],
                      "include": ["../../src/lib/**/*"],
                      "references": [{ "path": "../../other" }] }"#,
@@ -113,7 +114,8 @@ fn a_two_level_chain_rebases_at_each_hop() {
             (
                 "configs/mid/tsconfig.json",
                 r#"{ "extends": "../base/tsconfig.base.json",
-                     "compilerOptions": { "outDir": "../../dist" },
+                     "compilerOptions": { "outDir": "../../dist",
+                                          "tsBuildInfoFile": "../../.cache/mid.tsbuildinfo" },
                      "exclude": ["../../src/lib/gen/**"] }"#,
             ),
             ("app/tsconfig.json", r#"{ "extends": "../configs/mid/tsconfig.json" }"#),
@@ -132,6 +134,7 @@ fn a_two_level_chain_rebases_at_each_hop() {
     assert_eq!(parsed.literal_file_count, 1);
     assert_eq!(parsed.compiler_options.out_dir, tree.path("dist"));
     assert_eq!(parsed.compiler_options.declaration_dir, tree.path("types"));
+    assert_eq!(parsed.compiler_options.ts_build_info_file, tree.path(".cache/mid.tsbuildinfo"));
     // `references` is not an inherited key.
     assert!(parsed.raw.get("references").is_none());
     // Nor is the mid config's own `extends`: `extends` here is the app's.

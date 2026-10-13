@@ -2219,6 +2219,12 @@ impl<'a> Parser<'a> {
                             SyntaxKind::SemicolonToken | SyntaxKind::CommaToken if depth == 0 => {
                                 break false;
                             }
+                            SyntaxKind::TemplateHead => {
+                                if !p.skip_template_literal() {
+                                    break false;
+                                }
+                                continue;
+                            }
                             SyntaxKind::EndOfFile => break false,
                             _ => {}
                         }
@@ -2231,6 +2237,34 @@ impl<'a> Parser<'a> {
             None::<()>
         });
         result
+    }
+
+    /// Skip a template, treating its substitutions as opaque to the enclosing
+    /// signature scan. Like native `Parser.parseLiteralOfTemplateSpan`, rescan
+    /// each substitution's `}` as template text; ordinary braces and nested
+    /// templates need their own depths. This stays token-only: parsing an
+    /// initializer here would re-enter arrow speculation at every nesting level.
+    fn skip_template_literal(&mut self) -> bool {
+        debug_assert!(self.at(SyntaxKind::TemplateHead));
+        let mut brace_depths = vec![0u32];
+        self.next_token();
+        while let Some(depth) = brace_depths.last_mut() {
+            match self.token.kind {
+                SyntaxKind::EndOfFile => return false,
+                SyntaxKind::TemplateHead => brace_depths.push(0),
+                SyntaxKind::OpenBraceToken => *depth += 1,
+                SyntaxKind::CloseBraceToken if *depth > 0 => *depth -= 1,
+                SyntaxKind::CloseBraceToken => {
+                    self.rescan_template_continuation();
+                    if self.at(SyntaxKind::TemplateTail) {
+                        brace_depths.pop();
+                    }
+                }
+                _ => {}
+            }
+            self.next_token();
+        }
+        true
     }
 
     /// Consume a bracketed group, leaving the cursor just past its close.
@@ -2253,6 +2287,12 @@ impl<'a> Parser<'a> {
             let kind = self.token.kind;
             if kind == SyntaxKind::EndOfFile {
                 return false;
+            }
+            if kind == SyntaxKind::TemplateHead {
+                if !self.skip_template_literal() {
+                    return false;
+                }
+                continue;
             }
             // `<K extends Key<U>>` ends in a single `>>` token: the scanner has no
             // idea those are two closing brackets. Counting it as one leaves the

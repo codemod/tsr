@@ -49,8 +49,13 @@ const STRUCT_ORDER: &[&str] = &[
     "checkJs",
     "customConditions",
     "composite",
+    "emitDecoratorMetadata",
     "declaration",
     "declarationDir",
+    "declarationMap",
+    "exactOptionalPropertyTypes",
+    "experimentalDecorators",
+    "forceConsistentCasingInFileNames",
     "isolatedModules",
     "incremental",
     "jsx",
@@ -63,14 +68,17 @@ const STRUCT_ORDER: &[&str] = &[
     "moduleDetection",
     "noEmit",
     "noCheck",
-    "noErrorTruncation",
+    "noFallthroughCasesInSwitch",
     "noImplicitAny",
+    "noImplicitThis",
+    "noImplicitReturns",
     "noLib",
     "noUncheckedIndexedAccess",
     "noEmitOnError",
     "noUnusedLocals",
     "noUnusedParameters",
     "noResolve",
+    "noImplicitOverride",
     "noUncheckedSideEffectImports",
     "outDir",
     "paths",
@@ -79,6 +87,7 @@ const STRUCT_ORDER: &[&str] = &[
     "resolveJsonModule",
     "resolvePackageJsonExports",
     "resolvePackageJsonImports",
+    "removeComments",
     "rootDir",
     "rootDirs",
     "skipLibCheck",
@@ -86,8 +95,10 @@ const STRUCT_ORDER: &[&str] = &[
     "strictNullChecks",
     "strictPropertyInitialization",
     "skipDefaultLibCheck",
+    "sourceMap",
     "target",
     "traceResolution",
+    "tsBuildInfoFile",
     "typeRoots",
     "types",
     "useUnknownInCatchVariables",
@@ -270,36 +281,65 @@ fn option_value(options: &CompilerOptions, name: &str) -> Option<String> {
         "allowUnreachableCode" => tristate(options.allow_unreachable_code),
         "checkJs" => tristate(options.check_js),
         "composite" => tristate(options.composite),
+        "emitDecoratorMetadata" => tristate(options.emit_decorator_metadata),
         "declaration" => tristate(options.declaration),
         "declarationDir" => string(&options.declaration_dir),
+        "declarationMap" => tristate(options.declaration_map),
+        "exactOptionalPropertyTypes" => tristate(options.exact_optional_property_types),
+        "experimentalDecorators" => tristate(options.experimental_decorators),
+        "forceConsistentCasingInFileNames" => {
+            tristate(options.force_consistent_casing_in_file_names)
+        }
         "isolatedModules" => tristate(options.isolated_modules),
         "incremental" => tristate(options.incremental),
         "jsxImportSource" => string(&options.jsx_import_source),
         "libReplacement" => tristate(options.lib_replacement),
         "noEmit" => tristate(options.no_emit),
         "noCheck" => tristate(options.no_check),
-        "noErrorTruncation" => tristate(options.no_error_truncation),
+        "noFallthroughCasesInSwitch" => tristate(options.no_fallthrough_cases_in_switch),
         "noImplicitAny" => tristate(options.no_implicit_any),
+        "noImplicitThis" => tristate(options.no_implicit_this),
+        "noImplicitReturns" => tristate(options.no_implicit_returns),
         "noLib" => tristate(options.no_lib),
         "noUncheckedIndexedAccess" => tristate(options.no_unchecked_indexed_access),
         "noEmitOnError" => tristate(options.no_emit_on_error),
         "noUnusedLocals" => tristate(options.no_unused_locals),
         "noUnusedParameters" => tristate(options.no_unused_parameters),
         "noResolve" => tristate(options.no_resolve),
+        "noImplicitOverride" => tristate(options.no_implicit_override),
         "noUncheckedSideEffectImports" => tristate(options.no_unchecked_side_effect_imports),
         "outDir" => string(&options.out_dir),
+        "paths" if !options.paths.is_empty() => {
+            // Unlike file-path options, substitutions are echoed unchanged.
+            // The setter retains their insertion order in an OrderedMap.
+            let entries: Vec<String> = options
+                .paths
+                .entries()
+                .map(|(pattern, substitutions)| {
+                    format!(
+                        "            \"{}\": {}",
+                        escape(pattern),
+                        string_array(substitutions, 3)
+                    )
+                })
+                .collect();
+            Some(format!("{{\n{}\n        }}", entries.join(",\n")))
+        }
         "preserveConstEnums" => tristate(options.preserve_const_enums),
         "preserveSymlinks" => tristate(options.preserve_symlinks),
         "resolveJsonModule" => tristate(options.resolve_json_module),
         "resolvePackageJsonExports" => tristate(options.resolve_package_json_exports),
         "resolvePackageJsonImports" => tristate(options.resolve_package_json_imports),
+        "removeComments" => tristate(options.remove_comments),
         "rootDir" => string(&options.root_dir),
         "skipLibCheck" => tristate(options.skip_lib_check),
         "strict" => tristate(options.strict),
         "strictNullChecks" => tristate(options.strict_null_checks),
         "strictPropertyInitialization" => tristate(options.strict_property_initialization),
         "skipDefaultLibCheck" => tristate(options.skip_default_lib_check),
+        "sourceMap" => tristate(options.source_map),
         "traceResolution" => tristate(options.trace_resolution),
+        "tsBuildInfoFile" => string(&options.ts_build_info_file),
         "useUnknownInCatchVariables" => tristate(options.use_unknown_in_catch_variables),
         "verbatimModuleSyntax" => tristate(options.verbatim_module_syntax),
         "allowSyntheticDefaultImports" => tristate(options.allow_synthetic_default_imports),
@@ -321,7 +361,11 @@ fn option_value(options: &CompilerOptions, name: &str) -> Option<String> {
         "moduleDetection" if options.module_detection != tsr_core::ModuleDetectionKind::None => {
             Some(format!("\"{}\"", module_detection_name(options.module_detection)))
         }
-        "lib" if !options.lib.is_empty() => Some(string_array(&options.lib, 2)),
+        "lib" if !options.lib.is_empty() => {
+            // Native serializes enum-list values using their canonical names.
+            let names: Vec<_> = options.lib.iter().map(|name| name.to_ascii_lowercase()).collect();
+            Some(string_array(&names, 2))
+        }
         "rootDirs" if !options.root_dirs.is_empty() => Some(string_array(&options.root_dirs, 2)),
         "moduleSuffixes" if !options.module_suffixes.is_empty() => {
             Some(string_array(&options.module_suffixes, 2))
@@ -452,7 +496,12 @@ fn is_file_path_option(name: &str) -> bool {
 /// A path as `--showConfig` prints it: relative, and explicitly so.
 fn relative_for_display(path: &str, compare: &tsr_path::ComparePathsOptions) -> String {
     let relative = tsr_path::convert_to_relative_path(path, compare);
-    if relative.starts_with('.') || relative.starts_with('/') {
+    if relative == "."
+        || relative == ".."
+        || relative.starts_with("./")
+        || relative.starts_with("../")
+        || relative.starts_with('/')
+    {
         relative
     } else {
         format!("./{relative}")
@@ -591,6 +640,81 @@ mod tests {
         assert!(!render(&CompilerOptions::default()).contains("strict"));
         let off = CompilerOptions { strict: Tristate::False, ..CompilerOptions::default() };
         assert!(render(&off).contains("\"strict\": false"));
+    }
+
+    #[test]
+    fn oss_options_serialize_resolved_values_in_native_order() {
+        // Exercise the declaration setters and public output, not raw-config
+        // echoing: these were the omissions in the Zod/Effect/Excalidraw probes.
+        let entries = [
+            ("emitDecoratorMetadata", ConfigValue::Bool(true)),
+            ("declarationMap", ConfigValue::Bool(true)),
+            ("exactOptionalPropertyTypes", ConfigValue::Bool(true)),
+            ("experimentalDecorators", ConfigValue::Bool(true)),
+            ("forceConsistentCasingInFileNames", ConfigValue::Bool(true)),
+            (
+                "lib",
+                ConfigValue::List(vec![
+                    ConfigValue::String("ES2022".into()),
+                    ConfigValue::String("DOM".into()),
+                    ConfigValue::String("DOM.Iterable".into()),
+                ]),
+            ),
+            ("noFallthroughCasesInSwitch", ConfigValue::Bool(true)),
+            ("noImplicitThis", ConfigValue::Bool(true)),
+            ("noImplicitReturns", ConfigValue::Bool(false)),
+            ("noImplicitOverride", ConfigValue::Bool(true)),
+            ("removeComments", ConfigValue::Bool(false)),
+            ("sourceMap", ConfigValue::Bool(true)),
+            (
+                "tsBuildInfoFile",
+                ConfigValue::String("/home/project/.tsbuildinfo/src.tsbuildinfo".into()),
+            ),
+            ("noErrorTruncation", ConfigValue::Bool(false)),
+        ];
+        let mut options = CompilerOptions::default();
+        for (name, value) in &entries {
+            let declaration = tsr_tsoptions::declarations::COMPILER_OPTIONS
+                .iter()
+                .find(|declaration| declaration.name == *name)
+                .unwrap();
+            assert!((declaration.apply)(&mut options, value));
+        }
+        options.paths.set("z/*", vec!["./src/*.js".into(), "../shared/*.js".into()]);
+        options.paths.set("a", vec!["./a.ts".into()]);
+        assert_eq!(
+            render(&options),
+            concat!(
+                "{\n    \"compilerOptions\": {\n",
+                "        \"emitDecoratorMetadata\": true,\n",
+                "        \"declarationMap\": true,\n",
+                "        \"exactOptionalPropertyTypes\": true,\n",
+                "        \"experimentalDecorators\": true,\n",
+                "        \"forceConsistentCasingInFileNames\": true,\n",
+                "        \"lib\": [\n",
+                "            \"es2022\",\n",
+                "            \"dom\",\n",
+                "            \"dom.iterable\"\n",
+                "        ],\n",
+                "        \"noFallthroughCasesInSwitch\": true,\n",
+                "        \"noImplicitThis\": true,\n",
+                "        \"noImplicitReturns\": false,\n",
+                "        \"noImplicitOverride\": true,\n",
+                "        \"paths\": {\n",
+                "            \"z/*\": [\n",
+                "                \"./src/*.js\",\n",
+                "                \"../shared/*.js\"\n",
+                "            ],\n",
+                "            \"a\": [\n",
+                "                \"./a.ts\"\n",
+                "            ]\n",
+                "        },\n",
+                "        \"removeComments\": false,\n",
+                "        \"sourceMap\": true,\n",
+                "        \"tsBuildInfoFile\": \"./.tsbuildinfo/src.tsbuildinfo\"\n",
+                "    }\n}\n",
+            )
+        );
     }
 
     #[test]

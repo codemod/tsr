@@ -154,3 +154,26 @@ function f30<T, K extends keyof T>(y: Required<Partial<T>>, k: K) {
 ";
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+/// Native 5b1047d reports only the four marked assignments. Recursive mapped
+/// aliases must reuse their lexical context without merging distinct outer
+/// arguments or dropping parameters captured by a conditional's `infer`.
+#[test]
+fn recursive_mapped_aliases_preserve_outer_and_inferred_arguments() {
+    let source = r"type Tree<T, U> = { value: U } & (T extends object ? { [K in keyof T]?: Tree<T[K], U> } : {});
+type Wrapped<A> = Tree<any, A>;
+declare const stringTree: Wrapped<string>;
+declare const numberTree: Wrapped<number>;
+const stringValue: string = stringTree.value;
+const numberValue: number = numberTree.value;
+const wrongString: number = stringTree.value; // error
+const wrongNumber: string = numberTree.value; // error
+type Captured<T> = T extends { input: infer U } ? { [K in keyof U]: { value: U[K] } } : never;
+declare const captured: Captured<{ input: { left: string; right: number } }>;
+const left: string = captured.left.value;
+const right: number = captured.right.value;
+const wrongLeft: number = captured.left.value; // error
+const wrongRight: string = captured.right.value; // error
+";
+    assert_eq!(ts2322_lines(source), marked(source));
+}

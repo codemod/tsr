@@ -2328,6 +2328,28 @@ impl<'a> Checker<'a, '_> {
         // declaration possibly references, so a literal that names none of
         // the open bindings is the uninstantiated literal itself
         // (`r6-declared.md` §1).
+        // getOuterTypeParameters starts outside the declaration and includes
+        // only lexically enclosing parameters, not every caller's open mapper.
+        // In particular, recursive templates leave fresh iteration clones and
+        // alias parameters from other declarations in the evaluation frames.
+        // Signature keys also certify pending-return demand context; preserve
+        // their foreign-frame refusal contract rather than widening it here.
+        if matches!(self.nodes.kind(node), SyntaxKind::TypeLiteral | SyntaxKind::MappedType) {
+            bindings.retain(|&(symbol, _)| {
+                self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                    let Some(mut owner) = self.nodes.parent(declaration) else { return false };
+                    if self.nodes.kind(owner) == SyntaxKind::InferType {
+                        let Some(conditional) = self.nodes.ancestors(owner).find(|&ancestor| {
+                            self.nodes.kind(ancestor) == SyntaxKind::ConditionalType
+                        }) else {
+                            return false;
+                        };
+                        owner = conditional;
+                    }
+                    owner != node && self.is_node_descendant_of_declared(node, owner)
+                })
+            });
+        }
         if !bindings.is_empty() && self.instantiation_keys_on_referenced_parameters(node) {
             bindings
                 .retain(|&(symbol, _)| self.is_type_parameter_possibly_referenced(symbol, node));

@@ -104,6 +104,54 @@ alias road, for example a non-generic alias body evaluated under the caller's
 frames. Such a literal would merge two different instances, and a print
 would show the first instance's members.
 
+### 1.0 OSS recursive aliases: outer parameters are lexical
+
+The October 2026 OSS probe found that the referenced-parameter filter above
+still admitted parameters owned by unrelated caller declarations. Its native
+predicate intentionally answers conservatively outside a parameter's scope,
+but native first computes `getOuterTypeParameters` by walking the declaration's
+lexical parents. Recursive Zod error trees accumulated fresh mapped-iteration
+bindings in TSR's key, defeating identity reuse and repeatedly constructing
+large union display strings.
+
+`type_literal_key` now restricts **type literals and mapped types** to parameters
+whose owners lexically enclose the node, before applying the existing
+possibly-referenced predicate. A conditional owns its `infer` parameters; the
+mapped declaration's own iteration parameter is not an outer parameter of that
+declaration, but remains outer to literals nested in its template. Signature
+keys retain their existing foreign-frame refusal and pending-return demand
+contracts. Distinct outer arguments remain distinct.
+
+The checker port boundaries are:
+
+- **Pinned operation:** typescript-go `5b1047d10d32e7d5b446be4de56b126ff42f82bb`,
+  `getObjectTypeInstantiation` and `getOuterTypeParameters` in `checker.go`;
+  callers consume anonymous-object and mapped-type instances.
+- **Identity/owner:** the existing private `Checker` owns `TypeLiteralKey`
+  `(NodeId, sorted SymbolId/TypeId bindings, mapped_template)` and its type
+  images for that checker's lifetime. This change narrows the binding domain;
+  it adds no cache, name-based identity or cross-checker reuse.
+- **Publication:** unchanged. A type literal reserves its object identity
+  before building members, completes that identity on success, and preserves
+  error publication. Mapped-node publication and unsupported-work handling are
+  unchanged; an active conditional is not converted to a completed fallback.
+- **Consumer context:** retained bindings still carry their concrete argument
+  identities, and written alias/origin, receiver handling, diagnostic policy
+  and `mapped_template` are unchanged. Member construction already uses exactly
+  the key's bindings and restores the caller's frames afterward.
+- **Work boundary:** one declaration-owner/ancestor check per open binding
+  precedes the existing memoized possibly-referenced query. Reuse remains in
+  `type_literal_types` and the existing mapped-instance machinery, avoiding
+  repeated recursive construction and eager display-string copying. Worker
+  counts, active repeats and copied bytes remain unmeasured (`tsr-we2.1`);
+  full-project measurements are in the
+  [OSS follow-up](oss-projects-2026-10-13.md).
+
+`generic_mapped_relations::recursive_mapped_aliases_preserve_outer_and_inferred_arguments`
+checks string/number outer arguments and asymmetric `infer`-captured properties
+through assignments. The pinned native reports exactly four TS2322 diagnostics.
+All 230 checker unit tests, including signature foreign-frame controls, pass.
+
 ### 1.1 r5-mapped6's conditional-typed-print diff, re-measured (sent to r6-mapped)
 
 [`r5-mapped6-conditional-typed-print.diff`](r5-mapped6-conditional-typed-print.diff)

@@ -579,6 +579,39 @@ fn generic_arrows_with_union_and_object_constraints() {
 }
 
 #[test]
+fn arrow_signatures_with_template_literals() {
+    // The first three shapes blocked Zod, Excalidraw and Effect respectively.
+    // Template text must not swallow the signature's close or next statement,
+    // nor contribute its own brackets, semicolons or arrows to lookahead depth.
+    for source in [
+        "const f = <T extends typeof Class>(cls: T, message = `Input not instance of ${cls.name}`) => message;",
+        "const f = <U extends `${string}:${\"L\" | \"R\"}`>(value: U) => value;",
+        "const f = <R, P extends string, Ret, B extends Ret>(input: Extract<R, Record<D, `${P}${string}`>>) => input;",
+        "const f = <T>(value = `)>;${{ value: `x${1}y` }.value};${2}`) => value;",
+        "const f = <T>(): `>${{ value: number }[\"value\"]};${`inner${string}`}` => null!;",
+    ] {
+        let arena = Arena::new();
+        let parsed = statements(&arena, source);
+        assert_eq!(parsed.len(), 1);
+        let Statement::VariableStatement(variable) = parsed[0] else {
+            panic!("expected variable statement: {source}")
+        };
+        let Some(Expression::ArrowFunction(arrow)) =
+            variable.declaration_list.unwrap().declarations[0].initializer
+        else {
+            panic!("expected arrow initializer: {source}")
+        };
+        assert!(!arrow.type_parameters.is_empty());
+        assert!(arrow.body.is_some());
+    }
+
+    let arena = Arena::new();
+    let parsed = statements(&arena, "(`)>;${{ value: `x${1}` }.value}`); x => x;");
+    let Statement::ExpressionStatement(first) = parsed[0] else { panic!() };
+    assert!(matches!(first.expression, Some(Expression::ParenthesizedExpression(_))));
+}
+
+#[test]
 fn adjacent_generic_call_signatures_use_asi() {
     let arena = Arena::new();
     statements(&arena, "type Overloads = { <A>(): A\n<B extends { value: A }>(): B };");

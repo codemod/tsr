@@ -666,7 +666,15 @@ fn merge_options(base: CompilerOptions, own: CompilerOptions) -> CompilerOptions
         emit_declaration_only,
         remove_comments,
     );
-    text!(base_url, out_dir, declaration_dir, root_dir, out_file, jsx_import_source);
+    text!(
+        base_url,
+        out_dir,
+        declaration_dir,
+        root_dir,
+        out_file,
+        jsx_import_source,
+        ts_build_info_file,
+    );
     list!(lib, root_dirs, module_suffixes, custom_conditions);
 
     if own.target != tsr_core::ScriptTarget::None {
