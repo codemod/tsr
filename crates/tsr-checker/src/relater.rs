@@ -2037,6 +2037,13 @@ impl Relater<'_, '_, '_> {
         // has no member table, so the structural gate above does not route it
         // to `structured_type_related_to_worker`; its target arms apply here.
         self.checker.ensure_mapped_type_info(target);
+        // Closed mapped instances can also miss the structural admission
+        // but still prove a required-member failure independently of values.
+        if (self.has_members(source) || self.is_structural_tuple_source(source))
+            && self.required_mapped_members_reject(source, target)
+        {
+            return RelationResult::NotRelated;
+        }
         if self.is_generic_mapped_target(target) {
             self.checker.ensure_mapped_type_info(source);
             if let Some(result) = self.generic_mapped_target_related_to(source, target)
@@ -7373,6 +7380,40 @@ impl Relater<'_, '_, '_> {
         self.properties_related_to_excluding(source, target, optionals_only, &[])
     }
 
+    /// Native getPropertiesOfObjectType/resolveMappedTypeMembers and
+    /// propertyRelatedTo at 5b1047d: read required keys on the concrete
+    /// Checker-owned receiver image, not an alias binder's empty names. The
+    /// existing worker owns mapper/slot publication and recursive empty views;
+    /// unsupported or active images cannot prove a negative here. No new cache
+    /// or value comparison: inferred mapped values have independent producer
+    /// gaps. Only known absent/optional source properties prove this failure.
+    fn required_mapped_members_reject(&mut self, source: TypeId, target: TypeId) -> bool {
+        if !self.checker.mapped_types.contains_key(&target)
+            || self.is_generic_mapped_type(target) != Some(false)
+            || self.relation == Relation::Comparable
+        {
+            return false;
+        }
+        self.checker.resolve_mapped_type_members(target);
+        if self.checker.mapped_members_in_progress.contains(&target) {
+            return false;
+        }
+        let Some((properties, true)) = self.checker.anonymous_properties.get(&target) else {
+            return false;
+        };
+        let required: Vec<_> = properties
+            .iter()
+            .filter(|property| !property.optional)
+            .map(|property| property.name.clone())
+            .collect();
+        let source_names = self.checker.get_property_names_of_type_shared(source);
+        required.iter().any(|name| {
+            self.property_flags(source, name).is_some_and(|flags| flags.0)
+                || (self.checker.get_type_of_property_of_type(source, name).is_none()
+                    && (source_names.is_some() || self.tuple_source_lacks_property(source, name)))
+        })
+    }
+
     /// propertiesRelatedTo (relater.go:4100) with its `excludedProperties`:
     /// the named target members are skipped. Only
     /// [`Self::type_related_to_discriminated_type`] excludes anything.
@@ -7390,6 +7431,16 @@ impl Relater<'_, '_, '_> {
             reasons::note(reasons::Site::UnfollowableBase);
             return RelationResult::Unknown;
         };
+        // A mapped alias binder's empty names cannot bypass required members.
+        // Take only the metadata negative; do not expand this worker's value
+        // comparisons to inferred mapped images (has_members declines those).
+        if names.is_empty()
+            && !optionals_only
+            && excluded.is_empty()
+            && self.required_mapped_members_reject(source, target)
+        {
+            return RelationResult::NotRelated;
+        }
         // Keep the original receiver for member reads: intersection property
         // types are already synthesized by property_type_via_shape. Only names
         // and declaration metadata need the distinct contributing object types.
@@ -8092,6 +8143,9 @@ impl Relater<'_, '_, '_> {
     }
 
     fn property_flags(&mut self, receiver: TypeId, name: &str) -> Option<(bool, bool)> {
+        if let Some(modifiers) = self.checker.tuple_property_modifiers(receiver, name) {
+            return Some(modifiers);
+        }
         // createUnionOrIntersectionProperty (checker.go): an intersection
         // property is optional (readonly) only when every contributing
         // constituent's property is.

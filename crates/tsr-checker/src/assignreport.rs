@@ -7850,7 +7850,12 @@ impl Checker<'_, '_> {
             let target_class_member =
                 self.get_property_of_type(target, name).is_some_and(|symbol| {
                     self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS_MEMBER)
-                });
+                }) || (self.mapped_types.contains_key(&target)
+                    && self.anonymous_properties.get(&target).is_some_and(
+                        |(properties, complete)| {
+                            *complete && properties.iter().any(|property| property.name == *name)
+                        },
+                    ));
             // An unreadable optionality (an apparent member the source does
             // not own) is not the optional arm's.
             if target_class_member
@@ -8576,6 +8581,17 @@ impl Checker<'_, '_> {
     /// Whether the target's member `name` is optional, from its symbol or
     /// its member table; `None` where neither answers.
     fn chain_property_is_optional(&mut self, target: TypeId, name: &str) -> Option<bool> {
+        if let Some((optional, _)) = self.tuple_property_modifiers(target, name) {
+            return Some(optional);
+        }
+        if self.mapped_types.contains_key(&target)
+            && let Some((properties, true)) = self.anonymous_properties.get(&target)
+        {
+            return properties
+                .iter()
+                .find(|property| property.name == name)
+                .map(|property| property.optional);
+        }
         if let Some(table) = self.relation_property_table(target) {
             return table.iter().find(|(seen, _)| seen == name).map(|&(_, optional)| optional);
         }

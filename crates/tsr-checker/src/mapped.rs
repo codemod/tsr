@@ -1574,6 +1574,9 @@ impl<'a> Checker<'a, '_> {
             let source_property = modifiers
                 .zip(source_name.as_deref())
                 .and_then(|(source, name)| self.get_property_of_type(source, name));
+            let tuple_modifiers = modifiers
+                .zip(source_name.as_deref())
+                .and_then(|(source, name)| self.tuple_property_modifiers(source, name));
             let composite = modifiers
                 .zip(source_name.as_deref())
                 .and_then(|(source, name)| self.intersection_modifier_member(source, name));
@@ -1608,6 +1611,8 @@ impl<'a> Checker<'a, '_> {
                 },
                 |member| member.readonly,
             );
+            let (was_optional, was_readonly) =
+                tuple_modifiers.unwrap_or((was_optional, was_readonly));
             let inherited =
                 modifiers.and_then(|source| self.mapped_identity_optionality.get(&source));
             let was_optional = inherited.and_then(|modifiers| modifiers.0).unwrap_or(was_optional);
@@ -2478,6 +2483,42 @@ impl<'a> Checker<'a, '_> {
             ));
             self.is_type_assignable_to(key, constraint)
         })
+    }
+
+    /// createTupleTargetType (internal/checker/checker.go), pinned at
+    /// 5b1047d10d32e7d5b446be4de56b126ff42f82bb: only the fixed prefix and
+    /// length have synthesized own symbols. Read their Optional/Readonly flags
+    /// from the existing Checker-owned tuple image, keyed by receiver `TypeId`
+    /// and canonical property name. This publishes nothing, resolves no value
+    /// or alias, and borrows the tuple metadata; rest indices are not symbols.
+    /// Mapped member creation and propertyRelatedTo share this read because
+    /// this port does not mint native's tuple property symbols.
+    pub(crate) fn tuple_property_modifiers(
+        &self,
+        receiver: TypeId,
+        name: &str,
+    ) -> Option<(bool, bool)> {
+        let index = || name.parse::<usize>().ok().filter(|index| index.to_string() == name);
+        if let Some((elements, readonly)) = self.variadic_tuple_elements.get(&receiver) {
+            if name == "length" {
+                return Some((false, *readonly));
+            }
+            let element = elements.iter().take_while(|element| !element.spread).nth(index()?)?;
+            return Some((element.optional, *readonly));
+        }
+        let (elements, readonly) = self.tuple_element_lists.get(&receiver)?;
+        if name == "length" {
+            return Some((false, *readonly));
+        }
+        let index = index()?;
+        elements.get(index)?;
+        let optional = self
+            .tuple_optional_masks
+            .get(&receiver)
+            .and_then(|mask| mask.get(index))
+            .copied()
+            .unwrap_or(false);
+        Some((optional, *readonly))
     }
 
     /// instantiateMappedTypeTemplate (checker.go:22646). Include optionality

@@ -362,3 +362,88 @@ fn missing_heads_require_known_written_keys_and_certified_parameter_metadata() {
         );
     }
 }
+
+#[test]
+fn concrete_mapped_constraints_keep_required_keys_and_tuple_modifier_sources() {
+    // Pinned native 5b1047d: a union of keyof domains is not homomorphic,
+    // even when both operands instantiate to the same object or tuple. Its
+    // properties are required. A direct keyof source instead inherits tuple
+    // optionality, and -? strips missing (not real undefined in exact mode).
+    let source = r#"type Hom<T> = { [K in keyof T]: T[K] };
+type Need<T> = { [K in keyof T]-?: T[K] };
+type Maybe<T> = { [K in keyof T]+?: T[K] };
+type Both<A, B> = { [K in keyof A | keyof B]: K extends keyof A ? A[K] : never };
+type PickMap<T, K extends keyof T> = { [P in K]: T[P] };
+type Obj = { a?: string; b: number };
+type Tup = [string, number, string?, ...boolean[]];
+declare function objectBoth<X extends Both<Obj, Obj>>(): void;
+declare function tupleBoth<X extends Both<Tup, Tup>>(): void;
+declare function objectNeed<X extends Need<Obj>>(): void;
+declare function tupleRequired<X extends { 0: string; 1: number; 2: string | undefined }>(): void;
+objectBoth<Obj>();
+tupleBoth<Tup>();
+objectNeed<Obj>();
+tupleRequired<Tup>();
+objectBoth<{ a: string; b: number }>();
+tupleBoth<[string, number, string, ...boolean[]]>();
+declare function objectHom<X extends Hom<Obj>>(): void;
+declare function tupleHom<X extends Hom<Tup>>(): void;
+declare function objectMaybe<X extends Maybe<Obj>>(): void;
+declare function tupleMaybe<X extends Maybe<Tup>>(): void;
+declare function objectPick<X extends PickMap<Obj, "a">>(): void;
+objectHom<Obj>();
+tupleHom<Tup>();
+objectMaybe<{}>();
+tupleMaybe<[]>();
+objectPick<{}>();
+type Fixed = readonly [first: string, second?: number | undefined];
+type FixedImage = { [K in keyof Fixed as K extends "1" ? K : never]: Fixed[K] };
+type FixedNeed = { -readonly [K in keyof Fixed as K extends "1" ? K : never]-?: Fixed[K] };
+declare let image: FixedImage;
+declare let fixedNeed: FixedNeed;
+image = {};
+image = { 1: 42 };
+fixedNeed = {};
+fixedNeed = { 1: 42 };
+fixedNeed = { 1: undefined };
+declare function tupleAny<X extends { 2: any }>(): void;
+tupleAny<Tup>();
+tupleAny<[string, number, string, ...boolean[]]>();
+declare const tup: Tup;
+const comparable = tup as { 2: any };
+type ExactNeed<T> = { [K in keyof T]-?: T[K] | null };
+declare let exact: ExactNeed<{ real?: number | undefined; missing?: number }>;
+exact = { real: undefined, missing: 42 };
+exact = { real: 42, missing: undefined };
+"#;
+    for exact in [false, true] {
+        let case = TestCase::parse(
+            "probe/mapped-modifier-constraints",
+            "mapped.ts",
+            &format!("// @strict: true\n// @exactOptionalPropertyTypes: {exact}\n{source}"),
+        );
+        let mut actual: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+            .into_iter()
+            .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+            .collect();
+        actual.sort_unstable();
+        // Rejection is the contract here. Selecting the TS2741 missing-property
+        // head for a remapped alias remains an independent reporter gap; this
+        // worker currently reports TS2322 at the same assignment instead.
+        assert_eq!(actual.iter().filter(|row| row.0 == 35).count(), 1, "exact={exact}");
+        actual.retain(|row| row.0 != 35);
+        let mut expected = vec![
+            (12, 12, 2344),
+            (13, 11, 2344),
+            (14, 12, 2344),
+            (15, 15, 2344),
+            (39, 10, 2344),
+            (46, 21, 2322),
+        ];
+        if !exact {
+            expected.extend([(37, 15, 2322), (45, 11, 2322)]);
+            expected.sort_unstable();
+        }
+        assert_eq!(actual, expected, "exact={exact}");
+    }
+}
