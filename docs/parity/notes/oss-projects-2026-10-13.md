@@ -1,4 +1,79 @@
-# Three OSS project checks: memory blockers fixed, diagnostic parity remains open
+# Three OSS project checks: complete checking, diagnostic parity still fails
+
+## Final bounded main batch completes all scopes without reaching parity
+
+Measured compiler source:
+[`5640550`](https://github.com/codemod/tsr/commit/5640550d74d6f9ad819b064cdd3aba49658564c2).
+The native oracle remains
+[`5b1047d`](https://github.com/microsoft/typescript-go/commit/5b1047d10d32e7d5b446be4de56b126ff42f82bb).
+The [final integrated receipt](oss-projects-2026-10-13-integrated.json)
+preserves all 30 numeric samples, full diagnostics once per tool/project,
+binary/source/input hashes, checked-file owners, setup patches, validation
+results and the reasons broader candidates remain withheld. Earlier tables
+below are historical measurements, not the delivered compiler's timings.
+
+These are pinned open-source projects with frozen dependencies. Zod is the
+small project; Effect and Excalidraw are the medium projects. Effect checks its
+core production package, not every package in its monorepo. Counts exclude
+dependencies and generated untracked output, but include tracked tests,
+declarations, comments and blank lines.
+
+| Project | Repository / scoped tracked TS lines | TSR median wall (range), s | tsgo median wall (range), s | Median peak RSS TSR / tsgo, MiB | Observed wall ratio | TSR / tsgo diagnostics |
+|---|---:|---:|---:|---:|---:|---:|
+| Zod | 64,024 / 61,826 | 2.902 (2.687–2.990) | 2.738 (2.664–3.066) | 1,348.3 / 852.2 | 1.060 | 1,081 / 46 |
+| Effect core | 362,695 / 164,428 | 2.758 (2.712–2.952) | 3.922 (3.826–3.987) | 564.0 / 1,254.1 | 0.703 | 1,229 / 0 |
+| Excalidraw | 217,821 / 215,080 | 7.047 (6.765–7.202) | 3.477 (3.287–3.778) | 854.2 / 1,080.7 | 2.027 | 1,975 / 0 |
+
+Five fresh-process samples and one warmup per tool/project, sequentially outside
+builds and tests, alternating tool order, default workers and a warm filesystem.
+The release binary includes `work-trace`; untimed traces verify checked scope.
+Timed checks use the same `--project <config> --noEmit --incremental false
+--composite false --pretty false` flags and absolute bundled-lib path.
+Resources come from each compiler child's `wait4`, not the benchmark reader.
+
+All checks complete and all samples have stable diagnostics. Both tools load
+943 / 661 / 1,502 files and check the same 400 / 360 / 655 file-owner pairs for
+Zod / Effect / Excalidraw. Observed input bytes remain unchanged and serialized
+options match. The reused config/package/lockfile inventory is partial, not a
+complete resolver-query capture; matching scope and options do not establish
+matching checker semantics.
+
+**Parity fails on every project.** Zod shares 19 exact diagnostic occurrences,
+with 1,062 TSR-only and 27 native-only occurrences; neither medium scope has
+native diagnostics. The root Zod scope intentionally includes tests, benchmarks
+and resolution diagnostics, so its 46 native errors do not mean its library
+build is broken. Exact multiline comparison does not classify every unshared
+occurrence as a separate semantic defect. Excalidraw is about twice as slow in
+raw wall time; Zod uses more memory than native. No equivalent-work speedup or
+<=0.50 target is verified: `verified_wall_ratio` is null.
+
+Compared with the original complete-check receipt, this batch removes 2 / 82 /
+2 file/span/code heads and adds none. Three remaining diagnostic descriptions
+change (one Effect, two Excalidraw), which are retained in the receipt rather
+than described as byte-identical output. Counts improve from 1,083 / 1,311 /
+1,977 to 1,081 / 1,229 / 1,975, but the remaining mismatches keep
+`tsr-2zk.1268` open and block equivalent-work performance acceptance.
+
+The full 557,344 type rows gain 45 RIGHT answers with zero previously RIGHT
+losses or missing rows: 554,723 RIGHT, 374 GAP, 2,247 WRONG. The 12,238
+diagnostic cases gain three RIGHT answers with zero RIGHT/EMPTY_RIGHT losses
+or missing rows. `cargo test -p tsr-checker -p tsr-compiler -p tsr-conformance
+--lib --tests --no-fail-fast --locked` reports **2,823 passed, one failed,
+14 ignored**. The sole failure is the independently reproduced unchanged
+JSDoc nested-typedef mapper regression, `tsr-fr2`; the full test gate is not
+green. Formatting and workspace/all-target Clippy with `-D warnings` pass.
+
+Only the bounded computed-symbol/context, tuple-modifier/required-key and
+completed-Absent async-return changes are included in this batch. Unsupported
+context lookup still declines; completed absence now permits async return
+inference, preserving genuine wrong-return and implicit-any diagnostics.
+Broader alias/JSX, contextual-constructor, recursive-key, assertion-flow,
+primitive-constraint, equality and recursive-getter candidates stay withheld.
+Some improve reduced fixtures or diagnostic totals but introduce new full-OSS
+false positives. In particular, the scratch Zod getter+assertion composition's
+474 → 478 count hides 91 added and 87 removed file/span/code heads; it is not a
+no-regression result. Worker-reported scratch compositions and newer field-write
+fixes are not part of this measured source or a full-project acceptance claim.
 
 ## Post-fix checks complete, but there is no verified native speedup
 
