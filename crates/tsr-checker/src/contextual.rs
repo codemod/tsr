@@ -321,15 +321,13 @@ impl<'a> Checker<'a, '_> {
         }
         let parameters = self.contextualisable_parameters(function)?;
 
-        // `slices.Index(fn.Parameters(), parameter)` (`checker.go:29489`). A
-        // `this` parameter would make this index disagree with the signature's,
-        // which is exactly what upstream's `GetThisParameter` subtraction on the
-        // same line repairs; here it is a gap instead, so the two indices are
-        // the same index or there is no answer.
-        let index = parameters.iter().position(|p| p.node_id == Some(parameter))?;
-        if parameters.iter().any(|p| is_this_parameter(p)) {
-            return None;
-        }
+        // getContextuallyTypedParameterType (pinned 5b1047d, checker.go:29489):
+        // syntax includes a leading `this`, but signature positions do not.
+        // The receiver itself has no ordinary slot; its separate contextual
+        // this lookup owns that type. Keep the syntax index for defaults/rest.
+        let parameter_index = parameters.iter().position(|p| p.node_id == Some(parameter))?;
+        let index = parameter_index
+            .checked_sub(usize::from(parameters.first().is_some_and(|p| is_this_parameter(p))))?;
         // §86.1: the function's OWN trailing rest no longer bails the whole
         // list — `(a, b, ...rest)` under `(...args: [number, boolean,
         // ...string[]]) => void` types `a: number` positionally and `rest:
@@ -339,7 +337,7 @@ impl<'a> Checker<'a, '_> {
             Some(position) if position + 1 != parameters.len() => return None,
             _ => {}
         }
-        let asking_for_rest = own_rest == Some(index);
+        let asking_for_rest = own_rest == Some(parameter_index);
 
         // Contextually checked parameter types survive later inference reads
         // (assignContextualParameterTypes, checker.go). Pattern parameters have
@@ -373,7 +371,7 @@ impl<'a> Checker<'a, '_> {
         // contextual type is assignable to the widened initializer type.
         if widen_from_initializer
             && !asking_for_rest
-            && let Some(initializer) = parameters[index].initializer
+            && let Some(initializer) = parameters[parameter_index].initializer
         {
             use crate::relater::{Relation, Ternary};
             // getTypeOfParameter includes undefined for optional/defaulted
@@ -477,34 +475,48 @@ impl<'a> Checker<'a, '_> {
     /// contextual signatures be treated as one?
     ///
     /// Upstream's version is a full relation walk with a `Ternary` result and an
-    /// `IgnoreThisTypes`/`IgnoreReturnTypes` flag set. This is the conservative
-    /// core: same kind, same shape, and every corresponding type **the same
-    /// interned `TypeId`**. Structural-but-not-identical types therefore answer
-    /// `false` here where upstream may answer `true`, which costs a contextual
-    /// type and never invents one.
+    /// `IgnoreThisTypes`/`IgnoreReturnTypes` flag set. Compare input types with
+    /// the existing identity worker, not interned IDs or mutual assignability:
+    /// separately declared equal object types supply the same callback context.
+    /// An unsupported identity comparison must not publish computed absence.
+    /// No new cache: the Checker-local type pair uses identity.rs's existing
+    /// member/alias/receiver queries and recursive assumption boundary. This
+    /// work runs only for distinct input IDs in a contextual signature union
+    /// (also the certified JSX fallback); unmeasured work attribution is tracked
+    /// in tsr-2zk.1268.7.1 before extending reuse. No performance claim is made.
     ///
     /// Generic signatures decline outright: upstream relates them under a
     /// unification of their type parameters, and comparing them by `TypeId`
     /// would compare two *different* parameter symbols and wrongly say "not
     /// identical" — or, worse, wrongly say identical if they happen to intern
     /// together. A decline is the honest answer for a test this cannot make.
-    fn signatures_identical(&mut self, left: &Signature, right: &Signature) -> bool {
+    fn signatures_identical(
+        &mut self,
+        left: &Signature,
+        right: &Signature,
+    ) -> crate::relater::Ternary {
+        use crate::relater::Ternary;
         if left.kind != right.kind
             || !left.type_parameters.is_empty()
             || !right.type_parameters.is_empty()
             || left.parameters.len() != right.parameters.len()
         {
-            return false;
+            return Ternary::NotRelated;
         }
+        let mut result = Ternary::Related;
         for (a, b) in left.parameters.iter().zip(&right.parameters) {
-            if !(self.parameter_type(a) == self.parameter_type(b)
-                && a.optional == b.optional
-                && a.rest == b.rest)
-            {
-                return false;
+            if a.optional != b.optional || a.rest != b.rest {
+                return Ternary::NotRelated;
+            }
+            let a = self.parameter_type(a);
+            let b = self.parameter_type(b);
+            match self.is_type_identical_to(a, b) {
+                Ternary::NotRelated => return Ternary::NotRelated,
+                Ternary::Unknown => result = Ternary::Unknown,
+                Ternary::Related => {}
             }
         }
-        true
+        result
     }
 
     pub(crate) fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
@@ -1016,8 +1028,12 @@ impl<'a> Checker<'a, '_> {
                 if let Some(existing) = &found {
                     // getContextualSignature compares parameters while ignoring
                     // this and return types, then unions the return types.
-                    if !self.signatures_identical(existing, &signature) {
-                        return Some(ContextualSignature::Absent);
+                    match self.signatures_identical(existing, &signature) {
+                        crate::relater::Ternary::NotRelated => {
+                            return Some(ContextualSignature::Absent);
+                        }
+                        crate::relater::Ternary::Unknown => return None,
+                        crate::relater::Ternary::Related => {}
                     }
                     let return_type = self.get_union_type(&[existing.r#type, signature.r#type]);
                     let existing = found.as_mut().expect("a contextual signature");
@@ -1063,7 +1079,8 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 if let Some(previous) = &found
-                    && !self.signatures_identical(previous, &signature)
+                    && self.signatures_identical(previous, &signature)
+                        != crate::relater::Ternary::Related
                 {
                     return None;
                 }
@@ -2085,6 +2102,11 @@ impl<'a> Checker<'a, '_> {
             self.contextual_type_for_binding_element(holder)?
         } else if let Some(annotation) = self.type_annotation_of(holder) {
             self.get_type_from_type_node(annotation)
+        } else if self.nodes.kind(holder) == tsr_ast::SyntaxKind::Parameter {
+            // getContextualTypeForVariableLikeDeclaration's parameter arm:
+            // a binding default receives its holder's contextual parameter
+            // type, without widening through the default being checked.
+            self.contextually_typed_parameter_type(holder, false)?
         } else {
             // `getContextualTypeForVariableLikeDeclaration(parent) || parent
             // .initializer && checkDeclarationInitializer(parent)`

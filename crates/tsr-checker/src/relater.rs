@@ -3622,6 +3622,17 @@ impl Relater<'_, '_, '_> {
         if self.checker.type_of(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return false;
         }
+        // Pinned 5b1047d: structuredTypeRelatedToWorker/propertiesRelatedTo
+        // compare the SkipContextSensitive anyFunctionType's empty own table.
+        // Only get_any_function_type owns this Checker-local sentinel and
+        // publishes its completed empty properties/signatures before the ID.
+        // This is not an arbitrary symbol-less Named type or active image.
+        // Keep native's subtype optional-property requirements (overload
+        // selection) and signature wildcard; use the existing relation worker,
+        // cache/publication and receiver/alias context without a new member image.
+        if self.checker.any_function_type == Some(id) {
+            return true;
+        }
         // A bounded open homomorphic map can supply a complete member table
         // independently of its declaration owner. Closed maps keep their
         // existing structural path; nominal roots need a separate proof.
