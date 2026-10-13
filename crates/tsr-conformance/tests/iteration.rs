@@ -612,3 +612,69 @@ export const read = optional[1];
         );
     }
 }
+
+/// OSS iterator errors caused by inference or narrowing must be fixed at the
+/// operand's owner. In particular, `any[]` is not a tuple, and `never` is not
+/// `Iterable<never>`; silencing their errors would admit invalid programs.
+#[test]
+fn tuple_spreads_and_iteration_keep_valid_and_invalid_contracts_distinct() {
+    let source = r"declare function pair(n: number, label?: string): void;
+interface Methods { pair(n: number, label?: string): void; }
+declare const methods: Methods;
+methods.pair = (...args) => pair(...args);
+declare const tuple: readonly [number, string?];
+pair(...tuple);
+declare const wrong: [string, number];
+pair(...wrong);
+declare const array: number[];
+pair(...array);
+declare function rest(...values: number[]): void;
+rest(...array);
+declare const invalid: { count: number };
+for (const x of invalid) {}
+declare const nothing: never;
+for (const x of nothing) {}
+declare const empty: Iterable<never>;
+for (const x of empty) {}
+declare const sync: Iterable<string>;
+declare const async: AsyncIterable<number>;
+async function consume() {
+    for (const x of sync) {}
+    for await (const x of async) {}
+    for await (const x of sync) {}
+    for (const x of async) {}
+    for await (const x of invalid) {}
+    for await (const x of nothing) {}
+    for await (const x of empty) {}
+}
+declare const anyArray: any[];
+pair(...anyArray);
+";
+    let case = TestCase::parse(
+        "probe/oss_spread_iteration_controls",
+        "iteration.ts",
+        &format!("// @strict: true\n// @target: esnext\n{source}"),
+    );
+    let diagnostics = tsr_conformance::diagnostics_suite::reported_for(&case);
+    assert!(diagnostics.iter().all(|diagnostic| diagnostic.file == "iteration.ts"));
+    let mut actual: Vec<_> = diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    actual.sort_unstable();
+    // Pinned native 5b1047d: exact multiset, including the invalid tuple's
+    // element relation, not merely an absence of false iterator diagnostics.
+    assert_eq!(
+        actual,
+        [
+            (8, 6, 2345),
+            (10, 6, 2556),
+            (14, 17, 2488),
+            (16, 17, 2488),
+            (25, 21, 2488),
+            (26, 27, 2504),
+            (27, 27, 2504),
+            (31, 6, 2556),
+        ]
+    );
+}
