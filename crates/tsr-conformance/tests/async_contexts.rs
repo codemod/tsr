@@ -68,3 +68,26 @@ export const nullableResult=nullable((value:{count:number})=>{});
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// Pinned native 5b1047d infers async bodies when a written union's incompatible
+/// inputs give a completed absent contextual signature. Wrong async returns
+/// and genuinely untyped parameters remain errors.
+#[test]
+fn completed_absent_context_does_not_erase_async_callback_returns() {
+    let source = r#"// @strict: true
+// @target: es2020
+type Ambiguous = ((value: number) => Promise<boolean>) | ((value: string) => Promise<boolean>);
+const valid: Ambiguous = async () => false;
+const validBlock: Ambiguous = async () => { return false; };
+const invalid: Ambiguous = async () => { return 123; };
+const emptyInvalid: Ambiguous = async () => {};
+const blockInvalid: Ambiguous = async () => { return "wrong"; };
+const untyped = async value => value;
+"#;
+    let case = TestCase::parse("probe/async-completed-absence", "probe.ts", source);
+    let actual: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .iter()
+        .map(|d| (d.line, d.column, d.code))
+        .collect();
+    assert_eq!(actual, [(4, 7, 2322), (5, 7, 2322), (6, 7, 2322), (7, 23, 7006)]);
+}

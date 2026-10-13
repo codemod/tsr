@@ -3696,8 +3696,13 @@ impl<'a> Checker<'a, '_> {
         // (checker.go:20179). If neither the absence of context nor a concrete
         // contextual signature can be established, keep the body unanswered.
         if is_async {
+            // getReturnTypeFromBody (pinned 5b1047d) still infers a Promise
+            // when getContextualSignature completes with nil. Only an
+            // unsupported lookup declines; Absent is not an active/gap
+            // signature. Use the existing Checker-owned publication and
+            // receiver/alias context, without adding a cache or walk.
             if !self.declaration_takes_no_contextual_return(declaration, may_return_never)
-                && self.contextual_signature(declaration).is_none()
+                && self.contextual_signature_result(declaration).is_none()
             {
                 return None;
             }
