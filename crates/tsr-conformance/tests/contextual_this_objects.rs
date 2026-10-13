@@ -358,6 +358,55 @@ class Unannotated { run(this, implicit = this) { const inner = this; return inne
 }
 
 #[test]
+fn leading_this_does_not_consume_an_ordinary_contextual_parameter() {
+    // Native contextualThisAbsenceTsr11s: receiver presence is independent
+    // of ordinary arity. The ordinary types stay distinct without an own
+    // `this`; diagnostic indexing must also work with one. Optional parameters
+    // beyond either contextual list still report TS7006. Ordinary type
+    // inference with an own `this` remains a separate contextual.rs decline.
+    let source = r"// @strict: true
+let contextual: (this: { count: number }, first: number, second: string) => number;
+contextual = function(this, first, second) {
+    const assigned = this;
+    const firstSlot = first;
+    const secondSlot = second;
+    return assigned.count + first;
+};
+let noReceiver: (value: string) => string;
+noReceiver = function(this, value) {
+    const missingReceiver = this;
+    const ordinarySlot = value;
+    return value;
+};
+let zero: () => void;
+zero = function(this) { const zeroReceiver = this; };
+let ordinary: (first: number, second: string) => void;
+ordinary = function(first, second) { const ordinaryFirst = first; const ordinarySecond = second; };
+let withThis: (this: { count: number }, first: number, second: string) => void;
+withThis = function(this, first, second, extra?) {};
+let withoutThis: (first: number, second: string) => void;
+withoutThis = function(first, second, extra?) {};
+let rest: (this: { count: number }, first: number, ...tail: string[]) => void;
+rest = function(this, first, ...tail) { const restFirst = first; const restTail = tail; };
+";
+    expect(
+        source,
+        &[
+            "assigned : { count: number; }",
+            "missingReceiver : any",
+            "zeroReceiver : any",
+            "ordinaryFirst : number",
+            "ordinarySecond : string",
+        ],
+    );
+    let case = TestCase::parse("probe/contextual-this-indexing", "this.ts", source);
+    let reported = tsr_conformance::diagnostics_suite::reported_for(&case);
+    let positions: Vec<_> =
+        reported.iter().map(|error| (error.line, error.column, error.code)).collect();
+    assert_eq!(positions, [(19, 42, 7006), (21, 39, 7006)]);
+}
+
+#[test]
 fn jsdoc_this_precedes_assignment_context_and_obeys_native_hosts() {
     expect(
         r#"// @allowJs: true

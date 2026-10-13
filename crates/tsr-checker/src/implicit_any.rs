@@ -478,8 +478,9 @@ impl Checker<'_, '_> {
 
     /// Does `getTypeForVariableLikeDeclaration` (`checker.go:16652`) answer nil
     /// for this unannotated, initializer-less parameter of a context-sensitive
-    /// function — i.e. does `getContextuallyTypedParameterType`
-    /// (`checker.go:29458`) answer nil?
+    /// function — i.e. does its contextual parameter type answer nil?
+    /// Ordinary parameters use `getContextuallyTypedParameterType`
+    /// (`checker.go:29458`); `this` has a separate receiver slot.
     ///
     /// Upstream's nil has three sources, and each is asked here of the data
     /// upstream reads, never of the syntax around the function:
@@ -490,8 +491,9 @@ impl Checker<'_, '_> {
     /// 2. it is nil because the contextual type has **no usable signature**
     ///    (none, or a union whose members' signatures differ) —
     ///    [`ContextualSignature::Absent`];
-    /// 3. the signature is present but **too short**: `tryGetTypeAtPosition`
-    ///    answers nil past the last parameter when there is no rest.
+    /// 3. the signature is present but has **no receiver slot**, or is **too
+    ///    short**: `tryGetTypeAtPosition` answers nil past the last ordinary
+    ///    parameter when there is no rest.
     ///
     /// A port answer of "unknown" (the contextual machinery returns its outer
     /// `None`) is not upstream's nil and reports nothing. That decline is a
@@ -615,8 +617,16 @@ impl Checker<'_, '_> {
             }
             None => return false,
         };
-        // `slices.Index(fn.Parameters(), parameter)`, less one for a `this`
-        // parameter (`checker.go:29489`).
+        // Native 5b1047d1 getTypeForVariableLikeDeclaration routes `this`
+        // through getContextualThisParameterType, not the positional query
+        // (checker.go:16734). assignContextualParameterTypes likewise keeps
+        // the receiver in its own slot (checker.go:10359).
+        if self.is_this_parameter_node(parameter) {
+            return signature.this_parameter.is_none();
+        }
+        // Ordinary parameters use `slices.Index(fn.Parameters(), parameter)`,
+        // less one for a leading `this` (checker.go:29489). The receiver above
+        // never occupies position zero in the signature's ordinary list.
         let parameters = self.implicit_any_candidates(function);
         let Some(mut index) = parameters.iter().position(|&each| each == parameter) else {
             return false;
