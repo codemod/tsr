@@ -152,6 +152,51 @@ checks string/number outer arguments and asymmetric `infer`-captured properties
 through assignments. The pinned native reports exactly four TS2322 diagnostics.
 All 230 checker unit tests, including signature foreign-frame controls, pass.
 
+### 1.0.1 Recursive receiver literals do not capture their methods' parameters
+
+The first lexical-key correction let Zod finish, but Excalidraw still exceeded
+a 6 GiB memory cap. A retained-state probe found private stores growing past
+1.88 million and 2.09 million type identities. Their display text occupied only
+82 MB and 91 MB, with the largest string below 59 kB: this was fresh semantic
+image growth, not the earlier giant-string failure. Allocation backtraces
+repeated `instantiate_signature_with_fresh_parameters`,
+`instantiate_signature_type` and `instantiate_type_literal` through Excalidraw's
+`ParsedDataTranferList` receiver and its generic clipboard methods.
+
+The receiver's non-generic literal owns no method-local `T`. Native
+`getObjectTypeInstantiation` returns the declared literal when its outer
+parameter list is empty. TSR instead substituted every carried method signature,
+freshened its parameters, substituted the receiver again, and repeated under a
+new mapper key. A completed union-narrowing-cache experiment recorded 1,406 hits
+and 2,674 worker calls before another 6 GiB failure; it was removed.
+
+`instantiate_type_literal` now returns the existing identity only when the
+existing `type_literal_types` table certifies the **declared, empty-binding,
+non-template image**, and every mapper source has a registered declaration
+outside the literal's lexical scope. Function-owned literals retain the old
+path: contextual signature parameters can be captured without a lexical
+parameter declaration. Instantiated images and captured alias images still
+compose their mappers; unregistered sources, including polymorphic `this`,
+retain the old path. Signature-demand refusal remains intact.
+
+This uses the same pinned operation and private owner as §1.0. It adds no table,
+active entry or completed fallback. `type_literal_origins` is published after
+object completion, so the admission cannot certify an unfinished literal. The
+original receiver, written alias and origin remain unchanged. The expensive
+boundary is signature freshening/member reconstruction, avoided before cloning
+the member image. Detailed worker executions and copy-byte attribution remain
+open under `tsr-1yb.11`; the allocating path and retained identities are recorded
+in `tsr-we2.2`.
+
+The 21-line native-supported reduction with an array intersection, two generic
+methods, recursive explicit receivers and positive/negative assignments exceeds
+4 GiB before this correction. Afterward it completes in 0.05 seconds and reports
+exactly the native TS2322 and TS2345 controls. The public conformance regression
+`this_argument::nongeneric_recursive_receivers_do_not_capture_method_parameters`
+checks inferred result types using the bundled libraries. Existing generic
+composition, lazy return-demand and captured-object controls remain green.
+Full-project results and limitations are in the [OSS follow-up](oss-projects-2026-10-13.md).
+
 ### 1.1 r5-mapped6's conditional-typed-print diff, re-measured (sent to r6-mapped)
 
 [`r5-mapped6-conditional-typed-print.diff`](r5-mapped6-conditional-typed-print.diff)

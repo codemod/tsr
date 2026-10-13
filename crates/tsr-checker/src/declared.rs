@@ -2335,26 +2335,32 @@ impl<'a> Checker<'a, '_> {
         // Signature keys also certify pending-return demand context; preserve
         // their foreign-frame refusal contract rather than widening it here.
         if matches!(self.nodes.kind(node), SyntaxKind::TypeLiteral | SyntaxKind::MappedType) {
-            bindings.retain(|&(symbol, _)| {
-                self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-                    let Some(mut owner) = self.nodes.parent(declaration) else { return false };
-                    if self.nodes.kind(owner) == SyntaxKind::InferType {
-                        let Some(conditional) = self.nodes.ancestors(owner).find(|&ancestor| {
-                            self.nodes.kind(ancestor) == SyntaxKind::ConditionalType
-                        }) else {
-                            return false;
-                        };
-                        owner = conditional;
-                    }
-                    owner != node && self.is_node_descendant_of_declared(node, owner)
-                })
-            });
+            bindings.retain(|&(symbol, _)| self.is_outer_type_parameter(symbol, node));
         }
         if !bindings.is_empty() && self.instantiation_keys_on_referenced_parameters(node) {
             bindings
                 .retain(|&(symbol, _)| self.is_type_parameter_possibly_referenced(symbol, node));
         }
         TypeLiteralKey { node, bindings, mapped_template: self.mapped_template_depth > 0 }
+    }
+
+    /// getOuterTypeParameters: a declaration captures parameters owned by its
+    /// lexical ancestors, including a conditional's `infer` parameters.
+    fn is_outer_type_parameter(&self, symbol: SymbolId, node: NodeId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let Some(mut owner) = self.nodes.parent(declaration) else { return false };
+            if self.nodes.kind(owner) == SyntaxKind::InferType {
+                let Some(conditional) = self
+                    .nodes
+                    .ancestors(owner)
+                    .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::ConditionalType)
+                else {
+                    return false;
+                };
+                owner = conditional;
+            }
+            owner != node && self.is_node_descendant_of_declared(node, owner)
+        })
     }
 
     /// Whether getObjectTypeInstantiation (checker.go:22332-22343) narrows
@@ -2733,6 +2739,31 @@ impl<'a> Checker<'a, '_> {
         names: &[&str],
     ) -> Option<TypeId> {
         let origin = *self.type_literal_origins.get(&id)?;
+        // getObjectTypeInstantiation returns the declared literal when the
+        // mapper binds none of its lexical outer parameters. A method-local
+        // parameter reached through a recursive `this` member is not captured
+        // by the receiver literal; cloning it would generate fresh recursive
+        // signature maps indefinitely. Only the declared, empty-binding image
+        // qualifies: an instantiated image can capture another declaration's
+        // parameter through its previous mapper and must still compose maps.
+        // Unregistered sources retain the old path, including polymorphic `this`.
+        // Function-owned literals can capture contextual signature parameters
+        // that have no lexical parameter declaration; retain that demand path.
+        let declared =
+            TypeLiteralKey { node: origin, bindings: Vec::new(), mapped_template: false };
+        if self.type_literal_types.get(&declared) == Some(&id)
+            && !self
+                .nodes
+                .ancestors(origin)
+                .any(|owner| self.is_function_like_or_static_block(owner))
+            && map.iter().all(|&(source, _)| {
+                self.type_parameter_symbols
+                    .get(&source)
+                    .is_some_and(|&symbol| !self.is_outer_type_parameter(symbol, origin))
+            })
+        {
+            return Some(id);
+        }
         let mut properties = self.anonymous_properties.get(&id).map(|(p, _)| p.clone());
         let original_signatures = self.signature_types.get(&id).cloned();
         if properties.is_none() && original_signatures.is_none() {
