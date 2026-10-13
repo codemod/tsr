@@ -149,3 +149,34 @@ export const staticCall = Methods[key](true);
         ],
     );
 }
+
+#[test]
+fn computed_context_keeps_unique_symbol_values_without_enumerating_sibling_types() {
+    let source = r#"// @strict: true
+// @target: es2022
+declare const TypeId: unique symbol;
+type TypeId = typeof TypeId;
+interface Brand {
+  readonly [TypeId]: TypeId;
+  readonly omitted: string;
+  self(): this;
+}
+const proto: Omit<Brand, "omitted"> = {
+  [TypeId]: TypeId,
+  self() { return this as Brand; }
+};
+const value: TypeId = proto[TypeId];
+declare const widened: symbol;
+const invalid: Omit<Brand, "omitted"> = {
+  [TypeId]: widened,
+  self() { return this as Brand; }
+};
+"#;
+    let case = TestCase::parse("probe/contextual-computed-symbol", "probe.ts", source);
+    let mut errors: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    errors.sort_unstable();
+    assert_eq!(errors, [(15, 3, 2418)]);
+}

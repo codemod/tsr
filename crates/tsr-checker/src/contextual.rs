@@ -2740,21 +2740,11 @@ impl<'a> Checker<'a, '_> {
         // Generic mapped targets substitute the property key before concrete
         // lookup; other contexts retain the concrete/union lookup order.
         // A unique-symbol key's member is named `__@name@id` natively
-        // (`getPropertyNameFromType`), the symbol name the lookup uses. The
-        // port spells a literal's late-bound member `[A]`, while a resolved
-        // mapped type over unique-symbol keys lists the escaped name, so the
-        // lookup takes the escaped name where only that one is listed.
-        let name = match name_type.and_then(|key| self.unique_symbol_property_name(key)) {
-            Some(escaped)
-                if self.get_property_of_type(contextual, &name).is_none()
-                    && self
-                        .get_property_names_of_type(contextual)
-                        .is_some_and(|names| names.contains(&escaped)) =>
-            {
-                escaped
-            }
-            _ => name,
-        };
+        // (`getPropertyNameFromType`). Ask that declaration-owned key directly:
+        // an unrelated sibling's unsupported type must not prevent contextual
+        // typing of a known member. Existing member lookup owns resolution;
+        // no whole-target enumeration or completion is required here.
+        let name = name_type.and_then(|key| self.unique_symbol_property_name(key)).unwrap_or(name);
         let mapped = match name_type {
             Some(key) => self.generic_mapped_contextual_property_type_of_key(contextual, key),
             None => self.generic_mapped_contextual_property_type(contextual, &name),
