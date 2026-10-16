@@ -613,7 +613,8 @@ impl Checker<'_, '_> {
             Some(ContextualSignature::Present(signature)) => signature,
             Some(ContextualSignature::Absent) => {
                 return !self.within_generic_call_argument(function)
-                    || self.contextual_signatures_all_too_short(function);
+                    || self.contextual_signatures_all_too_short(function)
+                    || self.unfixed_parameter_context_has_no_signature(function);
             }
             None => return false,
         };
@@ -641,6 +642,45 @@ impl Checker<'_, '_> {
             Some(Node::ParameterDeclaration(declaration)) if declaration.dot_dot_dot_token.is_some()
         );
         !own_rest && self.signature_type_at_position(&signature, index).is_none()
+    }
+
+    /// Native assignNonContextualParameterTypes (5b1047d1, checker.go:10187)
+    /// records absence before a returned callback becomes its own inferred
+    /// context. An original, unconstrained inference parameter has no callable
+    /// constraint. Apparent unknown alone cannot prove this: a deferred
+    /// conditional, unsupported constraint or incomplete fixing mapper can
+    /// produce the same apparent type. Keep those generic declines unchanged.
+    /// The existing assignment-time record owns publication; this adds no memo
+    /// and never fixes inference or schedules a body.
+    fn unfixed_parameter_context_has_no_signature(&mut self, function: NodeId) -> bool {
+        if self.contextual_prefers_uninstantiated || !self.type_literal_key(function).is_unmapped()
+        {
+            return false;
+        }
+        let Some(call) = self.live_inference_context(function) else { return false };
+        let Some(contextual) = self.get_contextual_type(function) else { return false };
+        let Some(context) = self.active_inference_contexts.get(&call) else { return false };
+        if self.live_inference_has_candidates_or_default(function)
+            || !context.return_inferences.is_empty()
+            || context.outer_return_map.is_some()
+            || !context.intra_expression_sites.is_empty()
+            || context.inferences.iter().any(|info| info.is_fixed || info.fixed_type.is_some())
+            || !context.signature.type_parameters.iter().any(|parameter| {
+                parameter.resolved_type == Some(contextual)
+                    && parameter.written_constraint.is_none()
+                    && parameter.constraint.is_none()
+                    && parameter.default.is_none()
+            })
+        {
+            return false;
+        }
+        matches!(
+            self.get_resolved_type_parameter_default(contextual),
+            crate::declared::TypeParameterDefaultState::Resolved(None)
+        ) && matches!(
+            self.constraint_of_type(contextual),
+            crate::constraints::ConstraintOfType::Nil
+        )
     }
 
     /// Is `function`'s contextual type, as instantiated now, a single type

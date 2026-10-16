@@ -136,3 +136,123 @@ function generic(g: Derived<number>) { g.value = 42; g.value = true; }
         }
     }
 }
+
+#[test]
+fn bare_parameter_setters_keep_their_declaration_and_receiver_domains_separate() {
+    // Expected diagnostics are pinned tsgo 5b1047d on this source. Bare W
+    // differs from the getter R; each ordered receiver/base map must apply
+    // before writes are checked, without changing reads or compound writes.
+    let source = r#"interface Access<R, W> { get value(): R; set value(v: W); }
+declare const numbers: Access<string, number>;
+declare const strings: Access<number, string>;
+numbers.value = 42;
+numbers.value = true;
+numbers["value"] = 42;
+strings.value = "ok";
+strings.value = 42;
+const readString: string = numbers.value;
+const readNumber: number = strings.value;
+const wrongRead: number = numbers.value;
+numbers.value += "suffix";
+strings.value += 1;
+function generic<T>(a: Access<number, T>, value: T) {
+    a.value = value;
+    a.value = 42;
+}
+class Base<R, W> { get value(): R { return null as any; } set value(v: W) {} }
+class Flip<X, Y> extends Base<Y, X> {}
+class Derived<X, Y> extends Flip<X, Y> {}
+declare const derived: Derived<number, boolean>;
+derived.value = 42;
+derived.value = "bad";
+const derivedRead: boolean = derived.value;
+interface Child<T> extends Access<string, T> {}
+declare const child: Child<boolean>;
+child.value = false;
+child.value = 42;
+interface Other<T> { get value(): number; set value(v: T); }
+function distinct(u: Access<string, boolean> | Other<string>) {
+    u.value = true;
+    u.value = "ok";
+    u.value = 42;
+}
+function inheritedUnion(u: Child<boolean> | Other<string>) {
+    u.value = true;
+    u.value = "ok";
+    u.value = 42;
+}
+interface Getter<T> { get value(): T; }
+declare const readonly: Getter<string>;
+readonly.value = "bad";
+function sameRoot(s: Access<string, boolean> | Access<number, string>) {
+    s.value = true;
+    s.value = "ok";
+    s.value = 42;
+}
+function merged(m: Access<string, boolean> | Access<string, number>) {
+    m.value = true;
+    m.value = 42;
+    m.value = "bad";
+}
+function intersection(i: Access<string, number> & { tag: boolean }) {
+    i.value = 42;
+    i.value = true;
+}
+"#;
+    let mut case = TestCase::parse("probe/bare-parameter-setters", "accessors.ts", source);
+    case.options.insert("target".into(), "es2015".into());
+    case.options.insert("strict".into(), "true".into());
+    let reported: Vec<_> = diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    assert_eq!(
+        reported,
+        [
+            (5, 1, 2322),
+            (8, 1, 2322),
+            (11, 7, 2322),
+            (12, 1, 2322),
+            (13, 1, 2322),
+            (16, 5, 2322),
+            (23, 1, 2322),
+            (28, 1, 2322),
+            (33, 5, 2322),
+            (38, 5, 2322),
+            (42, 10, 2540),
+            (46, 5, 2322),
+            (49, 5, 2322),
+            (51, 5, 2322),
+            (55, 5, 2322),
+        ]
+    );
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let assertions = types_producer::assertions_for_case(&case, &expected, false);
+    let lines: Vec<_> = assertions.iter().flatten().map(types_producer::Assertion::line).collect();
+    let prefixes = [
+        ("numbers.value : ", vec!["number", "number", "string", "string", "string"]),
+        ("strings.value : ", vec!["string", "string", "number", "number"]),
+        ("a.value : ", vec!["T", "T"]),
+        ("derived.value : ", vec!["number", "number", "boolean"]),
+        ("child.value : ", vec!["boolean", "boolean"]),
+        ("u.value : ", vec!["string | boolean"; 6]),
+        ("s.value : ", vec!["string | boolean"; 3]),
+        ("m.value : ", vec!["number"; 3]),
+        ("i.value : ", vec!["number"; 2]),
+    ];
+    for (prefix, expected) in &prefixes {
+        let actual: Vec<_> = lines.iter().filter_map(|line| line.strip_prefix(prefix)).collect();
+        assert_eq!(actual, *expected, "{prefix}");
+    }
+    for query in lines.windows(3) {
+        if let Some(expected) =
+            prefixes.iter().find_map(|(prefix, _)| query[0].strip_prefix(prefix))
+        {
+            assert_eq!(query[2], format!("value : {expected}"));
+        }
+    }
+}

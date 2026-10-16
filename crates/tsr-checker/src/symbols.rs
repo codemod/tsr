@@ -323,17 +323,11 @@ impl<'a> Checker<'a, '_> {
         if written == self.intrinsics.error {
             return None;
         }
-        // A setter annotated with a TYPE PARAMETER must not take this road: the
-        // read path instantiates the member for the receiver's arguments and
-        // this returns the uninstantiated parameter, so `set y(v: U)` in
-        // `class C<T, U>` came out as the bare `U` where the instantiated read
-        // was already right (`instancePropertyInClassType`,
-        // `privateNamesAndGenericClasses-2` — two PASSING cases, measured).
-        // The divergent-accessor population this arm is for is annotated with
-        // concrete types.
-        if self.store.get(written).flags.intersects(crate::flags::TypeFlags::TYPE_PARAMETER) {
-            return None;
-        }
+        // getWriteTypeOfAccessors (5b1047d checker.go:18566) answers in the
+        // declaration's type-parameter domain, including a bare T. Callers
+        // must apply getWriteTypeOfInstantiatedSymbol's receiver mapper; using
+        // the getter to avoid an unmapped T loses divergent setter contracts.
+        // No receiver-specific answer is published on the declaration symbol.
         Some(written)
     }
 

@@ -126,3 +126,54 @@ export function recursiveReturned() { return ordinary(() => () => recursiveRetur
     // Native reports only the inner returned callback, not its outer factory.
     assert_eq!(anonymous_cycles, [(3, 61)]);
 }
+
+#[test]
+fn returned_callbacks_report_original_absence_before_inferred_self_context() {
+    let source = r"// @strict: true
+declare function ordinary<T>(factory: () => T): T;
+declare function state<S>(initial: (() => S) | (S extends (() => any) ? never : S)): S;
+export const ordinaryUntyped = ordinary(() => value => value);
+export const conditionalUntyped = state(() => value => value);
+export const standaloneUntyped = value => value;
+export const explicit = ordinary<(value: boolean) => boolean>(() => value => value);
+declare function constrained<T extends (value: number) => number>(factory: () => T): T;
+export const constrainedResult = constrained(() => value => value);
+declare function defaulted<T = (value: string) => string>(factory: () => T): T;
+export const defaultedResult = defaulted(() => value => value);
+declare function seeded<T>(seed: T, factory: () => T): T;
+export const seededResult = seeded((value: number) => value, () => value => value);
+export const returnContext: (value: Date) => Date = ordinary(() => value => value);
+declare function seededLater<T>(factory: () => T, seed: T): T;
+export const laterResult = seededLater(() => value => value, (value: string) => value);
+";
+    let case = TestCase::parse("probe/returned-untyped", "returned-untyped.ts", source);
+    // Diagnostics must be correct without type printing forcing signatures.
+    let diagnostics: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+        .collect();
+    assert_eq!(diagnostics, [(3, 47, 7006), (4, 47, 7006), (5, 34, 7006)]);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in [
+        "ordinaryUntyped : (value: any) => any",
+        "conditionalUntyped : (value: any) => any",
+        "standaloneUntyped : (value: any) => any",
+        "explicit : (value: boolean) => boolean",
+        "constrainedResult : (value: number) => number",
+        "defaultedResult : (value: string) => string",
+        "seededResult : (value: number) => number",
+        "returnContext : (value: Date) => Date",
+        "laterResult : (value: string) => string",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}

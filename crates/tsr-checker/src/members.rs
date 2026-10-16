@@ -40,7 +40,7 @@ enum Owner {
 /// # No synthetic symbol
 ///
 /// Upstream answers `singleProp` itself when every constituent holds the same
-/// property (or instantiations of it, which share one [`SymbolId`] here),
+/// property (or instantiations with identical read types),
 /// and otherwise mints a transient synthetic symbol carrying the combined
 /// `CheckFlags`, type and write type. This port mints no synthetic symbols
 /// (`get_property_of_type` answers a binder [`SymbolId`]), so for a minted
@@ -54,6 +54,9 @@ enum Owner {
 struct UnionOrIntersectionProperty {
     /// `singleProp`.
     single: SymbolId,
+    /// Receiver of `singleProp`'s instantiated symbol (including when native
+    /// merges equivalent instantiations instead of combining their types).
+    single_receiver: TypeId,
     /// What upstream's minted symbol records, when it mints one.
     synthetic: Option<SyntheticProperty>,
 }
@@ -1849,7 +1852,7 @@ impl Checker<'_, '_> {
         // instantiation goes through §226's `base_type_of_heritage_entry`
         // plus the reference road's own member typing instead. Cycles are
         // guarded by the walk's visited set.
-        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
+        if let Some(member) = self.generic_heritage_member(id, name, false, &mut Vec::new()) {
             return Some(member);
         }
         if let Some(member) = self.expression_heritage_member(id, name, this_argument) {
@@ -2044,11 +2047,16 @@ impl Checker<'_, '_> {
     }
 
     /// Resolve inherited members through each instantiated base, guarded by
-    /// symbol identity against cyclic heritage.
+    /// symbol identity against cyclic heritage. Write-only accessor queries
+    /// select the declaration's setter type before the same base and enclosing
+    /// receiver substitutions used by reads (5b1047d's
+    /// getWriteTypeOfInstantiatedSymbol). No separate member image or mapper
+    /// cache is published; the existing instantiation worker owns completion.
     fn generic_heritage_member(
         &mut self,
         id: TypeId,
         name: &str,
+        write_only: bool,
         visiting: &mut Vec<SymbolId>,
     ) -> Option<TypeId> {
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
@@ -2117,7 +2125,11 @@ impl Checker<'_, '_> {
                     // set holds across levels — a fresh set would spin on
                     // mutually-generic bases.
                     if let Some(property) = self.get_property_of_type(base_type, name) {
-                        let declared = self.get_type_of_symbol(property);
+                        let declared = if write_only {
+                            self.write_type_of_accessors(property)?
+                        } else {
+                            self.get_type_of_symbol(property)
+                        };
                         let instantiated = self.instantiate_for_reference(base_type, declared);
                         if instantiated != self.intrinsics.error {
                             // §923: the SECOND substitution. The step above maps
@@ -2143,7 +2155,9 @@ impl Checker<'_, '_> {
                             return Some(instantiated);
                         }
                     }
-                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
+                    if let Some(member) =
+                        self.generic_heritage_member(base_type, name, write_only, visiting)
+                    {
                         // Resolve inherited members under every enclosing
                         // reference mapper, including indirect generic bases.
                         let member = self.instantiate_for_reference(id, member);
@@ -2623,7 +2637,13 @@ impl Checker<'_, '_> {
     ///
     /// No cache: upstream's `propertyCache` memoizes the minted symbol; this
     /// port mints none (see [`UnionOrIntersectionProperty`]), so the work is
-    /// one lookup per constituent, each the members subsystem's own.
+    /// one lookup per constituent, each the members subsystem's own, including
+    /// its generic-heritage metadata walk. Raw inherited symbols only identify
+    /// declarations here; value queries retain the constituent receiver and
+    /// use the existing member instantiation worker. Same-root instantiations
+    /// compare completed read types, as native compareProperties does; an
+    /// absent or private-gap answer is not equivalence (ADR-0048). Native's
+    /// errorType remains comparable. No provisional member is published.
     fn get_property_of_union_or_intersection_type(
         &mut self,
         id: TypeId,
@@ -2653,11 +2673,25 @@ impl Checker<'_, '_> {
             if self.is_error(t) || self.store.get(t).flags.contains(TypeFlags::NEVER) {
                 continue;
             }
-            if let Some(property) =
-                self.get_property_of_type_ex(t, name, skip_object_function_augment)
+            if let Some(property) = self
+                .get_property_of_type_ex(t, name, skip_object_function_augment)
+                .or_else(|| self.generic_heritage_property_symbol(t, name, &mut Vec::new()))
             {
                 single.get_or_insert(property);
-                if !properties.iter().any(|&(known, _)| known == property) {
+                let equivalent = properties.iter().any(|&(known, receiver)| {
+                    if known != property {
+                        return false;
+                    }
+                    if receiver == t {
+                        return true;
+                    }
+                    let previous = self.get_type_of_property_of_type(receiver, name);
+                    let current = self.get_type_of_property_of_type(t, name);
+                    previous.is_some()
+                        && previous != Some(self.intrinsics.error)
+                        && previous == current
+                });
+                if !equivalent {
                     properties.push((property, t));
                 }
                 if is_union {
@@ -2699,6 +2733,7 @@ impl Checker<'_, '_> {
         }
         Some(UnionOrIntersectionProperty {
             single,
+            single_receiver: properties[0].1,
             synthetic: (distinct || partial).then_some(SyntheticProperty {
                 containing_type: id,
                 is_union,
@@ -2757,18 +2792,19 @@ impl Checker<'_, '_> {
         receiver: TypeId,
         name: &str,
     ) -> Option<TypeId> {
-        if let Some(composite) = self.composite_property_of_type(receiver, name, false)
-            && let Some(synthetic) = composite.synthetic
-        {
+        if let Some(composite) = self.composite_property_of_type(receiver, name, false) {
+            let Some(synthetic) = composite.synthetic else {
+                return self.write_type_of_property_of_type(composite.single_receiver, name);
+            };
             let mut divergent = false;
             let mut write_types = Vec::with_capacity(synthetic.properties.len());
-            for (property, constituent) in synthetic.properties {
-                if let Some(written) = self.write_type_of_accessors(property) {
+            for (_, constituent) in synthetic.properties {
+                if let Some(written) = self.write_type_of_property_of_type(constituent, name) {
                     divergent = true;
                     // getWriteTypeOfInstantiatedSymbol (5b1047d): each
-                    // constituent retains its ordered receiver mapper before
-                    // the synthetic property combines the write types.
-                    write_types.push(self.instantiate_for_reference(constituent, written));
+                    // constituent resolves through its own base/receiver
+                    // mappers before the synthetic property combines writes.
+                    write_types.push(written);
                 } else {
                     write_types.push(self.get_type_of_property_with_this_argument(
                         constituent,
@@ -2787,7 +2823,13 @@ impl Checker<'_, '_> {
                 self.get_intersection_type(&write_types, None)
             });
         }
-        let property = self.get_property_of_type(receiver, name)?;
+        let Some(property) = self.get_property_of_type(receiver, name) else {
+            // A generic base's declaration symbol alone cannot substitute
+            // its own and the derived receiver's ordered arguments. Reuse
+            // the inherited member worker rather than mapping that raw symbol
+            // directly under the derived receiver.
+            return self.generic_heritage_member(receiver, name, true, &mut Vec::new());
+        };
         let written = self.write_type_of_accessors(property)?;
         // getWriteTypeOfInstantiatedSymbol (5b1047d): setter values use the
         // same ordered reference mapper as reads. Existing instantiation owns
