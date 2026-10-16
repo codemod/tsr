@@ -2349,6 +2349,23 @@ impl<'a> Checker<'a, '_> {
     fn is_outer_type_parameter(&self, symbol: SymbolId, node: NodeId) -> bool {
         self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
             let Some(mut owner) = self.nodes.parent(declaration) else { return false };
+            // Pinned 5b1047d reparents gathered JSDoc templates under the
+            // alias. Our binder keeps that alias's locals on the comment,
+            // so sibling property annotations share this lexical owner.
+            // Preserve the existing parameter identities and instance keys.
+            if self.nodes.kind(owner) == SyntaxKind::JSDocTemplateTag
+                && let Some(doc_id) = self.nodes.parent(owner)
+                && let Some(Node::JSDoc(doc)) = self.node_map.get(doc_id)
+                && doc.tags.iter().any(|tag| {
+                    matches!(
+                        tag,
+                        tsr_ast::JSDocTag::JSDocTypedefTag(_)
+                            | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                    )
+                })
+            {
+                owner = doc_id;
+            }
             if self.nodes.kind(owner) == SyntaxKind::InferType {
                 let Some(conditional) = self
                     .nodes
