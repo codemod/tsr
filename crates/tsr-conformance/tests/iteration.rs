@@ -22,6 +22,101 @@ fn expect(lines: &[String], wanted: &[&str]) {
 }
 
 #[test]
+fn iteration_protocol_reports_belong_to_the_first_completed_demand() {
+    let source = r"// @strict: true
+// @target: esnext
+interface Source { [Symbol.iterator](): { next(): { done: false; tag: number } }; }
+declare const source: Source;
+export const first = [...source];
+export const second = [...source];
+export function* delegated() { yield* source; }
+for (const value of source) {}
+for (const value of source) {}
+const [element] = source;
+const alias = source;
+export const fromAlias = [...alias];
+interface Other { [Symbol.iterator](): { next(): { done: false; tag: number } }; }
+declare const other: Other;
+export const distinct = [...other];
+export const distinctAgain = [...other];
+declare const missing: {};
+export const missingFirst = [...missing];
+export const missingSecond = [...missing];
+export function* missingDelegated() { yield* missing; }
+interface Sent { [Symbol.iterator](): { next(value: 13): { done: false; value: number } }; }
+declare const sent: Sent;
+export const sentFirst = [...sent];
+export const sentSecond = [...sent];
+for (const value of sent) {}
+for (const value of sent) {}
+interface Dual {
+    [Symbol.iterator](): { next(): { done: false; tag: number } };
+    [Symbol.asyncIterator](): { next(): { done: false; tag: string } };
+}
+declare const dual: Dual;
+export const dualSync = [...dual];
+async function consume() {
+    for await (const value of dual) {}
+    for await (const value of dual) {}
+}
+export async function* dualAsync() { yield* dual; }
+export async function* dualAsyncAgain() { yield* dual; }
+interface Quiet { [Symbol.iterator](): { next(): { done: false; tag: boolean } }; }
+declare const quiet: Quiet;
+export const context: () => Quiet = function* () { yield 29; };
+export const afterQuiet = [...quiet];
+export const afterQuietAgain = [...quiet];
+interface FirstDelegated { [Symbol.iterator](): { next(): { done: false; tag: bigint } }; }
+declare const firstDelegated: FirstDelegated;
+export function* firstDemand() { yield* firstDelegated; }
+export const afterDelegated = [...firstDelegated];
+interface Left { [Symbol.iterator](): { next(): { done: false; left: number } }; }
+interface Right { [Symbol.iterator](): { next(): { done: false; right: number } }; }
+declare const left: Left;
+declare const right: Right;
+declare const joined: Left | Right;
+export const unionRead = [...joined];
+export const leftRead = [...left];
+export const rightRead = [...right];
+export const unionAgain = [...joined];
+";
+    // Native 5b1047d: protocol errors are first-demand effects, but sent-type
+    // checks and completed no-iteration failures still report at every use.
+    // A union's silent constituent work does not publish constituent entries.
+    // Another Program/Checker must start with no cache entries.
+    for _ in 0..2 {
+        let case = TestCase::parse("probe/iteration_report_ownership", "iteration.ts", source);
+        let mut actual: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+            .into_iter()
+            .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+            .collect();
+        actual.sort_unstable();
+        assert_eq!(
+            actual,
+            [
+                (3, 26, 2490),
+                (6, 21, 2490),
+                (13, 29, 2490),
+                (16, 33, 2488),
+                (17, 34, 2488),
+                (18, 46, 2488),
+                (21, 30, 2764),
+                (22, 31, 2764),
+                (23, 21, 2763),
+                (24, 21, 2763),
+                (30, 29, 2490),
+                (32, 31, 2547),
+                (35, 45, 2547),
+                (39, 14, 2322),
+                (44, 41, 2490),
+                (52, 29, 2490),
+                (53, 30, 2490),
+            ]
+        );
+    }
+}
+
+#[test]
 fn generator_unit_slots_widen_symbols_but_preserve_context_and_nonunit_unions() {
     // Native 5b1047d1 declaration output: unit yield/return slots widen unique
     // symbols, but a multi-member aggregate retains the distinct identities.

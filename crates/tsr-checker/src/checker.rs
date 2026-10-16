@@ -457,6 +457,11 @@ pub struct Checker<'a, 'n> {
     pub(crate) context_checked_arguments: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// Active synchronous iterable resolution, guarding recursive protocols.
     pub(crate) resolving_iteration_types: rustc_hash::FxHashSet<TypeId>,
+    /// Native 5b1047d `iterationTypesCache`: completed slots (including NONE),
+    /// keyed by this Checker's reduced `TypeId` and masked iteration-use flags.
+    /// Private to this store/options/Program borrow; active or unsupported
+    /// work publishes nothing. `iteration.rs` owns lookup and publication.
+    pub(crate) iteration_types_cache: FxHashMap<(TypeId, u32), crate::iteration::IterationTypes>,
     /// `getResolvedMembersOrExportsOfSymbol` / `lateBindMember`: semantic names,
     /// with an empty entry installed while resolving to break recursive keys.
     /// `getTypeWithThisArgument` images (`checker.go:19573`): a class or
@@ -1591,6 +1596,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
             context_checked_arguments: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
+            iteration_types_cache: FxHashMap::default(),
             this_argument_references: FxHashMap::default(),
             reference_this_arguments: FxHashMap::default(),
             declarations_mentioning_this: FxHashMap::default(),

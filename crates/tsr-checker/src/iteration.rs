@@ -8,15 +8,20 @@
 //! is never evidence that the type is not iterable: only a completed
 //! `Ok(IterationTypes::NONE)` reports `reportTypeNotIterableError`.
 //!
-//! Work boundary: upstream caches by `(type id, use & IterationUseCacheFlags)`
-//! in `iterationTypesCache`. This port does not cache yet; the engine runs at
-//! check sites (one query per for-of head, binding pattern, destructuring
-//! target and spread) whose types are already cached by `check_expression`.
-//! The only mutable state is the private Checker's existing
-//! `resolving_iteration_types` active set, keyed by the queried `TypeId`, which
-//! breaks recursive `[Symbol.iterator]` protocols (an iterator method whose
-//! return inference iterates its own receiver). Re-entry answers
-//! `Err(Unsupported)` and removing the key publishes nothing.
+//! Native 5b1047d `getIterationTypesOfIterable` (6265–6285) owns a completed
+//! cache by `(reduced TypeId, use & IterationUseCacheFlags)`. This private
+//! Checker's store/options/Program borrow owns the same identities and lifetime;
+//! files share it only on that Checker, never across workers or stores. The
+//! receiver/mapper/alias images keep their existing `TypeIds`, not printed or
+//! structural keys. The first completed slot demand owns protocol reports,
+//! including a silent demand.
+//! A reporting query bypasses a cached NONE without replacing that entry.
+//! Active/unsupported work publishes nothing: the existing TypeId-keyed
+//! `resolving_iteration_types` set still breaks recursive protocols. There is
+//! no provisional cache value and no replay/deduplication of diagnostics.
+//! Work boundary: a completed hit skips the iterable worker and its existing
+//! member/signature traversal, copying only three optional `TypeIds`. This is a
+//! report-ownership correction, not a measured performance improvement.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_binder::SymbolFlags;
@@ -57,6 +62,9 @@ bitflags::bitflags! {
             | Self::YIELD_STAR_FLAG.bits();
         const GENERATOR_RETURN_TYPE = Self::ALLOWS_SYNC_ITERABLES.bits();
         const ASYNC_GENERATOR_RETURN_TYPE = Self::ALLOWS_ASYNC_ITERABLES.bits();
+        const CACHE_FLAGS = Self::ALLOWS_SYNC_ITERABLES.bits()
+            | Self::ALLOWS_ASYNC_ITERABLES.bits()
+            | Self::FOR_OF_FLAG.bits();
     }
 }
 
@@ -191,8 +199,8 @@ impl Resolver {
 }
 
 impl Checker<'_, '_> {
-    /// `getIterationTypesOfIterable` (`checker.go:6265`) without its cache
-    /// and with a nil error node; [`Checker::check_iterated_type_or_element_type`]
+    /// `getIterationTypesOfIterable` (`checker.go:6265`) with a nil error
+    /// node; [`Checker::check_iterated_type_or_element_type`]
     /// asks the error-node form.
     pub(crate) fn get_iteration_types_of_iterable(
         &mut self,
@@ -207,10 +215,8 @@ impl Checker<'_, '_> {
     /// TS2767/TS2768, TS2490/TS2547) and the awaited-type TS1320 of an async
     /// resolver are reported on `error_node`. Not-iterable itself
     /// (`reportTypeNotIterableError`) stays with the caller, which sees the
-    /// same empty answer. Without upstream's cache a reporting query is
-    /// never short-circuited by an earlier non-reporting one; the check
-    /// sites that pass a node are normally the ones native reaches first
-    /// (`docs/parity/notes/r5-iteration.md` §2).
+    /// same empty answer. A completed cached slot answer skips protocol
+    /// reporting, whereas NONE is retried for every reporting use.
     fn get_iteration_types_of_iterable_ex(
         &mut self,
         ty: TypeId,
@@ -224,7 +230,20 @@ impl Checker<'_, '_> {
         if self.is_type_any(ty) {
             return Ok(IterationTypes::all(self.intrinsics.any));
         }
-        self.get_iteration_types_of_iterable_worker(ty, use_, error_node)
+        let key = (ty, (use_ & IterationUse::CACHE_FLAGS).bits());
+        let no_cache = if let Some(&cached) = self.iteration_types_cache.get(&key) {
+            if error_node.is_none() || cached.has_types() {
+                return Ok(cached);
+            }
+            true
+        } else {
+            false
+        };
+        let result = self.get_iteration_types_of_iterable_worker(ty, use_, error_node)?;
+        if !no_cache {
+            self.iteration_types_cache.insert(key, result);
+        }
+        Ok(result)
     }
 
     /// `getReducedType` (`checker.go:21819`) as `getIterationTypesOfIterable`
