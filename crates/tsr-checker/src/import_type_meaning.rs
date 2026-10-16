@@ -119,8 +119,8 @@ impl<'a> Checker<'a, '_> {
             let module = self.binder.symbol_of(file)?;
             let exported = self.resolve_external_module_symbol(module);
             (exported != module
-                && self.binder.merged_symbol(self.resolve_alias_fully(exported)) == symbol)
-                .then_some(module)
+                && self.same_reference_identity(exported) == self.same_reference_identity(symbol))
+            .then_some(module)
         })?;
         let enclosing = self.nodes.parent(reference).unwrap_or(reference);
         if self.best_name(symbol, enclosing).is_some() {

@@ -4580,17 +4580,40 @@ impl Checker<'_, '_> {
                 self.is_context_sensitive_argument(argument)
                     || matches!(argument, Expression::ObjectLiteralExpression(_))
             });
+            // Request the existing full-signature worker for a returned
+            // callable, but publish only after inference proves its checked
+            // original still owns Pending return work. This does not schedule
+            // callback bodies or admit other ordinary inferred arguments.
+            let returned_callable = node
+                .arguments
+                .iter()
+                .copied()
+                .any(|argument| self.argument_returns_callable(argument));
             let answer = self.check_generic_call_with(
                 &signature,
                 node.node_id,
                 node.arguments,
-                contextual.then_some(&mut instantiated),
+                (contextual || returned_callable).then_some(&mut instantiated),
             );
+            let pending_return = returned_callable
+                && node
+                    .arguments
+                    .iter()
+                    .copied()
+                    .any(|argument| self.argument_has_pending_returned_callable(argument));
             if answer != error
                 && let Some(call_id) = node.node_id
                 && let Some(concrete) = instantiated
+                && (contextual || pending_return)
             {
                 self.resolved_call_signatures.insert(call_id, concrete);
+            }
+            if answer != error && pending_return {
+                // The checked callable's first return demand follows full
+                // context publication. Unsupported full instantiation keeps
+                // its ordinary context fallback, not an uncomputed body.
+                // Do not leave diagnostics to type printing.
+                self.complete_pending_signature_returns_of_type(answer);
             }
             if counters::counting() {
                 bump(&COUNTERS.single_candidate_generic);

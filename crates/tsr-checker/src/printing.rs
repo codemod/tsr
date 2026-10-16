@@ -133,7 +133,7 @@ impl Checker<'_, '_> {
             let module = self.binder.symbol_of(file)?;
             let exported = self.resolve_external_module_symbol(module);
             (exported != module
-                && self.binder.merged_symbol(self.resolve_alias_fully(exported)) == symbol)
+                && self.same_reference_identity(exported) == self.same_reference_identity(symbol))
                 .then_some(module)
         })?;
         let enclosing = self.nodes.parent(reference).unwrap_or(reference);
@@ -257,6 +257,37 @@ impl Checker<'_, '_> {
         reference: tsr_ast::NodeId,
         visit_identity: bool,
     ) -> Option<String> {
+        // Pinned 5b1047d: getContextualThisParameterType obtains the literal's
+        // own object before getTypeOfAccessors reads its return; serialization
+        // then reads that object's actual slots. A cold literal-self receiver
+        // retains the same binder owner, not a completed value image. Once
+        // return/variable resolution has finished, ask the canonical literal
+        // worker for its cached/published image and use the ordinary renderer.
+        // Never collect an image during active returns, or publish a second
+        // member table on the temporary receiver (tsr-2zk.1270.2.1).
+        if let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data
+            && let [literal] = self.binder.symbols().get(owner).declarations.as_slice()
+            && self.literal_this_types.get(literal) == Some(&id)
+        {
+            let literal = *literal;
+            if self.enclosing_variable_resolving(literal)
+                || self.object_literal_member_return_is_resolving(literal)
+            {
+                return None;
+            }
+            if !self.rendering_composites.insert(id) {
+                return Some(self.elided_information_placeholder());
+            }
+            let own = self.check_expression_at_node(literal);
+            let printed = if own == id || self.is_gap(own) {
+                None
+            } else {
+                let own = self.widen_object_literal_freshness(own);
+                self.type_to_string_at(own, reference)
+            };
+            self.rendering_composites.remove(&id);
+            return printed;
+        }
         self.certified_object_literal_text_at(id, reference, visit_identity)
             .or_else(|| self.deferred_member_text_at(id, reference))
             .or_else(|| self.spread_object_text_at(id, reference))

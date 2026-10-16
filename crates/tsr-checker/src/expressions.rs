@@ -1646,8 +1646,11 @@ impl Checker<'_, '_> {
                     return self.intrinsics.any;
                 }
                 // §142 (parked state rebuilt for the looseThis probe):
-                // literal-self this, methods only, all four gates.
+                // Literal-self this keeps the same binder owner for methods
+                // and accessors, including while a getter's return resolves.
                 SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
                     if self.nodes.parent(id).is_some_and(|parent| {
                         self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
                             && self.no_implicit_this

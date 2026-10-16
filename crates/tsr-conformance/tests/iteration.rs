@@ -22,6 +22,182 @@ fn expect(lines: &[String], wanted: &[&str]) {
 }
 
 #[test]
+fn generator_unit_slots_widen_symbols_but_preserve_context_and_nonunit_unions() {
+    // Native 5b1047d1 declaration output: unit yield/return slots widen unique
+    // symbols, but a multi-member aggregate retains the distinct identities.
+    // The asymmetric sync/async slots also catch swapped yield/return context.
+    let lines = assertions(
+        r#"// @strict: true
+// @target: esnext
+export declare const first: unique symbol;
+export declare const second: unique symbol;
+export function* syncYield() { yield first; return "finished"; }
+export function* syncReturn() { yield 23; return second; }
+export async function* asyncYield() { yield Promise.resolve(second); return true; }
+export async function* asyncReturn() { yield "async"; return Promise.resolve(first); }
+export function* unionYield() { yield first; yield second; return 37; }
+export function* unionReturn(flag: boolean) { yield false; if (flag) return first; return second; }
+export function* regularLiterals() { yield "steady" as const; return 7 as const; }
+export function* literalUnion() { yield 1; yield 2; return "done"; }
+export function* nextUnique() { const resumed: typeof first = yield "next"; return 99; }
+export async function* nextAsyncUnique() { const resumed: typeof second = yield true; return "ready"; }
+export const contextualSync: () => Generator<typeof first, typeof second, boolean> = function* () { const resumed: boolean = yield first; return second; };
+export const contextualAsync: () => AsyncGenerator<typeof second, typeof first, string> = async function* () { const resumed: string = yield second; return first; };
+export const contextualLiteral: () => Generator<"kept", 91, boolean> = function* () { const resumed: boolean = yield "kept"; return 91; };
+export const contextualNext: () => Generator<number, string, typeof first> = function* () { const resumed: typeof first = yield 31; return "resumed"; };
+export const contextualAsyncNext: () => AsyncGenerator<string, boolean, typeof second> = async function* () { const resumed: typeof second = yield "await"; return false; };
+"#,
+    );
+    expect(
+        &lines,
+        &[
+            "syncYield : () => Generator<symbol, string, unknown>",
+            "syncReturn : () => Generator<number, symbol, unknown>",
+            "asyncYield : () => AsyncGenerator<symbol, boolean, unknown>",
+            "asyncReturn : () => AsyncGenerator<string, symbol, unknown>",
+            // Type baselines allow unique-symbol syntax; declaration emit
+            // spells the same distinct identities `typeof first | typeof second`.
+            "unionYield : () => Generator<unique symbol | unique symbol, number, unknown>",
+            "unionReturn : (flag: boolean) => Generator<boolean, unique symbol | unique symbol, unknown>",
+            "regularLiterals : () => Generator<\"steady\", 7, unknown>",
+            "literalUnion : () => Generator<1 | 2, string, unknown>",
+            "nextUnique : () => Generator<string, number, symbol>",
+            "nextAsyncUnique : () => AsyncGenerator<boolean, string, symbol>",
+            "function* () { const resumed: boolean = yield first; return second; } : () => Generator<unique symbol, unique symbol, boolean>",
+            "async function* () { const resumed: string = yield second; return first; } : () => AsyncGenerator<unique symbol, unique symbol, string>",
+            "function* () { const resumed: boolean = yield \"kept\"; return 91; } : () => Generator<\"kept\", 91, boolean>",
+            "function* () { const resumed: typeof first = yield 31; return \"resumed\"; } : () => Generator<number, string, unique symbol>",
+            "async function* () { const resumed: typeof second = yield \"await\"; return false; } : () => AsyncGenerator<string, false, unique symbol>",
+        ],
+    );
+}
+
+#[test]
+fn completed_iteration_names_preserve_inherited_computed_members_and_absence() {
+    let lines = assertions(
+        r"// @strict: true
+// @target: esnext
+declare const marker: unique symbol;
+interface Extra { readonly [marker]: number; }
+interface Completed<T> extends Extra { next(): { done: false; value: T }; }
+interface Cleanup<T> extends Extra { next(): { done: false; value: T }; return(): { done: false; value: 29 }; }
+declare const completed: { [Symbol.iterator](): Completed<13> };
+declare const cleanup: { [Symbol.iterator](): Cleanup<13> };
+export function* completedDelegate() { yield* completed; }
+export function* cleanupDelegate() { yield* cleanup; }
+export function* openDelegate<T extends { done: false }>(source: { [Symbol.iterator](): { next(): T } }) { yield* source; }
+",
+    );
+    expect(
+        &lines,
+        &[
+            "completedDelegate : () => Generator<13, void, unknown>",
+            "cleanupDelegate : () => Generator<13 | 29, void, unknown>",
+            // An open generic protocol is still unsupported, not a completed
+            // absence that could publish any as a successful slot answer.
+            "openDelegate : error",
+        ],
+    );
+    let aliases = TestCase::parse(
+        "probe/iteration_alias_absence",
+        "aliases.ts",
+        r"// @strict: true
+// @target: es2015
+interface Props<T, K> { selector?: (obj: T) => K; }
+type Result<T, K> = [K, T];
+interface Person { name: string; }
+declare function select<K = Person>(props?: Props<Person, K>): Result<Person, K>;
+const [first] = select();
+const tuple = select();
+const [again] = tuple;
+",
+    );
+    let diagnostics = tsr_conformance::diagnostics_suite::reported_for(&aliases);
+    assert!(diagnostics.is_empty(), "tuple alias is not a certified non-iterable: {diagnostics:?}");
+}
+
+#[test]
+fn union_iterator_methods_preserve_optional_mapped_and_inherited_metadata() {
+    let lines = assertions(
+        r"// @strict: true
+// @target: esnext
+declare const marker: unique symbol;
+interface NextBase { next(): IteratorYieldResult<13>; }
+interface NextChild extends NextBase { readonly [marker]: number; }
+type OptionalNext<T> = { [K in keyof T]?: T[K] };
+type RequiredNext<T> = { [K in keyof T]-?: T[K] };
+declare const inherited: { [Symbol.iterator](): NextChild | { next(): IteratorYieldResult<29> } };
+declare const optional: { [Symbol.iterator](): NextChild | { next?: () => IteratorYieldResult<29> } };
+declare const missing: { [Symbol.iterator](): NextChild | { other: boolean } };
+declare const mappedOptional: { [Symbol.iterator](): NextChild | OptionalNext<{ next(): IteratorYieldResult<29> }> };
+declare const mappedRequired: { [Symbol.iterator](): NextChild | RequiredNext<{ next?: () => IteratorYieldResult<29> }> };
+export function* inheritedDelegate() { yield* inherited; }
+export function* optionalDelegate() { yield* optional; }
+export function* missingDelegate() { yield* missing; }
+export function* mappedOptionalDelegate() { yield* mappedOptional; }
+export function* mappedRequiredDelegate() { yield* mappedRequired; }
+",
+    );
+    expect(
+        &lines,
+        &[
+            "inheritedDelegate : () => Generator<13 | 29, void, unknown>",
+            "optionalDelegate : () => Generator<any, void, unknown>",
+            "missingDelegate : () => Generator<any, void, unknown>",
+            "mappedOptionalDelegate : () => Generator<any, void, unknown>",
+            "mappedRequiredDelegate : () => Generator<13 | 29, void, unknown>",
+        ],
+    );
+}
+
+#[test]
+fn iterator_result_common_value_absence_differs_from_unsupported_metadata() {
+    let lines = assertions(
+        r#"// @strict: true
+// @target: esnext
+interface Source<R> { [Symbol.iterator](): { next(): R }; }
+declare const forward: Source<IteratorYieldResult<number> | Promise<IteratorResult<string, string>>>;
+declare const reverse: Source<Promise<IteratorResult<string, string>> | IteratorYieldResult<number>>;
+declare const missing: Source<{ done: false; tag: 13 } | { done: false; tag: 29 }>;
+declare const present: Source<{ done: false; value: string } | { done: false; value: number }>;
+declare const optional: Source<{ done: false; value?: number }>;
+export function* forwardDelegate() { yield* forward; }
+export function* reverseDelegate() { yield* reverse; }
+export function* missingDelegate() { yield* missing; }
+export function* presentDelegate() { yield* present; }
+export function* optionalDelegate() { yield* optional; }
+export function* openDelegate<T extends { done: false }>(source: Source<{ done: false; value: number } | T>) { yield* source; }
+declare const first: unique symbol;
+declare const second: unique symbol;
+type Mixed = (() => Generator<typeof first, string, unknown>) | (() => AsyncGenerator<typeof second, string, unknown>);
+export const mixedSync = (function* () { yield first; return "done"; }) satisfies Mixed;
+export const mixedAsync = (async function* () { yield second; return "done"; }) satisfies Mixed;
+type LiteralMixed = (() => Generator<"kept", string, unknown>) | (() => AsyncGenerator<"kept", string, unknown>);
+export const mixedLiteral = (function* () { yield "kept"; return "done"; }) satisfies LiteralMixed;
+type InvalidMixed = () => number | Generator<typeof first, string, unknown>;
+export const mixedNumber = (function* () { yield first; return "done"; }) satisfies InvalidMixed;
+"#,
+    );
+    expect(
+        &lines,
+        &[
+            "forwardDelegate : () => Generator<any, void, unknown>",
+            "reverseDelegate : () => Generator<any, void, unknown>",
+            "missingDelegate : () => Generator<any, void, unknown>",
+            "presentDelegate : () => Generator<string | number, void, unknown>",
+            "optionalDelegate : () => Generator<number | undefined, void, unknown>",
+            "openDelegate : error",
+            // Native's raw mixed context widens sync slots, unlike a filtered
+            // return-expression context. Async still retains its unique slot.
+            "mixedSync : () => Generator<symbol, string, unknown>",
+            "mixedAsync : () => AsyncGenerator<unique symbol, string, unknown>",
+            "mixedLiteral : () => Generator<string, string, unknown>",
+            "mixedNumber : () => Generator<symbol, string, unknown>",
+        ],
+    );
+}
+
+#[test]
 fn semantic_iteration_uses_inherited_methods_and_yield_arms() {
     let lines = assertions(
         r"// @strict: true

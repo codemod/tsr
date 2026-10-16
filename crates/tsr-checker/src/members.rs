@@ -2582,15 +2582,24 @@ impl Checker<'_, '_> {
     /// `getPropertyOfTypeEx`'s union and intersection arms
     /// (`checker.go:18899`) as [`UnionOrIntersectionProperty`]: an
     /// intersection's property without the Object/Function augment first,
-    /// then with it. A union receiver is not yet routed here (its consumers
-    /// keep their constituent walks), so it answers `None` like any other
-    /// non-composite receiver.
+    /// then with it; a union uses the requested augment policy directly.
+    /// Receiver/name queries reuse the existing constituent worker and its
+    /// declaration/partial checks. No synthetic symbol or completion cache
+    /// is published; reads keep their existing projection, while write queries
+    /// can reach the synthetic property's native union of setter types.
     fn composite_property_of_type(
         &mut self,
         id: TypeId,
         name: &str,
         skip_object_function_augment: bool,
     ) -> Option<UnionOrIntersectionProperty> {
+        if matches!(self.store.get(id).data, TypeData::Union { .. }) {
+            return self.get_property_of_union_or_intersection_type(
+                id,
+                name,
+                skip_object_function_augment,
+            );
+        }
         if !matches!(self.store.get(id).data, TypeData::Intersection { .. }) {
             return None;
         }
@@ -2756,7 +2765,10 @@ impl Checker<'_, '_> {
             for (property, constituent) in synthetic.properties {
                 if let Some(written) = self.write_type_of_accessors(property) {
                     divergent = true;
-                    write_types.push(written);
+                    // getWriteTypeOfInstantiatedSymbol (5b1047d): each
+                    // constituent retains its ordered receiver mapper before
+                    // the synthetic property combines the write types.
+                    write_types.push(self.instantiate_for_reference(constituent, written));
                 } else {
                     write_types.push(self.get_type_of_property_with_this_argument(
                         constituent,

@@ -373,12 +373,7 @@ impl DeclarationEmitResolver<'_, '_, '_> {
 
     /// `getSymbolIfSameReference`'s test.
     fn same_reference(&mut self, a: SymbolId, b: SymbolId) -> bool {
-        let identity = |this: &mut Self, symbol: SymbolId| {
-            let merged = this.checker.binder.merged_symbol(symbol);
-            let resolved = this.checker.resolve_alias_fully(merged);
-            this.checker.binder.merged_symbol(resolved)
-        };
-        identity(self, a) == identity(self, b)
+        self.checker.same_reference_identity(a) == self.checker.same_reference_identity(b)
     }
 
     /// `getFileSymbolIfFileSymbolExportEqualsContainer` (`:260`).

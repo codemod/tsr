@@ -19,6 +19,7 @@
 //! `Err(Unsupported)` and removing the key publishes nothing.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -723,9 +724,34 @@ impl Checker<'_, '_> {
         if self.store.get(ty).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
             return true;
         }
-        match self.declared_property_table(ty) {
-            Some(table) => !table.iter().any(|(member, _)| member == name),
-            None => self.miss_is_established(ty, name),
+        if let Some(table) = self.declared_property_table(ty) {
+            !table.iter().any(|(member, _)| member == name)
+        } else {
+            // Native 5b1047d getIterationTypesOfIterableSlow reads a fully
+            // resolved property table. The cheaper certificates above do
+            // not follow generic bases or computed names. Reuse the
+            // existing Checker-owned completed-name traversal, keyed by
+            // this exact receiver TypeId and semantic property name; its
+            // publication guards keep active/unsupported work as None.
+            // Only a completed list lacking the key proves absence. This
+            // runs only after cheaper checks fail, shares the existing
+            // names memo, and adds no cache or performance claim.
+            // The structured traversal certifies class/interface instance
+            // names, not an alias wrapper's semantic body. In particular,
+            // an alias-rooted tuple can enumerate an empty binder table.
+            let structured = match self.store.get(ty).data {
+                TypeData::Named { members: Some(owner), .. } => {
+                    let flags = self.binder.symbols().get(owner).flags;
+                    flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                        && !flags.contains(SymbolFlags::TYPE_ALIAS)
+                }
+                _ => false,
+            };
+            self.miss_is_established(ty, name)
+                || (structured
+                    && self
+                        .get_property_names_of_type_shared(ty)
+                        .is_some_and(|names| !names.iter().any(|member| member == name)))
         }
     }
 
@@ -862,15 +888,43 @@ impl Checker<'_, '_> {
         reports: Option<&mut ProtocolReports>,
     ) -> Result<IterationTypes, Unsupported> {
         let method = self.get_property_of_type(ty, name);
-        if method.is_none() && !self.iteration_member_decidably_absent(ty, name) {
-            return Err(());
-        }
-        if method.is_none() && name != "next" {
+        let optional = match method {
+            Some(method) => Some(self.property_is_optional(method)),
+            None if self.iteration_member_decidably_absent(ty, name) => None,
+            None => {
+                let TypeData::Union { types, .. } = self.store.get(ty).data.clone() else {
+                    return Err(());
+                };
+                // Native 5b1047d getIterationTypesOfMethod reads the synthetic
+                // union property's optional flag. We mint no stand-in symbol:
+                // require completed constituent names and present symbols,
+                // then OR their receiver-aware optionality. The semantic type
+                // below keeps each constituent's mapper/this argument. This
+                // bounded walk only runs after scalar lookup misses, reuses
+                // the existing names memo, and publishes no new member image.
+                let mut optional = false;
+                let mut absent = false;
+                for part in types {
+                    let apparent = self.apparent_type(part);
+                    self.get_property_names_of_type_shared(apparent).ok_or(())?;
+                    if self.get_property_of_type(apparent, name).is_some() {
+                        optional |=
+                            self.identity_mapped_source_property_is_optional(apparent, name);
+                    } else if self.iteration_member_decidably_absent(apparent, name) {
+                        absent = true;
+                    } else {
+                        return Err(());
+                    }
+                }
+                (!absent).then_some(optional)
+            }
+        };
+        if optional.is_none() && name != "next" {
             return Ok(IterationTypes::NONE);
         }
         let mut method_type = None;
-        if let Some(method) = method
-            && !(name == "next" && self.property_is_optional(method))
+        if let Some(optional) = optional
+            && !(name == "next" && optional)
         {
             let Some(mut found) = self.iteration_property_type(ty, name) else { return Err(()) };
             if self.is_gap(found) {
@@ -1028,9 +1082,12 @@ impl Checker<'_, '_> {
         match self.get_type_of_property_of_type(result, "value") {
             Some(value) if self.is_gap(value) => Err(()),
             Some(value) => Ok(Some(value)),
+            // Native common-property lookup (5b1047d checker.go:6667)
+            // cannot supply value when one selected constituent provably
+            // lacks it. Unknown metadata alone proves no such absence.
             None if matching
                 .iter()
-                .all(|&part| self.iteration_member_decidably_absent(part, "value")) =>
+                .any(|&part| self.iteration_member_decidably_absent(part, "value")) =>
             {
                 Ok(None)
             }

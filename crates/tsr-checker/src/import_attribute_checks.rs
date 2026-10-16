@@ -200,7 +200,7 @@ impl Checker<'_, '_> {
     /// the declaration's parent is a module block whose module declaration is
     /// an external module augmentation (`ast.IsExternalModuleAugmentation`,
     /// `ast/utilities.go:3567`, with `IsModuleAugmentationExternal`, `:1694`).
-    fn is_top_level_in_external_module_augmentation(&self, declaration: NodeId) -> bool {
+    pub(crate) fn is_top_level_in_external_module_augmentation(&self, declaration: NodeId) -> bool {
         let Some(block) = self.nodes.parent(declaration) else { return false };
         if self.nodes.kind(block) != SyntaxKind::ModuleBlock {
             return false;

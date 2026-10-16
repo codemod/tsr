@@ -83,3 +83,65 @@ fn commonjs_module_values_match_every_native_assertion_and_diagnostic() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn commonjs_export_assignment_conflicts_are_checked_after_the_file() {
+    for (source, conflict_line) in [
+        ("const value = { other: 1 };\nmodule.exports = value;\nexports.other = 2;\n", Some(2)),
+        ("const value = { other: 1 };\nexports.other = 2;\nmodule.exports = value;\n", Some(3)),
+        ("const value = { other: 1 };\nmodule.exports = value;\n", None),
+    ] {
+        let mut case = TestCase::parse("probe/commonjs-export-conflict", "control.js", source);
+        for (name, value) in [
+            ("target", "es2022"),
+            ("module", "commonjs"),
+            ("strict", "true"),
+            ("allowjs", "true"),
+            ("checkjs", "true"),
+            ("noemit", "true"),
+        ] {
+            case.options.insert(name.into(), value.into());
+        }
+        let actual: Vec<_> = diagnostics_suite::rendered_for(&case)
+            .into_iter()
+            .map(|((_, line, column, code), message)| (line, column, code, message))
+            .collect();
+        let expected: Vec<_> = conflict_line
+            .map(|line| {
+                (
+                    line,
+                    1,
+                    2309,
+                    "An export assignment cannot be used in a module with other exported elements."
+                        .to_owned(),
+                )
+            })
+            .into_iter()
+            .collect();
+        assert_eq!(actual, expected, "{source}");
+    }
+}
+
+#[test]
+fn commonjs_type_exports_preserve_class_value_naming() {
+    // Native getSymbolIfSameReference preserves an alias's own namespace
+    // meaning. A typedef promoted onto export= must not turn the exported
+    // class into the same reference as that mixed alias for module naming.
+    let case = TestCase::parse(
+        "probe/commonjs-class-type-exports",
+        "control.ts",
+        include_str!(
+            "../../../vendor/typescript-go/_submodules/TypeScript/tests/cases/conformance/jsdoc/declarations/jsDeclarationsTypedefAndLatebound.ts"
+        ),
+    );
+    let expected = types_baseline::parse(include_str!(
+        "../../../vendor/typescript-go/testdata/baselines/reference/submodule/conformance/jsDeclarationsTypedefAndLatebound.types"
+    ));
+    let actual = types_producer::assertions_for_case(&case, &expected, false);
+    assert_eq!(actual.len(), expected.len());
+    for (wanted, got) in expected.iter().zip(actual) {
+        let actual: Vec<_> = got.iter().map(types_producer::Assertion::line).collect();
+        let expected: Vec<_> = wanted.assertions.iter().map(|row| row.text.clone()).collect();
+        assert_eq!(actual, expected, "{}", wanted.file);
+    }
+}

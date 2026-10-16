@@ -815,6 +815,12 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.bind_jsdoc_declarations(root_id, jsdoc);
         }
 
+        if (self.is_module || self.commonjs_module)
+            && let Some(module) = self.node_symbols[root_id.index() - self.node_base]
+        {
+            self.bind_commonjs_type_exports(module);
+        }
+
         self
     }
 
@@ -1544,6 +1550,14 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.bind_children(node, id);
         }
 
+        if let Node::ModuleDeclaration(module) = node
+            && (matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                || module.keyword.kind == SyntaxKind::GlobalKeyword)
+            && let Some(symbol) = declared
+        {
+            self.bind_commonjs_type_exports(symbol);
+        }
+
         self.container = saved_container;
         self.expando_container = saved_expando_container;
         self.block = saved_block;
@@ -1552,6 +1566,33 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.export_context = saved_export_context;
         self.in_ambient_module = saved_in_ambient;
         self.ambient_context = saved_ambient_context;
+    }
+
+    /// Pinned 5b1047d bindCommonJSTypeExports: after binding a module's children,
+    /// its own type/namespace exports also belong to export=. Reuse these exact
+    /// binder-owned symbols without resolving aliases or changing their parent.
+    /// This single own-table pass completes before `BindResult` is shared with
+    /// Checkers; no provisional image or additional cache (tsr-2zk.1270.7.1).
+    fn bind_commonjs_type_exports(&mut self, module: SymbolId) {
+        let exports = &self.symbols.get(module).exports;
+        let Some(&export_equals) = exports.get(INTERNAL_EXPORT_EQUALS) else { return };
+        let types: Vec<_> = exports
+            .iter()
+            .filter_map(|(&name, &symbol)| {
+                (name != INTERNAL_EXPORT_EQUALS
+                    && self
+                        .symbols
+                        .get(symbol)
+                        .flags
+                        .intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE))
+                .then_some((name, symbol))
+            })
+            .collect();
+        let target = self.symbols.get_mut(export_equals);
+        for (name, symbol) in types {
+            target.exports.insert(name, symbol);
+            target.flags |= SymbolFlags::NAMESPACE_MODULE;
+        }
     }
 
     /// Whether this `global { … }` block's exports become globals.

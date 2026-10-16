@@ -376,3 +376,51 @@ export function result() { return { whole, element, input, property }; }
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+#[test]
+fn completed_parameter_conditionals_keep_asymmetric_branches_and_reject_invalid_callbacks() {
+    let source = r#"// @strict: true
+declare function state<S>(initial: (() => S) | (S extends (() => any) ? never : S)): S;
+export const numberFunction = state(() => () => 0);
+export const falseFunction = state(() => () => false);
+export const scalar = state(7);
+export const text = state("no");
+declare function branch<T>(value: T, callback: (result: T extends number ? "numeric" : false) => void): T;
+export const trueBranch = branch(42, result => { const check: "numeric" = result; });
+export const falseBranch = branch("text", result => { const check: false = result; });
+branch(42, result => { const wrong: false = result; });
+branch("text", result => { const wrong: "numeric" = result; });
+state<() => number>(() => () => "no");
+state<string>(12);
+state<number>(() => false);
+declare function overload(factory: () => () => string): string;
+declare function overload(factory: () => () => number): number;
+overload(() => () => false);
+"#;
+    let case = TestCase::parse("probe/parameter-conditional", "parameter-conditional.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in [
+        "numberFunction : () => 0",
+        "falseFunction : () => false",
+        "scalar : 7",
+        "text : \"no\"",
+        "trueBranch : number",
+        "falseBranch : string",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+    let codes: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .iter()
+        .map(|diagnostic| diagnostic.code)
+        .collect();
+    assert_eq!(codes, [2322, 2322, 2322, 2345, 2345, 2769]);
+}

@@ -11323,25 +11323,37 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(info.declaration) else {
             return self.intrinsics.error;
         };
-        // This unit admits direct declared constraints only. Return/default
-        // consumers and mapper-applied deferred node building remain separate
-        // prerequisites; opening them propagates unsupported consumer types.
+        // getConditionalTypeInstantiation (5b1047d1) also maps a signature's
+        // written parameter conditional. Reuse the captured mapper/evaluator
+        // below for completed results only. Return/default consumers and
+        // mapper-applied deferred node building remain separate prerequisites.
         let mut root = info.declaration;
-        let in_constraint = loop {
+        let mut in_union = false;
+        let supported_owner = loop {
             let Some(parent) = self.nodes.parent(root) else { break false };
             match self.node_map.get(parent) {
                 Some(Node::ConditionalTypeNode(_) | Node::ParenthesizedTypeNode(_)) => {
                     root = parent;
                 }
-                Some(Node::TypeParameterDeclaration(parameter)) => {
+                Some(Node::UnionTypeNode(_)) => {
+                    in_union = true;
+                    root = parent;
+                }
+                Some(Node::ParameterDeclaration(parameter)) => {
                     break parameter
-                        .constraint
-                        .is_some_and(|constraint| Node::from(constraint).node_id() == Some(root));
+                        .r#type
+                        .is_some_and(|ty| Node::from(ty).node_id() == Some(root));
+                }
+                Some(Node::TypeParameterDeclaration(parameter)) => {
+                    break !in_union
+                        && parameter.constraint.is_some_and(|constraint| {
+                            Node::from(constraint).node_id() == Some(root)
+                        });
                 }
                 _ => break false,
             }
         };
-        if !in_constraint {
+        if !supported_owner {
             return self.intrinsics.error;
         }
         let mut bindings = info.bindings;

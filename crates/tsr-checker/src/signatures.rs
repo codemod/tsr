@@ -3068,6 +3068,8 @@ impl<'a> Checker<'a, '_> {
             matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
         });
         if asterisk {
+            use crate::iteration::IterationTypeKind;
+
             // A **generator declaration** — `getReturnTypeFromBody`'s generator
             // arm (`checker.go:20151`): yield type = the operand aggregate,
             // `never` when empty (`:20239`); return type = the return
@@ -3617,9 +3619,8 @@ impl<'a> Checker<'a, '_> {
                 {
                     self.intrinsics.any
                 }
-                // One distinct fresh type: `getWidenedType` (`checker.go:20224`)
-                // widens the freshness away — `yield 1` prints `number`.
-                [single] => self.get_widened_literal_type(*single),
+                // Keep freshness until contextual iteration-slot widening.
+                [single] => *single,
                 // Two or more distinct operand types aggregate under
                 // `UnionReductionSubtype` (`checker.go:20159`) — the §9
                 // reduction, wired alone under `checker-notes-assign.md` §12
@@ -3633,8 +3634,9 @@ impl<'a> Checker<'a, '_> {
                     // type — `yield 1; yield;` reduces to `1` and
                     // `getWidenedType` (checker.go:20224) widens the
                     // survivor to `number`. A surviving union is not fresh
-                    // and passes through unchanged.
-                    self.get_widened_literal_type(reduced)
+                    // and passes through unchanged. Widen only after the
+                    // contextual unit-slot operation below.
+                    reduced
                 }
             };
             // §511: `createGeneratorType`'s fallback (`checker.go:20440`) —
@@ -3659,7 +3661,7 @@ impl<'a> Checker<'a, '_> {
             // §135 slice 1's R slot: the return aggregate, `void` when empty.
             let return_slot = match return_types.as_slice() {
                 [] => self.intrinsics.void,
-                [single] => self.get_widened_literal_type(*single),
+                [single] => *single,
                 many => {
                     let candidates = many.to_vec();
                     self.union_with_subtype_reduction(&candidates)?
@@ -3683,9 +3685,56 @@ impl<'a> Checker<'a, '_> {
                 [single] => *single,
                 many => self.get_intersection_type(many, None),
             };
-            return Some(
-                self.create_type_reference(generator, vec![yield_type, return_slot, next_slot]),
-            );
+            // Native 5b1047d1 getReturnTypeFromBody (20190–20225) applies
+            // getWidenedLiteralLikeTypeForContextualIterationTypeIfNeeded
+            // (20423) to UNIT aggregates before getWidenedType. In particular,
+            // a lone unique symbol widens without a matching literal context;
+            // a multi-member union must retain its existing member identities.
+            // Read the existing contextual signature/mapper once, only for
+            // unit slots. The declaration's own signature is not a generator
+            // context. No new cache or provisional slot publication is needed.
+            let mut slots = [yield_type, return_slot, next_slot];
+            if slots.iter().any(|&slot| self.store.get(slot).flags.intersects(TypeFlags::UNIT)) {
+                let contextual = match self.contextual_signature(declaration) {
+                    Some(signature) if signature.declaration != declaration => {
+                        let ty = self.get_return_type_of_signature(&signature)?;
+                        Some(self.instantiate_contextual_type_without_signature(ty, declaration))
+                    }
+                    _ => None,
+                };
+                for (slot, kind) in slots.iter_mut().zip([
+                    IterationTypeKind::Yield,
+                    IterationTypeKind::Return,
+                    IterationTypeKind::Next,
+                ]) {
+                    if self.store.get(*slot).flags.intersects(TypeFlags::UNIT) {
+                        // Unsupported protocol work is not native's computed
+                        // absence of a contextual slot. In particular, do not
+                        // substitute the filtered return-expression context.
+                        let contextual = match contextual {
+                            Some(ty) => self
+                                .get_iteration_type_of_generator_function_return_type(
+                                    kind, ty, is_async,
+                                )
+                                .ok()?,
+                            None => None,
+                        };
+                        let keep = match contextual {
+                            Some(ty) => self.is_literal_of_contextual_type(*slot, ty)?,
+                            None => false,
+                        };
+                        if !keep {
+                            *slot = self.get_widened_literal_type(*slot);
+                            *slot = self.get_widened_unique_es_symbol_type(*slot);
+                        }
+                        *slot = self.get_regular_type_of_literal_type(*slot);
+                    }
+                }
+            }
+            for slot in &mut slots {
+                *slot = self.get_widened_literal_type(*slot);
+            }
+            return Some(self.create_type_reference(generator, slots.to_vec()));
         }
         // An async **declaration** with no valued return answers
         // `Promise<void>` — `getReturnTypeFromBody`'s zero-aggregate arm
@@ -4326,9 +4375,30 @@ impl<'a> Checker<'a, '_> {
         {
             self.contextual_return_depth += 1;
             let keeps_literal = self
-                .contextual_signature(declaration)
-                .and_then(|signature| {
-                    self.contextual_return_widening_type(declaration, signature.r#type)
+                .contextual_signature_result_worker(declaration)
+                .and_then(|signature| match signature {
+                    crate::contextual::ContextualSignature::Absent => None,
+                    crate::contextual::ContextualSignature::Present(signature) => {
+                        // Native tests original signature identity, not equal
+                        // declarations of instantiated or composite signatures.
+                        let own = self
+                            .binder
+                            .symbol_of(declaration)
+                            .and_then(|symbol| self.symbol_types.get(&symbol))
+                            .copied();
+                        if signature.declaration == declaration
+                            && signature.target.is_none()
+                            && !signature.non_inferrable
+                            && let Some(own) = own
+                            && let Some(contextual) = self.get_contextual_type(declaration)
+                            && self.instantiate_contextual_inference_type(contextual, declaration)
+                                == own
+                        {
+                            Some(id)
+                        } else {
+                            self.contextual_return_widening_type(declaration, signature.r#type)
+                        }
+                    }
                 })
                 .map(|contextual| self.is_literal_of_contextual_type(id, contextual));
             self.contextual_return_depth -= 1;
@@ -7155,7 +7225,113 @@ impl<'a> Checker<'a, '_> {
             return error;
         }
         let Some(symbol) = self.binder.symbol_of(node) else { return error };
+        // Native publishes a returned function's object/signature before
+        // inference demands its return: a later S candidate can be this very
+        // function object. Prepare shape before even querying the context,
+        // whose call-resolution re-entry can demand this same declaration.
+        // Reuse declaration-owned Pending/Active completion under the existing
+        // unmapped key; no contextual absence, return or mapper is guessed.
+        let returned =
+            self.nodes.parent(node).is_some_and(|parent| match self.node_map.get(parent) {
+                Some(Node::ArrowFunction(function)) => {
+                    function.body.and_then(|body| Node::from(body).node_id()) == Some(node)
+                }
+                Some(Node::ReturnStatement(statement)) => {
+                    statement.expression.and_then(|expression| expression.node_id()) == Some(node)
+                }
+                _ => false,
+            });
+        let ordinary_argument = returned
+            && self.containing_function(node).is_some_and(|owner| {
+                matches!(
+                    self.node_map.get(owner),
+                    Some(Node::ArrowFunction(_) | Node::FunctionExpression(_))
+                ) && !self.is_context_sensitive_function_like(owner)
+                    && self.signature_parts_of(owner).is_some_and(|parts| {
+                        parts.type_parameters.is_empty()
+                            && parts.return_annotation.is_none()
+                            && !parts.asterisk
+                            && !crate::check::has_modifier(
+                                parts.modifiers,
+                                SyntaxKind::AsyncKeyword,
+                            )
+                    })
+                    && self.nodes.parent(owner).is_some_and(|parent| {
+                        matches!(self.node_map.get(parent), Some(Node::CallExpression(call))
+                        if call.arguments.iter().any(|argument| argument.node_id() == Some(owner)))
+                    })
+            });
+        let key = self.type_literal_key(node);
+        if returned
+            && ordinary_argument
+            && key.is_unmapped()
+            && !self.in_js_file(node)
+            && !self.is_context_sensitive_function_like(node)
+            && parts.type_parameters.is_empty()
+            && parts.return_annotation.is_none()
+            && !parts.asterisk
+            && !crate::check::has_modifier(parts.modifiers, SyntaxKind::AsyncKeyword)
+            && !self.symbol_types.contains_key(&symbol)
+            && !self.signature_returns.contains_key(&key)
+            && !self.pending_signature_returns.contains_key(&key)
+            && self.resolutions.active_signature_keys(node).next().is_none()
+        {
+            self.pending_signature_returns.insert(key, LazyReturnState::Pending);
+        }
         self.get_type_of_symbol(symbol)
+    }
+
+    /// A syntax-only request for a full candidate after inference. The
+    /// post-inference Pending check below owns admission. The block walk is
+    /// the existing return-owner traversal, never a nested function's body.
+    pub(crate) fn argument_returns_callable(&self, argument: tsr_ast::Expression<'_>) -> bool {
+        use tsr_ast::Expression;
+        if !matches!(argument, Expression::ArrowFunction(_) | Expression::FunctionExpression(_)) {
+            return false;
+        }
+        let Some(node) = argument.node_id() else { return false };
+        let Some(parts) = self.signature_parts_of(node) else { return false };
+        let callable = |expression| {
+            matches!(expression, Expression::ArrowFunction(_) | Expression::FunctionExpression(_))
+        };
+        match parts.body {
+            Some(Body::Expression(expression)) => callable(expression),
+            Some(Body::Block(block)) => {
+                self.return_expressions_of(block, node).into_iter().flatten().any(callable)
+            }
+            None => false,
+        }
+    }
+
+    /// A checked original argument returns an original callable whose return
+    /// is still Pending. Its call needs the full resolved signature before
+    /// that return's first demand; a return-only inference result is not its
+    /// contextual signature. Read only published shapes at the current key,
+    /// never active returns, alias instances or instantiated/composite images.
+    pub(crate) fn argument_has_pending_returned_callable(
+        &self,
+        argument: tsr_ast::Expression<'_>,
+    ) -> bool {
+        if !matches!(
+            argument,
+            tsr_ast::Expression::ArrowFunction(_) | tsr_ast::Expression::FunctionExpression(_)
+        ) {
+            return false;
+        }
+        let Some(node) = argument.node_id() else { return false };
+        let Some(&ty) = self.node_types.get(&node) else { return false };
+        let Some(signatures) = self.signature_types.get(&ty) else { return false };
+        let [outer] = signatures.as_slice() else { return false };
+        if outer.declaration != node || outer.target.is_some() || outer.non_inferrable {
+            return false;
+        }
+        let Some(returned) = self.signature_types.get(&outer.r#type) else { return false };
+        let [returned] = returned.as_slice() else { return false };
+        let key = self.type_literal_key(returned.declaration);
+        returned.target.is_none()
+            && !returned.non_inferrable
+            && key.is_unmapped()
+            && self.pending_signature_returns.get(&key) == Some(&LazyReturnState::Pending)
     }
 
     /// GROUNDED's question, asked of the type parameters native could still
@@ -8212,6 +8388,44 @@ impl<'a> Checker<'a, '_> {
             // VALUE's fresh signature, not the annotation's). Resolved
             // lazily from §87's recorded node.
             let parameter_type = self.parameter_type(parameter);
+            // getExpandedParameters (pinned 5b1047d) reads resolved tuple
+            // arguments, not their original syntax under a new mapper. The
+            // existing Checker-owned normalized elements retain those types,
+            // flags and labels even when no tuple syntax node survives.
+            if parameter.rest
+                && let Some((elements, _)) =
+                    self.variadic_tuple_elements.get(&parameter_type).cloned()
+                // A variadic-only tuple has no fixed slots to expand; leave
+                // its written annotation/source reuse to the normal serializer.
+                && let [prefix @ .., _] = elements.as_slice()
+                && !prefix.is_empty()
+                // signatureToSignatureDeclarationHelper keeps the original
+                // parameter when expansion puts a rest before another slot.
+                && prefix.iter().all(|element| !element.spread)
+            {
+                let names = self.expanded_rest_names(
+                    signature.declaration,
+                    &parameter.name,
+                    parameter_type,
+                    elements.len(),
+                );
+                let pieces: Vec<_> = elements
+                    .iter()
+                    .enumerate()
+                    .map(|(position, element)| {
+                        format!(
+                            "{}{}{}: {}",
+                            if element.spread { "..." } else { "" },
+                            names[position],
+                            if element.optional { "?" } else { "" },
+                            render(self, element.r#type)
+                        )
+                    })
+                    .collect();
+                out.push_str(&pieces.join(", "));
+                emitted_a_parameter = true;
+                continue;
+            }
             if parameter.rest
                 && let Some(&tuple_node) = self.tuple_rest_tails.get(&parameter_type)
                 && let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(tuple_node)
@@ -8357,6 +8571,7 @@ impl<'a> Checker<'a, '_> {
         count: usize,
     ) -> Vec<String> {
         let labels = self.tuple_labels.get(&rest_type);
+        let variadic = self.variadic_tuple_elements.get(&rest_type);
         let rest_declaration = self
             .signature_parts_of(declaration)
             .and_then(|parts| parts.parameters.last().copied())
@@ -8364,14 +8579,18 @@ impl<'a> Checker<'a, '_> {
         unique_associated_names(
             (0..count)
                 .map(|index| {
-                    labels.and_then(|labels| labels.get(index)).cloned().flatten().unwrap_or_else(
-                        || match rest_declaration {
-                            Some(parameter) => {
-                                tuple_element_label_from_binding_element(parameter, index)
-                            }
+                    let element = variadic.and_then(|(elements, _)| elements.get(index));
+                    element
+                        .and_then(|element| element.label.clone())
+                        .or_else(|| labels.and_then(|labels| labels.get(index)).cloned().flatten())
+                        .unwrap_or_else(|| match rest_declaration {
+                            Some(parameter) => tuple_element_label_from_binding_element(
+                                parameter,
+                                index,
+                                element.is_some_and(|element| element.spread),
+                            ),
                             None => format!("{rest_name}_{index}"),
-                        },
-                    )
+                        })
                 })
                 .collect(),
         )
@@ -8588,25 +8807,26 @@ fn unique_associated_names(mut names: Vec<String>) -> Vec<String> {
 /// a rest parameter: `getTupleElementLabelFromBindingElement`
 /// (`relater.go:1959`), entered with the parameter declaration.
 ///
-/// The tuples whose elements this port expands
-/// ([`crate::checker::Checker::tuple_element_lists`]) hold required and
-/// optional elements only, so every element's flags are
-/// `ElementFlagsFixed`: an identifier written with `...` labels
-/// `name_index`, one written without labels `name`, and the `_n` and
-/// variable arms have no element to answer.
+/// Fixed elements of an identifier written with `...` use `name_index`;
+/// variable elements preserve `name`. Without `...`, the fixed and variable
+/// names are `name` and `name_n`, respectively.
 fn tuple_element_label_from_binding_element(
     node: &ParameterDeclaration<'_>,
     index: usize,
+    variable: bool,
 ) -> String {
     fn from_element(
         dot_dot_dot: bool,
         name: Option<tsr_ast::BindingName<'_>>,
         index: usize,
+        variable: bool,
     ) -> String {
         match name {
             Some(tsr_ast::BindingName::Identifier(identifier)) => {
-                if dot_dot_dot {
+                if dot_dot_dot && !variable {
                     format!("{}_{index}", identifier.text)
+                } else if !dot_dot_dot && variable {
+                    format!("{}_n", identifier.text)
                 } else {
                     identifier.text.to_string()
                 }
@@ -8622,17 +8842,22 @@ fn tuple_element_label_from_binding_element(
                 let count = elements.len() - usize::from(last_is_rest);
                 if index < count {
                     let element = elements[index];
-                    return from_element(element.dot_dot_dot_token.is_some(), element.name, index);
+                    return from_element(
+                        element.dot_dot_dot_token.is_some(),
+                        element.name,
+                        index,
+                        variable,
+                    );
                 }
                 if last_is_rest && let Some(last) = elements.last() {
-                    return from_element(true, last.name, index - count);
+                    return from_element(true, last.name, index - count, variable);
                 }
                 format!("arg_{index}")
             }
             _ => format!("arg_{index}"),
         }
     }
-    from_element(node.dot_dot_dot_token.is_some(), node.name, index)
+    from_element(node.dot_dot_dot_token.is_some(), node.name, index, variable)
 }
 
 #[cfg(test)]

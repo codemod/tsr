@@ -2994,10 +2994,12 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The identity `getSymbolIfSameReference` (`checker.go`) compares:
-    /// `getMergedSymbol(resolveSymbol(getMergedSymbol(s)))`.
-    fn same_reference_identity(&mut self, symbol: SymbolId) -> SymbolId {
+    /// `getMergedSymbol(resolveSymbol(getMergedSymbol(s)))`. A mixed alias
+    /// retains its own namespace/type meaning; fully chasing its value target
+    /// would incorrectly equate a promoted export= namespace with its class.
+    pub(crate) fn same_reference_identity(&mut self, symbol: SymbolId) -> SymbolId {
         let merged = self.binder.merged_symbol(symbol);
-        let resolved = self.resolve_alias_fully(merged);
+        let resolved = self.resolve_symbol(merged);
         self.binder.merged_symbol(resolved)
     }
 

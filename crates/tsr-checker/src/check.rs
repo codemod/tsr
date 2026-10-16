@@ -156,6 +156,8 @@ impl Checker<'_, '_> {
         self.reset_unused_state();
         self.check_top_level_declare_modifiers(file, context.ambient);
         self.check_node(file, context.ambient, 0);
+        // Native checkSourceFile also checks CommonJS binary assignments.
+        self.check_external_module_exports(file);
         // `checkExternalModuleExports`' `getExportsOfModule` (`checker.go:5672`).
         self.check_export_star_conflicts(file);
         // `checkSourceFile` (`checker.go:2220`) runs the unused-identifier pass
@@ -1546,17 +1548,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS2309 — `An export assignment cannot be used in a module with other
-    /// exported elements.`
-    ///
-    /// `checkExportsOnMergedDeclarations`' export-equals arm
-    /// (`checker.go:5703`), **branch (a) only**: the module exports a *value*
-    /// member besides the `export =`. Branch (b), `hasShadowedNamespace`, needs
-    /// the exported entity's own members and is the type-side read §424 named
-    /// as this toolkit's boundary.
-    ///
-    /// `isTopLevelInExternalModuleAugmentation` is the one exempt shape —
-    /// `declare module "x" { export = Y }`. §432.
     /// `isContainedByNamespace` (`checker.go:5575`): the container is the
     /// parent, or the parent's parent when the parent is not a source file —
     /// **one or two hops, not an ancestor walk** — and it must be a
@@ -1679,37 +1670,65 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(parent) = self.nodes.parent(node) else { return };
-        let Some(Node::SourceFile(source)) = self.node_map.get(parent) else { return };
         // TS1203 / TS1218: `checkExportAssignment`'s module-format tail
         // (`checker.go:5669`), which reads the file's implied format for emit.
-        // §478, §783; `docs/parity/notes/r5-modfmt.md` §2.
-        if self.check_export_equals_module_format(node, parent, ambient) {
+        // This does not suppress independent checkExternalModuleExports errors.
+        if self.nodes.kind(parent) == SyntaxKind::SourceFile {
+            self.check_export_equals_module_format(node, parent, ambient);
+            // The file's completed walk owns its single export-table check.
             return;
         }
-        let exports_a_value = source.statements.iter().any(|statement| {
-            let Some(id) = statement.node_id() else { return false };
-            if id == node {
-                return false;
-            }
-            let Some(typed) = self.node_map.get(id) else { return false };
-            let exported = modifiers_of(typed)
-                .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::ExportKeyword));
-            match typed {
-                Node::ClassDeclaration(_)
-                | Node::FunctionDeclaration(_)
-                | Node::VariableStatement(_)
-                | Node::EnumDeclaration(_) => exported,
-                // `export { a }` names whatever it lists; a clause-less
-                // `export *` re-exports and is not an own member.
-                Node::ExportDeclaration(declaration) => declaration.export_clause.is_some(),
-                _ => false,
-            }
-        });
-        if !exports_a_value {
+        let container = if self.nodes.kind(parent) == SyntaxKind::ModuleBlock {
+            let Some(module) = self.nodes.parent(parent) else { return };
+            module
+        } else {
+            parent
+        };
+        self.check_external_module_exports(container);
+    }
+
+    /// The export= conflict arm of pinned checkExternalModuleExports.
+    fn check_external_module_exports(&mut self, container: NodeId) {
+        let Some(module) = self.binder.symbol_of(container) else { return };
+        let module = self.binder.merged_symbol(module);
+        let Some(&export_equals) = self.binder.symbols().get(module).exports.get("export=") else {
+            return;
+        };
+        // Pinned 5b1047d checkExternalModuleExports / hasShadowedNamespace:
+        // inspect this Program's canonical export symbols, not declaration
+        // spelling. Resolve aliases through the existing Checker-owned worker;
+        // no member image or provisional/completed cache is added. One declared
+        // export-table scan at source-file completion or an ambient export=,
+        // plus the target table only for a namespace/alias merge
+        // (tsr-2zk.1270.7), not a performance claim.
+        let exports_a_value = self.has_exported_members_of_kind(module, SymbolFlags::VALUE);
+        let flags = self.binder.symbols().get(export_equals).flags;
+        let shadows_namespace = !exports_a_value
+            && flags.contains(SymbolFlags::NAMESPACE_MODULE | SymbolFlags::ALIAS)
+            && self.resolve_alias(export_equals).is_some_and(|target| {
+                let target = self.binder.merged_symbol(target);
+                self.binder.symbols().get(target).flags.intersects(SymbolFlags::NAMESPACE)
+                    && self.has_exported_members_of_kind(
+                        target,
+                        SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+                    )
+            });
+        if !exports_a_value && !shadows_namespace {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let Some(declaration) = self.declaration_of_alias_symbol(export_equals).or(self
+            .binder
+            .symbols()
+            .get(export_equals)
+            .value_declaration)
+        else {
+            return;
+        };
+        if self.is_top_level_in_external_module_augmentation(declaration) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let span = self.nodes.span(declaration);
         self.report(
             file,
             Diagnostic::new(
@@ -1717,6 +1736,25 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// Native hasExportedMembersOfKind reads own exports, resolving aliases for
+    /// their meaning; export= itself is not a competing export.
+    fn has_exported_members_of_kind(
+        &mut self,
+        module: tsr_binder::SymbolId,
+        kind: SymbolFlags,
+    ) -> bool {
+        let exports: Vec<_> = self
+            .binder
+            .symbols()
+            .get(module)
+            .exports
+            .iter()
+            .filter(|(name, _)| **name != "export=")
+            .map(|(_, &symbol)| symbol)
+            .collect();
+        exports.into_iter().any(|symbol| self.get_symbol_flags(symbol).intersects(kind))
     }
 
     /// TS2507 — `Type '{0}' is not a constructor function type.`

@@ -44,3 +44,85 @@ const callbackNoContext=[0].map((value:any)=>({severity:1,message:"m"}));
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// Native 5b1047d1 infers the returned function object before demanding its
+/// return. Its eventual contextual signature is its own original signature;
+/// a written broad return or no context must still widen.
+#[test]
+fn returned_callables_keep_literals_only_in_their_resolved_context() {
+    let source = r"// @strict: true
+// @target: es2015
+declare function useState<S>(initial: (() => S) | (S extends (() => any) ? never : S)): S;
+declare function ordinary<T>(initial: () => T): T;
+export const numeric = useState(() => () => 0);
+export const boolean = ordinary(() => () => false);
+export const block = useState(() => () => { return 0; });
+export const outerBlock = ordinary(() => { return () => 0; });
+export const outerFunction = ordinary(function () { return () => 0; });
+export const innerFunction = ordinary(() => function () { return 0; });
+export const broad = ordinary<() => number>(() => () => 0);
+export const unknown = ordinary<() => unknown>(() => () => 0);
+export const any = ordinary<() => any>(() => () => false);
+export const standalone = () => 0;
+export const freeNested = () => () => 0;
+export const conditional = (flag: boolean) => flag ? 0 : 1;
+export const wrongLiteral: () => 1 = useState(() => () => 0);
+export const wrongPrimitive: () => string = ordinary(() => () => false);
+export const wrongParameter: (value: string) => number = ordinary(() => (value: number) => 0);
+declare function accept(factory: () => () => string): void;
+declare function accept(factory: () => () => number): void;
+accept(() => () => true);
+";
+    let case = TestCase::parse("probe/returned-callable-literals", "returned-callables.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<_> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in [
+        "numeric : () => 0",
+        "boolean : () => false",
+        "block : () => 0",
+        "outerBlock : () => 0",
+        "outerFunction : () => 0",
+        "innerFunction : () => 0",
+        "broad : () => number",
+        "unknown : () => unknown",
+        "any : () => any",
+        "standalone : () => number",
+        "freeNested : () => () => number",
+        "conditional : (flag: boolean) => 0 | 1",
+    ] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+    let diagnostics: Vec<_> = tsr_conformance::diagnostics_suite::reported_for(&case)
+        .into_iter()
+        .map(|diagnostic| diagnostic.code)
+        .collect();
+    assert_eq!(diagnostics, [2322, 2322, 2322, 2769]);
+}
+
+#[test]
+fn returned_callable_completion_reports_genuine_return_cycles_without_printing() {
+    let source = r"// @strict: true
+declare function ordinary<T>(initial: () => T): T;
+export function recursiveNumber(flag: boolean) { return flag ? 0 : recursiveNumber(false); }
+export function recursiveReturned() { return ordinary(() => () => recursiveReturned()()); }
+";
+    let case =
+        TestCase::parse("probe/returned-callable-cycles", "returned-callable-cycles.ts", source);
+    let diagnostics = tsr_conformance::diagnostics_suite::reported_for(&case);
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.line == 2 && diagnostic.code == 7023));
+    let anonymous_cycles: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == 7024)
+        .map(|diagnostic| (diagnostic.line, diagnostic.column))
+        .collect();
+    // Native reports only the inner returned callback, not its outer factory.
+    assert_eq!(anonymous_cycles, [(3, 61)]);
+}

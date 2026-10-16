@@ -106,3 +106,46 @@ fn source_file_and_ambient_module_exports_remain_legal() {
         assert_eq!(diagnostics(source, false), [], "{source}");
     }
 }
+
+#[test]
+fn export_assignment_conflicts_follow_resolved_value_and_namespace_exports() {
+    // Pinned native 5b1047d: type-only and empty exports can coexist with
+    // export=, unless the assigned namespace also exports types/namespaces.
+    // Exported aliases and genuine ambient modules still reject mixed values.
+    for (source, conflict) in [
+        ("export const value = 1; export = value;", true),
+        (
+            "declare module \"m\" { export const other: number; const value: number; export = value; }",
+            true,
+        ),
+        ("namespace N { export const value = 1; } export import Alias = N; export = N;", true),
+        (
+            "export type Other = { x: string }; namespace Value { export interface Member { y: number } } export = Value;",
+            true,
+        ),
+        ("type Other = { x: string }; class Value {} export = Value; export { Other };", false),
+        ("declare const value: number; export {}; export = value;", false),
+        (
+            "export type Other = { x: string }; namespace Value { export const member = 1; } export = Value;",
+            false,
+        ),
+    ] {
+        let reported = diagnostics(source, false);
+        if conflict {
+            let start = source.find("export =").unwrap();
+            let end = start + source[start..].find(';').unwrap() + 1;
+            assert_eq!(
+                reported,
+                [(
+                    "TS2309".to_owned(),
+                    Span::new(u32::try_from(start).unwrap(), u32::try_from(end).unwrap()),
+                    "An export assignment cannot be used in a module with other exported elements."
+                        .to_owned(),
+                )],
+                "{source}",
+            );
+        } else {
+            assert_eq!(reported, [], "{source}");
+        }
+    }
+}

@@ -869,7 +869,7 @@ impl<'a> Checker<'a, '_> {
     /// a property's function expression) has its return type on the
     /// resolution stack. No upstream counterpart: upstream resolves those
     /// return types lazily, after `checkObjectLiteral` has cached the literal.
-    fn object_literal_member_return_is_resolving(&mut self, literal: NodeId) -> bool {
+    pub(crate) fn object_literal_member_return_is_resolving(&mut self, literal: NodeId) -> bool {
         use tsr_ast::{Expression, Node, ObjectLiteralElementLike};
         let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
             return false;
@@ -997,7 +997,7 @@ impl<'a> Checker<'a, '_> {
             .flatten()
     }
 
-    fn contextual_signature_result_worker(
+    pub(crate) fn contextual_signature_result_worker(
         &mut self,
         function: NodeId,
     ) -> Option<ContextualSignature> {
@@ -1120,6 +1120,20 @@ impl<'a> Checker<'a, '_> {
                 if self.binder.symbols().get(owner).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS))
         {
             return None;
+        }
+        // getContextualSignature can return the declaration's own original
+        // signature before its return completes. Do not demand that return
+        // merely to read its shape (5b1047d1, checker.go:20209).
+        if let Some(function) = function
+            && self.binder.symbol_of(function).and_then(|symbol| self.symbol_types.get(&symbol))
+                == Some(&contextual)
+            && let Some(signatures) = self.signature_types.get(&contextual)
+            && let [signature] = signatures.as_slice()
+            && signature.declaration == function
+            && signature.target.is_none()
+            && !signature.non_inferrable
+        {
+            return Some(ContextualSignature::Present(Box::new(signature.clone())));
         }
         let parameters = match function.and_then(|function| self.node_map.get(function)) {
             Some(Node::ArrowFunction(f)) => f.parameters,

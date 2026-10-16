@@ -1085,7 +1085,7 @@ impl Checker<'_, '_> {
         } else {
             receiver
         };
-        if let Some(apparent) = self.function_declaration_lacks(apparent, name) {
+        if let Some(apparent) = self.function_declaration_lacks(Some(access), apparent, name) {
             return apparent.then_some(receiver);
         }
         if apparent == self.intrinsics.empty_object {
@@ -1285,7 +1285,7 @@ impl Checker<'_, '_> {
                 }
                 let lacks = if apparent == self.intrinsics.empty_object {
                     self.get_property_of_type(apparent, name).is_none()
-                } else if let Some(lacks) = self.function_declaration_lacks(apparent, name) {
+                } else if let Some(lacks) = self.function_declaration_lacks(None, apparent, name) {
                     lacks
                 } else {
                     self.apparent_type_lacks(apparent, name)?
@@ -1434,6 +1434,25 @@ impl Checker<'_, '_> {
             return self.no_index_signature_admits(apparent, name);
         }
         let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        // Native getPropertyOfType reads the literal's own member names before
+        // resolving getter returns. A literal-self receiver keeps that binder
+        // owner in literal_this_types, but has no completed value image yet.
+        // Certify only this exact owner/TypeId via the existing written-name
+        // table (which declines spreads, JS and unsupported computed keys).
+        // This publishes no image and does not force accessor return types;
+        // aliases and flow still pass the receiver provenance guards above.
+        if let [literal] = declarations.as_slice()
+            && self.literal_this_types.get(literal) == Some(&apparent)
+        {
+            if self.object_image_road_is_uncertified(apparent) {
+                return None;
+            }
+            let properties = self.declared_property_table(apparent)?;
+            if properties.iter().any(|(property, _)| property == name) {
+                return None;
+            }
+            return self.no_index_signature_admits(apparent, name);
+        }
         let mut interfaces = 0usize;
         let mut extends = false;
         for declaration in declarations {
@@ -1759,6 +1778,55 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// The completed value of a synthetic `CommonJS` `exports` receiver, not
+    /// merely an identifier with that spelling. Pinned 5b1047d's
+    /// getTypeOfVariableOrParameterOrPropertyWorker resolves this symbol to
+    /// the source-file export value. Its existing symbol cache publishes that
+    /// identity; the file's named exports are not members of that value.
+    /// Read only that completion (also for the synthetic module.exports
+    /// property), without forcing/reconstructing a receiver or member image.
+    fn commonjs_export_receiver_is_complete(&self, access: NodeId, receiver: TypeId) -> bool {
+        let expression = match self.node_map.get(access) {
+            Some(Node::PropertyAccessExpression(access)) => access.expression,
+            _ => None,
+        };
+        let (identifier, module_property) = match expression {
+            Some(tsr_ast::Expression::Identifier(identifier)) => (identifier, false),
+            Some(tsr_ast::Expression::PropertyAccessExpression(access)) if matches!(access.name, Some(tsr_ast::MemberName::Identifier(name)) if name.text == "exports") =>
+            {
+                let Some(tsr_ast::Expression::Identifier(identifier)) = access.expression else {
+                    return false;
+                };
+                (identifier, true)
+            }
+            _ => return false,
+        };
+        let Some(symbol) = identifier.node_id.and_then(|id| {
+            self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                id,
+                identifier.text,
+                SymbolFlags::VALUE,
+            )
+        }) else {
+            return false;
+        };
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.contains(SymbolFlags::MODULE_EXPORTS) {
+            return false;
+        }
+        let symbol = if module_property {
+            let Some(&exports) = entry.members.get("exports") else { return false };
+            exports
+        } else {
+            symbol
+        };
+        self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS)
+            && !self.resolutions.on_stack(symbol, crate::resolution::PropertyName::Type)
+            && self.symbol_types.get(&symbol) == Some(&receiver)
+    }
+
     /// `getPropertyOfTypeEx` (checker.go:18899) on a function declaration's,
     /// function expression's or arrow function's type:
     /// `resolveAnonymousTypeMembers` gives it the symbol's exports,
@@ -1767,7 +1835,12 @@ impl Checker<'_, '_> {
     /// receiver or an uncertified table. A function with exports (a merged
     /// namespace, an expando assignment) declines: those members are
     /// assembled from declarations this walk does not read.
-    fn function_declaration_lacks(&mut self, receiver: TypeId, name: &str) -> Option<bool> {
+    fn function_declaration_lacks(
+        &mut self,
+        access: Option<NodeId>,
+        receiver: TypeId,
+        name: &str,
+    ) -> Option<bool> {
         let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(receiver).data else {
             return None;
         };
@@ -1782,8 +1855,15 @@ impl Checker<'_, '_> {
                     SyntaxKind::FunctionDeclaration
                         | SyntaxKind::FunctionExpression
                         | SyntaxKind::ArrowFunction
-                ) && !self.in_js_file(declaration)
+                )
             })
+            // A resolved CommonJS value has the function's own table even in
+            // JS. Keep ordinary JS/expando inference outside this certificate,
+            // and keep the exports-empty and global fallback checks intact.
+            || (entry.declarations.iter().any(|&declaration| self.in_js_file(declaration))
+                && !access.is_some_and(|access| {
+                    self.commonjs_export_receiver_is_complete(access, receiver)
+                }))
         {
             return None;
         }
